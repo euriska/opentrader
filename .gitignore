@@ -1,0 +1,42 @@
+# ── Secrets — never commit these ─────────────────────────────────────────────
+.env
+*.env
+!.env.sample
+secrets/
+
+# ── Runtime / generated ──────────────────────────────────────────────────────
+config/strategies.json
+config/session_*.json
+config/scheduler_jobs.json
+config/strategy_versions/
+config/accounts.toml
+!config/accounts.toml.sample
+
+# ── Container / build artefacts ──────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# ── Logs & data ──────────────────────────────────────────────────────────────
+logs/
+*.log
+
+# ── Python tooling ───────────────────────────────────────────────────────────
+.venv/
+venv/
+.uv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# ── Editor / tooling ─────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+.claude/

@@ -1,0 +1,141 @@
+# =============================================================================
+# OpenTrader — Account Registry
+# Each account has: id, broker, mode, label, enabled, strategy_tags
+# strategy_tags controls which strategies can trade this account
+# =============================================================================
+
+# ── Tradier accounts ──────────────────────────────────────────────────────────
+
+[[accounts]]
+id             = "${TRADIER_SANDBOX_ACCOUNT_NUMBER}"
+broker         = "tradier"
+mode           = "sandbox"
+label          = "tradier-sandbox"
+enabled        = true
+strategy_tags  = ["equity", "etf", "options"]   # all strategies allowed in sandbox
+max_position_usd = 10000
+notes          = "Tradier paper trading — full API mirror of live"
+
+[[accounts]]
+id             = "${TRADIER_PROD_ACCOUNT_1}"
+broker         = "tradier"
+mode           = "live"
+label          = "tradier-prod-1"
+enabled        = true
+strategy_tags  = ["equity", "etf"]
+max_position_usd = 1000
+notes          = "Production account 1"
+
+[[accounts]]
+id             = "${TRADIER_PROD_ACCOUNT_2}"
+broker         = "tradier"
+mode           = "live"
+label          = "tradier-prod-2"
+enabled        = true
+strategy_tags  = ["equity", "etf"]
+max_position_usd = 2000
+notes          = "Production account 2"
+
+[[accounts]]
+id             = "${TRADIER_PROD_ACCOUNT_3}"
+broker         = "tradier"
+mode           = "live"
+label          = "tradier-prod-3"
+enabled        = true
+strategy_tags  = ["equity"]
+max_position_usd = 1000
+notes          = "Production account 3 (IRA)"
+
+[[accounts]]
+id             = "${TRADIER_PROD_ACCOUNT_4}"
+broker         = "tradier"
+mode           = "live"
+label          = "tradier-prod-4"
+enabled        = true
+strategy_tags  = ["equity"]
+max_position_usd = 1000
+notes          = "Production account 4 (IRA)"
+
+# ── Webull accounts ───────────────────────────────────────────────────────────
+
+[[accounts]]
+id             = "${WEBULL_PAPER_ACCOUNT_ID}"
+broker         = "webull"
+mode           = "paper"
+label          = "webull-paper"
+enabled        = true
+strategy_tags  = ["equity", "etf", "options"]
+max_position_usd = 5000
+notes          = "Webull paper trading"
+
+[[accounts]]
+id             = "${WEBULL_LIVE_ACCOUNT_1}"
+broker         = "webull"
+mode           = "live"
+label          = "webull-live-1"
+enabled        = true
+strategy_tags  = ["equity", "etf"]
+max_position_usd = 1000
+notes          = "Webull live account 1"
+
+[[accounts]]
+id             = "${WEBULL_LIVE_ACCOUNT_2}"
+broker         = "webull"
+mode           = "live"
+label          = "webull-live-2"
+enabled        = true
+strategy_tags  = ["equity", "etf"]
+max_position_usd = 1000
+notes          = "Webull live account 2"
+
+[[accounts]]
+id             = "${WEBULL_LIVE_ACCOUNT_3}"
+broker         = "webull"
+mode           = "live"
+label          = "webull-live-3"
+enabled        = true
+strategy_tags  = ["equity", "etf"]
+max_position_usd = 1000
+notes          = "Webull live account 3"
+
+[[accounts]]
+id             = "${WEBULL_LIVE_ACCOUNT_4}"
+broker         = "webull"
+mode           = "live"
+label          = "webull-live-4"
+enabled        = true
+strategy_tags  = ["equity", "etf"]
+max_position_usd = 1000
+notes          = "Webull live account 4"
+
+[[accounts]]
+id             = "${WEBULL_LIVE_ACCOUNT_5}"
+broker         = "webull"
+mode           = "live"
+label          = "webull-live-5"
+enabled        = true
+strategy_tags  = ["equity", "etf"]
+max_position_usd = 1000
+notes          = "Webull live account 5"
+
+# ── Alpaca accounts ───────────────────────────────────────────────────────────
+
+[[accounts]]
+id             = "${ALPACA_PAPER_ACCOUNT_ID}"
+broker         = "alpaca"
+mode           = "paper"
+label          = "alpaca-paper"
+enabled        = true
+strategy_tags  = ["equity", "etf", "options"]
+max_position_usd = 10000
+notes          = "Alpaca paper trading — uses ALPACA_API_KEY_ID + ALPACA_API_SECRET_KEY"
+
+[[accounts]]
+id             = "${ALPACA_LIVE_ACCOUNT_ID}"
+broker         = "alpaca"
+mode           = "live"
+label          = "alpaca-live"
+enabled        = true
+strategy_tags  = ["equity", "etf"]
+max_position_usd = 1000
+notes          = "Alpaca live account"

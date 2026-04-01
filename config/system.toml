@@ -1,0 +1,82 @@
+[system]
+name      = "OpenTrader"
+timezone  = "America/New_York"
+log_level = "info"
+heartbeat_interval_sec = 30
+heartbeat_ttl_sec      = 90
+
+# ── LLM connector (OpenRouter) ───────────────────────────────────────────────
+[llm]
+provider    = "openrouter"
+base_url    = "https://openrouter.ai/api/v1"
+http_referer = "https://opentrader.local"
+app_name    = "OpenTrader"
+
+# Model assignments per agent
+# All models available at: https://openrouter.ai/models
+[llm.models]
+predictor    = "anthropic/claude-sonnet-4-5"
+review       = "anthropic/claude-opus-4-5"
+eod          = "anthropic/claude-sonnet-4-5"
+orchestrator = "anthropic/claude-haiku-4-5"
+fallback     = "openai/gpt-4o"
+
+# Routing rules — switch models based on conditions
+[llm.routing]
+# Use cheaper model during paper/sandbox trading
+paper_mode_model    = "anthropic/claude-haiku-4-5"
+# Use most capable model for review analysis
+high_stakes_model   = "anthropic/claude-opus-4-5"
+# Max tokens per agent call
+max_tokens_predictor    = 1000
+max_tokens_review       = 4000
+max_tokens_eod          = 2000
+max_tokens_orchestrator = 500
+
+# ── AgentMail ────────────────────────────────────────────────────────────────
+[agentmail]
+base_url = "https://api.agentmail.to/v1"
+
+# Each agent gets its own inbox identity
+[agentmail.inboxes]
+orchestrator = "orchestrator"
+review       = "review-agent"
+eod          = "eod-reports"
+alerts       = "alerts"
+
+# Notification routing
+[agentmail.routing]
+# Which channels get which message types
+trade_fill    = ["telegram", "discord_trades"]
+eod_report    = ["agentmail_eod", "discord_eod", "telegram"]
+review_output = ["agentmail_review", "discord_eod", "telegram"]
+system_alert  = ["telegram", "discord_alerts", "agentmail_alerts"]
+circuit_break = ["telegram", "discord_alerts", "agentmail_alerts"]
+
+# ── Scheduler ────────────────────────────────────────────────────────────────
+[scheduler]
+market_open         = "09:30"
+market_close        = "16:00"
+eod_report          = "16:05"
+scrape_interval_min = 3
+pre_market_scrape   = "09:00"
+heartbeat_check_sec = 30
+
+# ── Review agent ─────────────────────────────────────────────────────────────
+[review]
+trade_threshold    = 50
+auto_apply_params  = false
+notify_channels    = ["agentmail", "telegram", "discord"]
+
+# ── Risk ─────────────────────────────────────────────────────────────────────
+[risk]
+max_position_usd    = 1000
+max_daily_loss_usd  = 500
+circuit_breaker_pct = 5.0
+halt_on_circuit     = true
+
+# ── Self-healing ─────────────────────────────────────────────────────────────
+[self_healing]
+max_restart_attempts    = 3
+restart_backoff_sec     = 10
+escalate_after_attempts = 3

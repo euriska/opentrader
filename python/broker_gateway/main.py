@@ -1,0 +1,185 @@
+"""
+Broker Gateway Agent
+The single broker communication hub for the entire platform.
+
+Listens on: broker.commands  (Redis stream)
+Publishes to: broker.fills   (Redis stream)
+Reply channel: broker:reply:{request_id}  (Redis list, blpop pattern)
+
+Command protocol — all fields are string-encoded for Redis compatibility.
+See broker_gateway/router.py for the full field reference.
+"""
+import asyncio
+import json
+import logging
+import os
+
+import structlog
+
+from shared.base_agent   import BaseAgent
+from shared.redis_client import STREAMS, GROUPS, get_redis
+from .registry           import BrokerRegistry
+from .router             import BrokerRouter
+
+log = structlog.get_logger("broker-gateway")
+
+CONSUMER_NAME  = os.getenv("HOSTNAME", "broker-gateway-0")
+REPLY_TTL      = int(os.getenv("BROKER_REPLY_TTL_SEC", "60"))
+
+
+class BrokerGatewayAgent(BaseAgent):
+    """
+    Consumes broker.commands, routes to the correct broker connector,
+    and writes results to both broker.fills and the reply key.
+    """
+
+    def __init__(self):
+        super().__init__("broker-gateway")
+        self.registry = BrokerRegistry()
+        self.router   = BrokerRouter(self.registry)
+
+    async def start(self):
+        await self.setup()
+        await self._ensure_consumer_group()
+
+        log.info(
+            "broker-gateway.started",
+            accounts=list(self.registry.summary().keys()),
+        )
+
+        await asyncio.gather(
+            self.heartbeat_loop(),
+            self._command_loop(),
+        )
+
+    async def _ensure_consumer_group(self):
+        stream = STREAMS["broker_commands"]
+        group  = GROUPS["broker_gateway"]
+        try:
+            await self.redis.xgroup_create(stream, group, id="$", mkstream=True)
+        except Exception as e:
+            if "BUSYGROUP" not in str(e):
+                log.warning("broker-gateway.group_create", error=str(e))
+
+    async def _command_loop(self):
+        stream = STREAMS["broker_commands"]
+        group  = GROUPS["broker_gateway"]
+        log.info("broker-gateway.command_loop_start")
+
+        while self._running:
+            try:
+                messages = await self.redis.xreadgroup(
+                    groupname    = group,
+                    consumername = CONSUMER_NAME,
+                    streams      = {stream: ">"},
+                    count        = 10,
+                    block        = 5000,
+                )
+                if not messages:
+                    continue
+
+                for _stream, entries in messages:
+                    for msg_id, data in entries:
+                        await self._handle_command(msg_id, data)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                err = str(e)
+                log.error("broker-gateway.command_loop_error", error=err)
+                if "NOGROUP" in err:
+                    await self._ensure_consumer_group()
+                # Redis loading its dataset after restart — wait longer
+                wait = 10 if "loading" in err.lower() else 3
+                await asyncio.sleep(wait)
+                try:
+                    await self.redis.ping()
+                except Exception:
+                    try:
+                        await self.redis.aclose()
+                    except Exception:
+                        pass
+                    self.redis = await get_redis()
+
+    async def _handle_command(self, msg_id: str, cmd: dict):
+        command    = cmd.get("command", "unknown")
+        request_id = cmd.get("request_id", "")
+        issued_by  = cmd.get("issued_by", "unknown")
+
+        log.info(
+            "broker-gateway.command",
+            command=command,
+            request_id=request_id,
+            issued_by=issued_by,
+            account_label=cmd.get("account_label", ""),
+        )
+
+        try:
+            results = await self.router.route(cmd)
+        except Exception as e:
+            log.error("broker-gateway.route_error", command=command, error=str(e))
+            results = [{
+                "request_id":    request_id,
+                "command":       command,
+                "account_label": "",
+                "broker":        "",
+                "mode":          "",
+                "status":        "error",
+                "data":          {},
+                "error":         str(e),
+            }]
+
+        # Publish each result to the fills stream
+        fills_stream = STREAMS["broker_fills"]
+        for r in results:
+            await self.redis.xadd(
+                fills_stream,
+                {
+                    "request_id":    r["request_id"],
+                    "command":       r["command"],
+                    "account_label": r["account_label"],
+                    "broker":        r["broker"],
+                    "mode":          r["mode"],
+                    "status":        r["status"],
+                    "data":          json.dumps(r["data"]),
+                    "error":         r["error"],
+                    "issued_by":     issued_by,
+                },
+                maxlen=50_000,
+            )
+
+        # Also write first result to reply key so callers can blpop
+        if request_id:
+            reply_key = f"broker:reply:{request_id}"
+            reply_payload = json.dumps(results[0] if len(results) == 1 else results)
+            await self.redis.lpush(reply_key, reply_payload)
+            await self.redis.expire(reply_key, REPLY_TTL)
+
+        # Acknowledge message
+        await self.redis.xack(STREAMS["broker_commands"], GROUPS["broker_gateway"], msg_id)
+
+        log.info(
+            "broker-gateway.command_done",
+            command=command,
+            request_id=request_id,
+            results=len(results),
+            statuses=[r["status"] for r in results],
+        )
+
+    async def shutdown(self):
+        self._running = False
+        if self.redis:
+            await self.redis.aclose()
+
+
+async def main():
+    logging.basicConfig(level=logging.INFO)
+    agent = BrokerGatewayAgent()
+    try:
+        await agent.start()
+    finally:
+        await agent.shutdown()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

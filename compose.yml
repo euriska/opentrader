@@ -1,0 +1,477 @@
+name: opentrader
+
+networks:
+  trading-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.89.0.0/24
+
+volumes:
+  redis-data:
+  timescale-data:
+  vault-data:
+  prometheus-data:
+  grafana-data:
+
+services:
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
+  redis:
+    image: docker.io/redis:7-alpine
+    container_name: ot-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      trading-net:
+        ipv4_address: 10.89.0.10
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  timescaledb:
+    image: docker.io/timescale/timescaledb:latest-pg16
+    container_name: ot-timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: trading
+      POSTGRES_USER: trading
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-trading_secret}
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      - ./config/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks: [trading-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  vault:
+    image: docker.io/hashicorp/vault:1.15
+    container_name: ot-vault
+    restart: unless-stopped
+    cap_add: [IPC_LOCK]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_TOKEN:-vault_dev_token}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    volumes:
+      - vault-data:/vault/data
+    networks: [trading-net]
+
+  prometheus:
+    image: docker.io/prom/prometheus:latest
+    container_name: ot-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [trading-net]
+
+  grafana:
+    image: docker.io/grafana/grafana:latest
+    container_name: ot-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks: [trading-net]
+    depends_on: [prometheus]
+
+  # ── Python agents ───────────────────────────────────────────────────────────
+
+  orchestrator:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ot-orchestrator
+    restart: unless-stopped
+    command: python -m orchestrator.main
+    environment:
+      REDIS_URL: redis://ot-redis:6379
+      DB_URL: postgresql://trading:${DB_PASSWORD:-trading_secret}@ot-timescaledb/trading
+      SERVICE_NAME: orchestrator
+      HEARTBEAT_INTERVAL_SEC: "30"
+      HEARTBEAT_TTL_SEC: "90"
+    env_file: [.env]
+    volumes:
+      - ./logs/python:/app/logs
+      - ./config:/app/config:ro
+      - ./secrets:/app/secrets:ro
+    networks: [trading-net]
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+
+  scheduler:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ot-scheduler
+    restart: unless-stopped
+    command: python -m scheduler.main
+    environment:
+      REDIS_URL: redis://ot-redis:6379
+      SERVICE_NAME: scheduler
+      SCRAPE_INTERVAL_MINUTES: "3"
+      TIMEZONE: America/New_York
+    env_file: [.env]
+    volumes:
+      - ./logs/python:/app/logs
+      - ./config:/app/config:ro
+    networks: [trading-net]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  predictor:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ot-predictor
+    restart: unless-stopped
+    command: python -m predictor.main
+    environment:
+      REDIS_URL: redis://ot-redis:6379
+      DB_URL: postgresql://trading:${DB_PASSWORD:-trading_secret}@ot-timescaledb/trading
+      SERVICE_NAME: predictor
+    env_file: [.env]
+    volumes:
+      - ./logs/python:/app/logs
+      - ./config:/app/config:ro
+      - ./secrets:/app/secrets:ro
+    networks: [trading-net]
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+
+  trader-equity:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ot-trader-equity
+    restart: unless-stopped
+    command: python -m traders.equity_trader
+    environment:
+      REDIS_URL: redis://ot-redis:6379
+      SERVICE_NAME: trader-equity
+      ASSET_CLASS: equity
+      TRADE_MODE: sandbox
+      MAX_POSITION_USD: "500"
+      MIN_CONFIDENCE_TRADE: "0.70"
+      SANDBOX_IGNORE_HOURS: "true"
+      BROKER_GATEWAY_TIMEOUT_SEC: "15"
+      TRADINGVIEW_MCP_URL: http://ot-mcp-tradingview:8000/mcp
+    env_file: [.env]
+    volumes:
+      - ./logs/python:/app/logs
+      - ./config:/app/config:ro
+      - ./secrets:/app/secrets:ro
+    networks: [trading-net]
+    depends_on:
+      redis:
+        condition: service_healthy
+      broker-gateway:
+        condition: service_started
+      mcp-tradingview:
+        condition: service_started
+
+  trader-options:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ot-trader-options
+    restart: unless-stopped
+    command: python -m traders.options_trader
+    environment:
+      REDIS_URL: redis://ot-redis:6379
+      SERVICE_NAME: trader-options
+      ASSET_CLASS: options
+      TRADE_MODE: sandbox
+      MAX_CONTRACTS: "1"
+      MIN_CONFIDENCE_TRADE: "0.75"
+      SANDBOX_IGNORE_HOURS: "true"
+      OPTIONS_EXPIRY_DAYS: "7"
+      OPTIONS_OTM_PCT: "2.0"
+      BROKER_GATEWAY_TIMEOUT_SEC: "15"
+      TRADINGVIEW_MCP_URL: http://ot-mcp-tradingview:8000/mcp
+    env_file: [.env]
+    volumes:
+      - ./logs/python:/app/logs
+      - ./config:/app/config:ro
+      - ./secrets:/app/secrets:ro
+    networks: [trading-net]
+    depends_on:
+      redis:
+        condition: service_healthy
+      broker-gateway:
+        condition: service_started
+      mcp-tradingview:
+        condition: service_started
+
+  scraper-ovtlyr:
+    build:
+      context: ./python
+      dockerfile: Dockerfile.scraper
+    container_name: ot-scraper-ovtlyr
+    restart: unless-stopped
+    command: python -m scrapers.ovtlyr.main
+    environment:
+      REDIS_URL: redis://ot-redis:6379
+      SERVICE_NAME: scraper-ovtlyr
+      MAX_OVTLYR_TICKERS: "30"
+    env_file: [.env]
+    volumes:
+      - ./logs/scraper:/app/logs
+      - ./secrets:/app/secrets:ro
+    networks: [trading-net]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  scraper-wsb:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ot-scraper-wsb
+    restart: unless-stopped
+    command: python -m scrapers.wsb.main
+    environment:
+      REDIS_URL: redis://ot-redis:6379
+      SERVICE_NAME: scraper-wsb
+    env_file: [.env]
+    volumes:
+      - ./logs/python:/app/logs
+    networks: [trading-net]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  scraper-seekalpha:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ot-scraper-seekalpha
+    restart: unless-stopped
+    command: python -m scrapers.seeking_alpha.main
+    environment:
+      REDIS_URL: redis://ot-redis:6379
+      SERVICE_NAME: scraper-seekalpha
+    env_file: [.env]
+    volumes:
+      - ./logs/python:/app/logs
+    networks: [trading-net]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  mcp-alpaca:
+    image: localhost/ot-mcp-alpaca:latest
+    container_name: ot-mcp-alpaca
+    restart: unless-stopped
+    environment:
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
+      ALPACA_PAPER_TRADE: ${ALPACA_PAPER_TRADE:-true}
+    networks: [trading-net]
+
+  mcp-yahoo:
+    build:
+      context: ./mcp/yahoo-finance-mcp
+      dockerfile: Dockerfile.http
+    container_name: ot-mcp-yahoo
+    restart: unless-stopped
+    command: python run_http.py
+    environment:
+      FASTMCP_HOST: "0.0.0.0"
+      FASTMCP_PORT: "8000"
+    networks: [trading-net]
+
+  scraper-yahoo:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ot-scraper-yahoo
+    restart: unless-stopped
+    command: python -m scrapers.yahoo.main
+    environment:
+      REDIS_URL: redis://ot-redis:6379
+      SERVICE_NAME: scraper-yahoo
+      YAHOO_MCP_URL: "http://ot-mcp-yahoo:8000/mcp"
+    env_file: [.env]
+    volumes:
+      - ./logs/python:/app/logs
+    networks: [trading-net]
+    depends_on:
+      redis:
+        condition: service_healthy
+      mcp-yahoo:
+        condition: service_started
+
+  aggregator:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ot-aggregator
+    restart: unless-stopped
+    command: python -m aggregator.main
+    environment:
+      REDIS_URL: redis://ot-redis:6379
+      SERVICE_NAME: aggregator
+      EARNINGS_BUFFER_DAYS: "5"
+      INTEL_TTL_SEC: "7200"
+      YF_CACHE_TTL_SEC: "3600"
+    env_file: [.env]
+    volumes:
+      - ./logs/python:/app/logs
+    networks: [trading-net]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  review-agent:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ot-review-agent
+    restart: unless-stopped
+    command: python -m review.main
+    environment:
+      REDIS_URL: redis://ot-redis:6379
+      DB_URL: postgresql://trading:${DB_PASSWORD:-trading_secret}@ot-timescaledb/trading
+      SERVICE_NAME: review-agent
+    env_file: [.env]
+    volumes:
+      - ./logs/python:/app/logs
+      - ./config:/app/config:ro
+      - ./secrets:/app/secrets:ro
+    networks: [trading-net]
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+
+  broker-gateway:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ot-broker-gateway
+    restart: unless-stopped
+    command: python -m broker_gateway.main
+    environment:
+      REDIS_URL: redis://ot-redis:6379
+      SERVICE_NAME: broker-gateway
+      ACCOUNTS_CONFIG: /app/config/accounts.toml
+      BROKER_REPLY_TTL_SEC: "60"
+      # Tradier
+      TRADIER_SANDBOX_API_KEY: ${TRADIER_SANDBOX_API_KEY:-}
+      TRADIER_SANDBOX_ACCOUNT_NUMBER: ${TRADIER_SANDBOX_ACCOUNT_NUMBER:-}
+      TRADIER_PRODUCTION_API_KEY: ${TRADIER_PRODUCTION_API_KEY:-}
+      TRADIER_PROD_ACCOUNT_1: ${TRADIER_PROD_ACCOUNT_1:-}
+      TRADIER_PROD_ACCOUNT_1_IRA: ${TRADIER_PROD_ACCOUNT_1_IRA:-false}
+      TRADIER_PROD_ACCOUNT_2: ${TRADIER_PROD_ACCOUNT_2:-}
+      TRADIER_PROD_ACCOUNT_2_IRA: ${TRADIER_PROD_ACCOUNT_2_IRA:-false}
+      TRADIER_PROD_ACCOUNT_3: ${TRADIER_PROD_ACCOUNT_3:-}
+      TRADIER_PROD_ACCOUNT_3_IRA: ${TRADIER_PROD_ACCOUNT_3_IRA:-false}
+      TRADIER_PROD_ACCOUNT_4: ${TRADIER_PROD_ACCOUNT_4:-}
+      TRADIER_PROD_ACCOUNT_4_IRA: ${TRADIER_PROD_ACCOUNT_4_IRA:-false}
+      # Alpaca
+      ALPACA_API_SECRET_KEY: ${ALPACA_API_SECRET_KEY:-}
+      ALPACA_PAPER_ACCOUNT_ID: ${ALPACA_PAPER_ACCOUNT_ID:-}
+      ALPACA_PAPER_ACCOUNT_IRA: ${ALPACA_PAPER_ACCOUNT_IRA:-false}
+      ALPACA_LIVE_API_SECRET_KEY: ${ALPACA_LIVE_API_SECRET_KEY:-}
+      ALPACA_LIVE_ACCOUNT_ID: ${ALPACA_LIVE_ACCOUNT_ID:-}
+      ALPACA_LIVE_ACCOUNT_IRA: ${ALPACA_LIVE_ACCOUNT_IRA:-false}
+      ALPACA_DATA_FEED: ${ALPACA_DATA_FEED:-iex}
+      # Webull
+      WEBULL_ACCESS_TOKEN: ${WEBULL_ACCESS_TOKEN:-}
+      WEBULL_REFRESH_TOKEN: ${WEBULL_REFRESH_TOKEN:-}
+      WEBULL_DID: ${WEBULL_DID:-}
+      WEBULL_TRADE_TOKEN: ${WEBULL_TRADE_TOKEN:-}
+      WEBULL_PAPER_ACCOUNT_ID: ${WEBULL_PAPER_ACCOUNT_ID:-}
+      WEBULL_LIVE_ACCOUNT_ID: ${WEBULL_LIVE_ACCOUNT_ID:-}
+    env_file: [.env]
+    volumes:
+      - ./logs/python:/app/logs
+      - ./config:/app/config:ro
+      - ./secrets:/app/secrets:ro
+    networks: [trading-net]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ── Chat Agent (Discord + Telegram) ─────────────────────────────────────────
+
+  mcp-tradingview:
+    build:
+      context: ./mcp/tradingview-mcp
+      dockerfile: Dockerfile
+    container_name: ot-mcp-tradingview
+    restart: unless-stopped
+    networks: [trading-net]
+
+  chat-agent:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ot-chat-agent
+    restart: unless-stopped
+    command: python -m chat_agent.main
+    environment:
+      SERVICE_NAME: chat-agent
+      # MCP servers — comma-separated name=url pairs
+      MCP_SERVERS: "yahoo=http://ot-mcp-yahoo:8000/mcp,alpaca=http://ot-mcp-alpaca:8000/mcp,tradingview=http://ot-mcp-tradingview:8000/mcp"
+      # AI agent model (OpenRouter model ID)
+      CHAT_AGENT_MODEL: ${CHAT_AGENT_MODEL:-anthropic/claude-3-5-haiku}
+    env_file: [.env]
+    volumes:
+      - ./logs/python:/app/logs
+    networks: [trading-net]
+    depends_on:
+      mcp-yahoo:
+        condition: service_started
+      mcp-alpaca:
+        condition: service_started
+      mcp-tradingview:
+        condition: service_started
+
+  # ── Command Center WebUI ────────────────────────────────────────────────────
+
+  webui:
+    build:
+      context: ./python
+      dockerfile: Dockerfile.webui
+    container_name: ot-webui
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      REDIS_URL: redis://ot-redis:6379
+      DB_URL: postgresql://trading:${DB_PASSWORD:-trading_secret}@ot-timescaledb/trading
+      SERVICE_NAME: webui
+      WEBUI_TOKEN: ${WEBUI_TOKEN:-opentrader}
+      TIMEZONE: America/New_York
+      ENV_FILE_PATH: /app/.env
+    env_file: [.env]
+    volumes:
+      - /run/user/1003/podman/podman.sock:/var/run/podman.sock:ro
+      - /usr/bin/podman:/usr/bin/podman:ro
+      - ./.env:/app/.env                       # writable — broker configure writes here
+      - ./config:/app/config                   # writable — scheduler_jobs.json persisted here
+      - ./python/webui/static:/app/webui/static # live-reload static files without rebuild
+      - ./python/webui/main.py:/app/webui/main.py # live-reload backend without rebuild
+    networks: [trading-net]
+    depends_on:
+      redis:
+        condition: service_healthy
