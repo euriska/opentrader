@@ -2693,13 +2693,15 @@ async function loadTradesPage() {
     apiFetch('/api/broker/connections'),
   ]);
 
-  // Build lookup: accountId (number) → display_name
+  // Build lookup keyed by label → { display_name, id }
+  // t.account in the trade stream contains the account label (e.g. "tradier-sandbox")
   const _acctMap = {};
   if (connResult.status === 'fulfilled') {
     const brokers = connResult.value?.brokers || {};
     ['tradier','alpaca','webull'].forEach(broker => {
       (brokers[broker]?.accounts || []).forEach(a => {
-        if (a.id) _acctMap[a.id] = a.display_name || a.label || '';
+        if (a.label) _acctMap[a.label] = { display_name: a.display_name || a.label, id: a.id || '' };
+        if (a.id)    _acctMap[a.id]    = { display_name: a.display_name || a.label, id: a.id };
       });
     });
   }
@@ -2711,9 +2713,10 @@ async function loadTradesPage() {
     const d        = t._ms ? new Date(t._ms) : null;
     const date     = d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
     const time     = d ? d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
-    const acctId   = t.account || '';
-    const dispName = acctId ? (_acctMap[acctId] || '—') : '—';
-    const acctNum  = acctId || '—';
+    const acctKey  = t.account || '';
+    const acctInfo = _acctMap[acctKey] || null;
+    const dispName = acctInfo ? acctInfo.display_name : (acctKey || '—');
+    const acctNum  = acctInfo ? (acctInfo.id || '—') : '—';
     const statusCell = t.event_type === 'reject' && t.reject_reason
       ? `${statusChip(t.event_type)} <span style="font-size:10px;color:var(--red);margin-left:4px" title="${t.reject_reason}">${t.reject_reason.substring(0,40)}${t.reject_reason.length>40?'…':''}</span>`
       : statusChip(t.event_type);
