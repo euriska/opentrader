@@ -313,11 +313,11 @@ select option{background:var(--surface2)}
     </div>
   </nav>
   <div class="sidebar-footer">
-    <!-- Market Status pill + calendar popup on hover -->
-    <div id="market-status-wrap" style="position:relative;margin-bottom:10px">
-      <div class="market-pill" id="market-status" style="cursor:default">
-        <span class="pulse" id="market-dot" style="width:8px;height:8px;border-radius:50%;background:var(--dim);display:inline-block"></span>
-        <span id="market-label">Market unknown</span>
+    <!-- Market Status box + calendar popup on hover -->
+    <div id="market-status-wrap" style="position:relative;margin-bottom:8px">
+      <div id="market-status" style="background:#0a0e1a;border:1px solid #1e2a4a;border-radius:8px;padding:8px 12px;display:flex;align-items:center;justify-content:center;gap:8px;cursor:default">
+        <span class="pulse" id="market-dot" style="width:8px;height:8px;border-radius:50%;background:var(--dim);display:inline-block;flex-shrink:0"></span>
+        <span id="market-label" style="font-size:12px;font-weight:600;color:var(--text)">Market unknown</span>
       </div>
       <div id="cal-popup" style="display:none;position:absolute;bottom:calc(100% + 8px);left:-8px;right:-8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;z-index:300;box-shadow:0 4px 24px rgba(0,0,0,.55)">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -339,17 +339,18 @@ select option{background:var(--surface2)}
           <span style="font-size:8px;color:var(--muted);display:flex;align-items:center;gap:3px"><span style="width:7px;height:7px;border-radius:2px;background:#b45309;opacity:.6;display:inline-block"></span>Holiday</span>
           <span style="font-size:8px;color:var(--muted);display:flex;align-items:center;gap:3px"><span style="width:7px;height:7px;border-radius:2px;background:var(--border);display:inline-block"></span>Weekend</span>
         </div>
+        <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);text-align:center;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--dim)">Market Calendar</div>
       </div>
     </div>
-    <!-- LED Clock (–15%) -->
-    <div style="background:#0a0e1a;border:1px solid #1e2a4a;border-radius:8px;padding:8px 10px;text-align:center">
-      <div style="font-size:8px;font-weight:600;letter-spacing:.1em;color:#4a6fa5;text-transform:uppercase;margin-bottom:4px">New York · ET</div>
+    <!-- LED Clock (–25% total) -->
+    <div style="background:#0a0e1a;border:1px solid #1e2a4a;border-radius:8px;padding:7px 10px;text-align:center">
+      <div style="font-size:8px;font-weight:600;letter-spacing:.1em;color:#4a6fa5;text-transform:uppercase;margin-bottom:3px">New York · ET</div>
       <div style="display:flex;align-items:center;justify-content:center;gap:1px">
-        <span id="led-hh" style="font-family:'Courier New',monospace;font-size:22px;font-weight:700;color:#3b9eff;text-shadow:0 0 12px #3b9eff,0 0 4px #3b9eff;letter-spacing:3px;line-height:1">00</span>
-        <span id="led-colon" style="font-family:'Courier New',monospace;font-size:22px;font-weight:700;color:#3b9eff;text-shadow:0 0 12px #3b9eff;line-height:1;margin:0 1px;transition:opacity .12s">:</span>
-        <span id="led-mm" style="font-family:'Courier New',monospace;font-size:22px;font-weight:700;color:#3b9eff;text-shadow:0 0 12px #3b9eff,0 0 4px #3b9eff;letter-spacing:3px;line-height:1">00</span>
-        <span id="led-colon2" style="font-family:'Courier New',monospace;font-size:22px;font-weight:700;color:#3b9eff;text-shadow:0 0 12px #3b9eff;line-height:1;margin:0 1px;opacity:.35">:</span>
-        <span id="led-ss" style="font-family:'Courier New',monospace;font-size:15px;font-weight:700;color:#2a7dd4;text-shadow:0 0 9px #2a7dd4;letter-spacing:2px;line-height:1;align-self:flex-end;padding-bottom:2px">00</span>
+        <span id="led-hh" style="font-family:'Courier New',monospace;font-size:20px;font-weight:700;color:#3b9eff;text-shadow:0 0 10px #3b9eff,0 0 4px #3b9eff;letter-spacing:3px;line-height:1">00</span>
+        <span id="led-colon" style="font-family:'Courier New',monospace;font-size:20px;font-weight:700;color:#3b9eff;text-shadow:0 0 10px #3b9eff;line-height:1;margin:0 1px;transition:opacity .12s">:</span>
+        <span id="led-mm" style="font-family:'Courier New',monospace;font-size:20px;font-weight:700;color:#3b9eff;text-shadow:0 0 10px #3b9eff,0 0 4px #3b9eff;letter-spacing:3px;line-height:1">00</span>
+        <span id="led-colon2" style="font-family:'Courier New',monospace;font-size:20px;font-weight:700;color:#3b9eff;text-shadow:0 0 10px #3b9eff;line-height:1;margin:0 1px;opacity:.35">:</span>
+        <span id="led-ss" style="font-family:'Courier New',monospace;font-size:13px;font-weight:700;color:#2a7dd4;text-shadow:0 0 8px #2a7dd4;letter-spacing:2px;line-height:1;align-self:flex-end;padding-bottom:2px">00</span>
       </div>
       <div id="led-date" style="font-size:8px;color:#4a6fa5;letter-spacing:.04em;margin-top:3px">—</div>
       <div id="led-market-status" style="font-size:8px;font-weight:600;padding:2px 7px;border-radius:20px;background:#0d1628;border:1px solid #1e3a5a;color:#4a6fa5;margin-top:4px;display:inline-block">—</div>
@@ -1261,10 +1262,10 @@ function renderMarketStatus(overview) {
   const label = document.getElementById('market-label');
   if (m.open) {
     dot.style.background = 'var(--green)';
-    label.textContent = `Market Open · ${m.time_et}`;
+    label.textContent = 'Market Open';
   } else {
     dot.style.background = 'var(--red)';
-    label.textContent = `Market Closed · ${m.time_et}`;
+    label.textContent = 'Market Closed';
   }
   // Update LED clock market status badge
   const ledStatus = document.getElementById('led-market-status');
