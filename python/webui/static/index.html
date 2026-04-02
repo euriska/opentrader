@@ -313,22 +313,46 @@ select option{background:var(--surface2)}
     </div>
   </nav>
   <div class="sidebar-footer">
-    <div class="market-pill" id="market-status" style="margin-bottom:10px">
-      <span class="pulse" id="market-dot" style="width:8px;height:8px;border-radius:50%;background:var(--dim);display:inline-block"></span>
-      <span id="market-label">Market unknown</span>
-    </div>
-    <!-- LED Clock -->
-    <div style="background:#0a0e1a;border:1px solid #1e2a4a;border-radius:8px;padding:10px 12px;text-align:center">
-      <div style="font-size:9px;font-weight:600;letter-spacing:.1em;color:#4a6fa5;text-transform:uppercase;margin-bottom:5px">New York · ET</div>
-      <div style="display:flex;align-items:center;justify-content:center;gap:1px">
-        <span id="led-hh" style="font-family:'Courier New',monospace;font-size:26px;font-weight:700;color:#3b9eff;text-shadow:0 0 14px #3b9eff,0 0 5px #3b9eff;letter-spacing:3px;line-height:1">00</span>
-        <span id="led-colon" style="font-family:'Courier New',monospace;font-size:26px;font-weight:700;color:#3b9eff;text-shadow:0 0 14px #3b9eff;line-height:1;margin:0 1px;transition:opacity .12s">:</span>
-        <span id="led-mm" style="font-family:'Courier New',monospace;font-size:26px;font-weight:700;color:#3b9eff;text-shadow:0 0 14px #3b9eff,0 0 5px #3b9eff;letter-spacing:3px;line-height:1">00</span>
-        <span id="led-colon2" style="font-family:'Courier New',monospace;font-size:26px;font-weight:700;color:#3b9eff;text-shadow:0 0 14px #3b9eff;line-height:1;margin:0 1px;opacity:.35">:</span>
-        <span id="led-ss" style="font-family:'Courier New',monospace;font-size:18px;font-weight:700;color:#2a7dd4;text-shadow:0 0 10px #2a7dd4;letter-spacing:2px;line-height:1;align-self:flex-end;padding-bottom:2px">00</span>
+    <!-- Market Status pill + calendar popup on hover -->
+    <div id="market-status-wrap" style="position:relative;margin-bottom:10px">
+      <div class="market-pill" id="market-status" style="cursor:default">
+        <span class="pulse" id="market-dot" style="width:8px;height:8px;border-radius:50%;background:var(--dim);display:inline-block"></span>
+        <span id="market-label">Market unknown</span>
       </div>
-      <div id="led-date" style="font-size:9px;color:#4a6fa5;letter-spacing:.04em;margin-top:4px">—</div>
-      <div id="led-market-status" style="font-size:9px;font-weight:600;padding:2px 8px;border-radius:20px;background:#0d1628;border:1px solid #1e3a5a;color:#4a6fa5;margin-top:5px;display:inline-block">—</div>
+      <div id="cal-popup" style="display:none;position:absolute;bottom:calc(100% + 8px);left:-8px;right:-8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;z-index:300;box-shadow:0 4px 24px rgba(0,0,0,.55)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <button class="btn btn-ghost btn-xs" onclick="calNav(-1)">&#8249;</button>
+          <span id="cal-title" style="font-size:11px;font-weight:600;color:var(--text)">—</span>
+          <button class="btn btn-ghost btn-xs" onclick="calNav(+1)">&#8250;</button>
+        </div>
+        <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center">
+          <div style="font-size:8px;color:var(--dim);padding:2px">Su</div>
+          <div style="font-size:8px;color:var(--dim);padding:2px">Mo</div>
+          <div style="font-size:8px;color:var(--dim);padding:2px">Tu</div>
+          <div style="font-size:8px;color:var(--dim);padding:2px">We</div>
+          <div style="font-size:8px;color:var(--dim);padding:2px">Th</div>
+          <div style="font-size:8px;color:var(--dim);padding:2px">Fr</div>
+          <div style="font-size:8px;color:var(--dim);padding:2px">Sa</div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap">
+          <span style="font-size:8px;color:var(--muted);display:flex;align-items:center;gap:3px"><span style="width:7px;height:7px;border-radius:2px;background:var(--green);opacity:.7;display:inline-block"></span>Trading</span>
+          <span style="font-size:8px;color:var(--muted);display:flex;align-items:center;gap:3px"><span style="width:7px;height:7px;border-radius:2px;background:#b45309;opacity:.6;display:inline-block"></span>Holiday</span>
+          <span style="font-size:8px;color:var(--muted);display:flex;align-items:center;gap:3px"><span style="width:7px;height:7px;border-radius:2px;background:var(--border);display:inline-block"></span>Weekend</span>
+        </div>
+      </div>
+    </div>
+    <!-- LED Clock (–15%) -->
+    <div style="background:#0a0e1a;border:1px solid #1e2a4a;border-radius:8px;padding:8px 10px;text-align:center">
+      <div style="font-size:8px;font-weight:600;letter-spacing:.1em;color:#4a6fa5;text-transform:uppercase;margin-bottom:4px">New York · ET</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:1px">
+        <span id="led-hh" style="font-family:'Courier New',monospace;font-size:22px;font-weight:700;color:#3b9eff;text-shadow:0 0 12px #3b9eff,0 0 4px #3b9eff;letter-spacing:3px;line-height:1">00</span>
+        <span id="led-colon" style="font-family:'Courier New',monospace;font-size:22px;font-weight:700;color:#3b9eff;text-shadow:0 0 12px #3b9eff;line-height:1;margin:0 1px;transition:opacity .12s">:</span>
+        <span id="led-mm" style="font-family:'Courier New',monospace;font-size:22px;font-weight:700;color:#3b9eff;text-shadow:0 0 12px #3b9eff,0 0 4px #3b9eff;letter-spacing:3px;line-height:1">00</span>
+        <span id="led-colon2" style="font-family:'Courier New',monospace;font-size:22px;font-weight:700;color:#3b9eff;text-shadow:0 0 12px #3b9eff;line-height:1;margin:0 1px;opacity:.35">:</span>
+        <span id="led-ss" style="font-family:'Courier New',monospace;font-size:15px;font-weight:700;color:#2a7dd4;text-shadow:0 0 9px #2a7dd4;letter-spacing:2px;line-height:1;align-self:flex-end;padding-bottom:2px">00</span>
+      </div>
+      <div id="led-date" style="font-size:8px;color:#4a6fa5;letter-spacing:.04em;margin-top:3px">—</div>
+      <div id="led-market-status" style="font-size:8px;font-weight:600;padding:2px 7px;border-radius:20px;background:#0d1628;border:1px solid #1e3a5a;color:#4a6fa5;margin-top:4px;display:inline-block">—</div>
     </div>
   </div>
 </div>
@@ -349,29 +373,6 @@ select option{background:var(--surface2)}
          PAGE: Platform Dashboard
     ════════════════════════════════════════ -->
     <div class="page active" id="page-platform-dashboard">
-
-      <!-- Market Calendar -->
-      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:18px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <button class="btn btn-ghost btn-xs" onclick="calNav(-1)">&#8249;</button>
-          <span id="cal-title" style="font-size:12px;font-weight:600;color:var(--text)">—</span>
-          <button class="btn btn-ghost btn-xs" onclick="calNav(+1)">&#8250;</button>
-        </div>
-        <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center">
-          <div style="font-size:9px;color:var(--dim);padding:2px">Su</div>
-          <div style="font-size:9px;color:var(--dim);padding:2px">Mo</div>
-          <div style="font-size:9px;color:var(--dim);padding:2px">Tu</div>
-          <div style="font-size:9px;color:var(--dim);padding:2px">We</div>
-          <div style="font-size:9px;color:var(--dim);padding:2px">Th</div>
-          <div style="font-size:9px;color:var(--dim);padding:2px">Fr</div>
-          <div style="font-size:9px;color:var(--dim);padding:2px">Sa</div>
-        </div>
-        <div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap">
-          <span style="font-size:9px;color:var(--muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:var(--green);opacity:.7;display:inline-block"></span>Trading day</span>
-          <span style="font-size:9px;color:var(--muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#b45309;opacity:.6;display:inline-block"></span>Holiday</span>
-          <span style="font-size:9px;color:var(--muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:var(--border);display:inline-block"></span>Weekend</span>
-        </div>
-      </div>
 
       <div class="stat-grid" id="plat-stats">
         <div class="stat-card">
@@ -625,7 +626,7 @@ select option{background:var(--surface2)}
       <div class="card" style="margin-bottom:18px">
         <div class="card-header"><span class="card-title">System Settings</span></div>
         <div class="card-body">
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px" id="sys-settings-grid">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px" id="sys-settings-grid">
             <div class="empty-state">Loading…</div>
           </div>
         </div>
@@ -2853,9 +2854,7 @@ function _cfgLogoHtml(svc) {
 }
 
 async function saveSysSettings() {
-  const SYS_KEYS = ['TRADE_MODE','TIMEZONE','MARKET_OPEN','MARKET_CLOSE',
-    'MAX_POSITION_SIZE_USD','MAX_DAILY_LOSS_USD','CIRCUIT_BREAKER_LOSS_PCT',
-    'SCRAPE_INTERVAL_MINUTES','EOD_REPORT_TIME','REVIEW_TRADE_THRESHOLD'];
+  const SYS_KEYS = ['TIMEZONE','MARKET_OPEN','MARKET_CLOSE','EOD_REPORT_TIME','REVIEW_TRADE_THRESHOLD'];
   const vars = {};
   SYS_KEYS.forEach(k => {
     const el = document.getElementById(`syscfg_${k}`);
@@ -2875,11 +2874,7 @@ async function loadConfigPage() {
   const grid = document.getElementById('cfg-connector-grid');
   grid.innerHTML = '<div class="empty-state">Loading…</div>';
   const token = getToken();
-  const SYS_KEYS = [
-    'MARKET_OPEN','MARKET_CLOSE','TIMEZONE','TRADE_MODE',
-    'MAX_POSITION_SIZE_USD','MAX_DAILY_LOSS_USD','CIRCUIT_BREAKER_LOSS_PCT',
-    'SCRAPE_INTERVAL_MINUTES','EOD_REPORT_TIME','REVIEW_TRADE_THRESHOLD',
-  ];
+  const SYS_KEYS = ['TIMEZONE','MARKET_OPEN','MARKET_CLOSE','EOD_REPORT_TIME','REVIEW_TRADE_THRESHOLD'];
   const allKeys = [...SYS_KEYS, ...Object.values(CFG_META).flatMap(m => m.fields.filter(f => f.key).map(f => f.key))];
   let env = {};
   try {
@@ -2892,33 +2887,33 @@ async function loadConfigPage() {
 
   // ── System settings panel ──────────────────────────────────────────────────
   const SYS_FIELDS = [
-    { key:'TRADE_MODE',              label:'Trade Mode',               type:'select', options:['sandbox','live'], hint:'sandbox = paper trading, live = real money' },
-    { key:'TIMEZONE',                label:'Timezone',                 type:'text',   hint:'e.g. America/New_York' },
-    { key:'MARKET_OPEN',             label:'Market Open Time',         type:'text',   hint:'HH:MM — default 09:30' },
-    { key:'MARKET_CLOSE',            label:'Market Close Time',        type:'text',   hint:'HH:MM — default 16:00' },
-    { key:'MAX_POSITION_SIZE_USD',   label:'Max Position Size ($)',     type:'number', hint:'Hard cap per trade in USD' },
-    { key:'MAX_DAILY_LOSS_USD',      label:'Max Daily Loss ($)',        type:'number', hint:'Circuit breaker triggers at this loss' },
-    { key:'CIRCUIT_BREAKER_LOSS_PCT',label:'Circuit Breaker Loss (%)', type:'number', hint:'Portfolio loss % that halts trading' },
-    { key:'SCRAPE_INTERVAL_MINUTES', label:'Scrape Interval (min)',     type:'number', hint:'How often scrapers run during market hours' },
-    { key:'EOD_REPORT_TIME',         label:'EOD Report Time',          type:'text',   hint:'HH:MM ET — when the end-of-day report fires' },
-    { key:'REVIEW_TRADE_THRESHOLD',  label:'Review Trade Threshold',   type:'number', hint:'Min trades before review agent runs' },
+    { key:'TIMEZONE',               label:'Timezone',             type:'text',   hint:'e.g. America/New_York' },
+    { key:'MARKET_OPEN',            label:'Market Open',          type:'text',   hint:'HH:MM — default 09:30' },
+    { key:'MARKET_CLOSE',           label:'Market Close',         type:'text',   hint:'HH:MM — default 16:00' },
+    { key:'EOD_REPORT_TIME',        label:'EOD Report Time',      type:'text',   hint:'HH:MM ET — end-of-day report time' },
+    { key:'REVIEW_TRADE_THRESHOLD', label:'Review Threshold',     type:'number', hint:'Min trades before review agent runs' },
   ];
   const sysGrid = document.getElementById('sys-settings-grid');
   sysGrid.innerHTML = SYS_FIELDS.map(f => {
     const val = env[f.key] || '';
-    const inp = f.type === 'select'
-      ? `<select id="syscfg_${f.key}" class="select-input" style="width:100%">${(f.options||[]).map(o=>`<option value="${o}"${val===o?' selected':''}>${o}</option>`).join('')}</select>`
-      : `<input id="syscfg_${f.key}" class="select-input" type="${f.type||'text'}" value="${val.replace(/"/g,'&quot;')}" placeholder="${f.hint||''}" style="width:100%">`;
     return `<div>
-      <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:4px">${f.label}</label>
-      ${inp}
-      ${f.hint ? `<div style="font-size:9px;color:var(--dim);margin-top:2px">${f.hint}</div>` : ''}
+      <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:block;margin-bottom:5px">${f.label}</label>
+      <input id="syscfg_${f.key}" class="bk-field-input" type="${f.type||'text'}" value="${val.replace(/"/g,'&quot;')}" placeholder="${f.hint||''}">
+      ${f.hint ? `<div style="font-size:9px;color:var(--dim);margin-top:3px">${f.hint}</div>` : ''}
     </div>`;
-  }).join('');
+  }).join('') + `
+  <div>
+    <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:block;margin-bottom:5px">Clock Format</label>
+    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:7px">
+      <input type="checkbox" id="syscfg_clock12hr" ${_clock12hr ? 'checked' : ''} onchange="_setClock12hr(this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--blue)">
+      <span style="font-size:12px;color:var(--text)">12-hour (AM/PM)</span>
+    </label>
+    <div style="font-size:9px;color:var(--dim);margin-top:3px">Toggle between 12-hour and 24-hour display on the LED clock</div>
+  </div>`;
   // Save button
   sysGrid.insertAdjacentHTML('afterend', `
-    <div style="display:flex;justify-content:flex-end;margin-top:12px">
-      <button class="btn btn-primary btn-sm" onclick="saveSysSettings()">Save System Settings</button>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px">
+      <button class="btn btn-primary btn-sm" onclick="saveSysSettings()">Save Settings</button>
     </div>`);
 
 
@@ -4545,23 +4540,35 @@ async function confirmUpdateDeployment(familyId) {
 // LED Clock
 // ══════════════════════════════════════════════════════════════════════════════
 let _ledColonOn = true;
+let _clock12hr  = localStorage.getItem('clock12hr') === '1';
+
+function _setClock12hr(val) {
+  _clock12hr = val;
+  localStorage.setItem('clock12hr', val ? '1' : '0');
+  _tickLedClock();
+}
+
 function _tickLedClock() {
-  const now  = new Date();
-  // Convert to ET using Intl
-  const et   = new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }).formatToParts(now);
+  const now   = new Date();
+  const et    = new Intl.DateTimeFormat('en-US', {
+    timeZone:'America/New_York',
+    hour:'2-digit', minute:'2-digit', second:'2-digit',
+    hour12: _clock12hr,
+  }).formatToParts(now);
   const parts = {};
   et.forEach(p => { parts[p.type] = p.value; });
-  const hh = parts.hour   || '00';
-  const mm = parts.minute || '00';
-  const ss = parts.second || '00';
+  const hh   = parts.hour      || '00';
+  const mm   = parts.minute    || '00';
+  const ss   = parts.second    || '00';
+  const ampm = parts.dayPeriod || '';
   document.getElementById('led-hh').textContent = hh;
   document.getElementById('led-mm').textContent = mm;
   document.getElementById('led-ss').textContent = ss;
   _ledColonOn = !_ledColonOn;
   document.getElementById('led-colon').style.opacity  = _ledColonOn ? '1' : '0.15';
   document.getElementById('led-colon2').style.opacity = '0.35';
-  const dateStr = new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', weekday:'long', month:'short', day:'numeric', year:'numeric' }).format(now);
-  document.getElementById('led-date').textContent = dateStr;
+  const dateStr = new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', weekday:'short', month:'short', day:'numeric' }).format(now);
+  document.getElementById('led-date').textContent = _clock12hr && ampm ? `${dateStr} ${ampm}` : dateStr;
 }
 setInterval(_tickLedClock, 500);
 _tickLedClock();
@@ -4635,7 +4642,20 @@ function calNav(dir) {
 // Init
 // ══════════════════════════════════════════════════════════════════════════════
 connectWS();
-loadMarketCalendar();
+
+// Calendar popup: show on hover over market-status pill
+(function() {
+  const wrap  = document.getElementById('market-status-wrap');
+  const popup = document.getElementById('cal-popup');
+  if (!wrap || !popup) return;
+  wrap.addEventListener('mouseenter', () => {
+    popup.style.display = 'block';
+    loadMarketCalendar();
+  });
+  wrap.addEventListener('mouseleave', () => {
+    popup.style.display = 'none';
+  });
+})();
 </script>
 
 <!-- ── Toast container ── -->
