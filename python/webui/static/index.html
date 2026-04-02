@@ -630,6 +630,9 @@ select option{background:var(--surface2)}
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px" id="sys-settings-grid">
             <div class="empty-state">Loading…</div>
           </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:14px">
+            <button class="btn btn-primary btn-sm" onclick="saveSysSettings()">Save Settings</button>
+          </div>
         </div>
       </div>
 
@@ -2919,11 +2922,6 @@ async function loadConfigPage() {
     <input id="syscfg_REVIEW_TRADE_THRESHOLD" class="bk-field-input" type="number" value="${(env['REVIEW_TRADE_THRESHOLD']||'').replace(/"/g,'&quot;')}" placeholder="Min trades before review agent runs" style="max-width:260px">
     <div style="font-size:9px;color:var(--dim);margin-top:3px">Min trades before review agent runs</div>
   </div>`;
-  // Save button
-  sysGrid.insertAdjacentHTML('afterend', `
-    <div style="display:flex;justify-content:flex-end;margin-top:14px">
-      <button class="btn btn-primary btn-sm" onclick="saveSysSettings()">Save Settings</button>
-    </div>`);
 
 
   grid.innerHTML = Object.keys(CFG_META).map(svc => {
