@@ -2812,28 +2812,54 @@ async function loadTradesPage() {
       const wkTrades = weeks[wk].sort((a,b) => b._ms - a._ms);
       const wkId = `wk-trades-${wk}`;
 
-      // Compute per-day counts keyed by day ms (midnight), sorted earliest→latest
-      const dayMap = {};
+      // NYSE holidays (YYYY-MM-DD) — kept in sync with scheduler/calendar.py
+      const _NYSE_HOLIDAYS = new Set([
+        '2025-01-01','2025-01-20','2025-02-17','2025-04-18','2025-05-26',
+        '2025-06-19','2025-07-04','2025-09-01','2025-11-27','2025-12-25',
+        '2026-01-01','2026-01-19','2026-02-16','2026-04-03','2026-05-25',
+        '2026-06-19','2026-07-03','2026-09-07','2026-11-26','2026-12-25',
+      ]);
+      function _isMktClosed(ms) {
+        const d = new Date(ms);
+        const dow = d.getDay(); // 0=Sun, 6=Sat
+        if (dow === 0 || dow === 6) return true;
+        const iso = d.toISOString().slice(0,10);
+        return _NYSE_HOLIDAYS.has(iso);
+      }
+
+      // Build trade counts per calendar day
+      const dayCounts = {};
       wkTrades.forEach(t => {
         if (!t._ms) return;
-        const d = new Date(t._ms);
-        d.setHours(0,0,0,0);
-        const dk = d.getTime();
-        if (!dayMap[dk]) dayMap[dk] = { ms: dk, label: new Date(t._ms).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }), count: 0 };
-        dayMap[dk].count++;
+        const d = new Date(t._ms); d.setHours(0,0,0,0);
+        dayCounts[d.getTime()] = (dayCounts[d.getTime()] || 0) + 1;
       });
-      const dayPills = Object.values(dayMap)
-        .sort((a,b) => a.ms - b.ms)
-        .map(d => `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:2px 8px;letter-spacing:0;text-transform:none">
-            ${d.label} <span style="color:var(--text);font-weight:700">${d.count}</span>
-          </span>`)
-        .join('');
 
-      html += `<div style="padding:6px 16px;background:var(--bg);border-bottom:1px solid var(--border);border-top:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <span style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap">${_weekLabel(wk)}</span>
-        <div style="display:flex;align-items:center;gap:6px;flex:1;flex-wrap:wrap">${dayPills}</div>
-        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-          <span style="font-size:11px;font-weight:700;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:2px 9px">${wkTrades.length} trade${wkTrades.length !== 1 ? 's' : ''}</span>
+      // Enumerate every Mon–Fri of this week (wk = Monday midnight ms)
+      const dayPills = [0,1,2,3,4].map(offset => {
+        const dayMs = wk + offset * 86400000;
+        const label = new Date(dayMs).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+        const count = dayCounts[dayMs] ?? 0;
+        const closed = _isMktClosed(dayMs + 43200000); // noon to avoid DST edge
+        let badge, pillStyle;
+        if (closed) {
+          badge = `<span style="font-size:9px;color:var(--dim);font-style:italic">Mkt Closed</span>`;
+          pillStyle = 'color:var(--dim);border-color:var(--border);background:transparent';
+        } else if (count === 0) {
+          badge = `<span style="font-weight:700;color:var(--dim)">0</span>`;
+          pillStyle = 'color:var(--dim);border-color:var(--border);background:var(--surface2)';
+        } else {
+          badge = `<span style="font-weight:700;color:var(--text)">${count}</span>`;
+          pillStyle = 'color:var(--muted);border-color:var(--border);background:var(--surface2)';
+        }
+        return `<span style="display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:600;border:1px solid;border-radius:8px;padding:2px 8px;white-space:nowrap;${pillStyle}">${label} ${badge}</span>`;
+      }).join('');
+
+      html += `<div style="padding:6px 16px;background:var(--bg);border-bottom:1px solid var(--border);border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;margin-right:4px">${_weekLabel(wk)}</span>
+        <div style="display:flex;flex:1;gap:6px;flex-wrap:wrap;align-items:center">${dayPills}</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:4px">
+          <span style="font-size:11px;font-weight:700;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:2px 10px;white-space:nowrap">Weekly Trades: ${wkTrades.length}</span>
           <button class="btn btn-ghost btn-xs" title="Collapse" style="font-size:10px;padding:2px 6px;color:var(--muted)" onclick="toggleWeekTable('${wkId}',this)">▲</button>
         </div>
       </div>`;
