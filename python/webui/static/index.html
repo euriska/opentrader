@@ -2420,6 +2420,19 @@ function _fmtUsd(v) {
   return isNaN(n) ? '—' : '$' + n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
 
+function _posCardId(label) {
+  return 'pos-body-' + label.replace(/[^a-zA-Z0-9]/g, '_');
+}
+
+function togglePositionCard(id, btn) {
+  const body = document.getElementById(id);
+  if (!body) return;
+  const collapsed = body.style.display === 'none';
+  body.style.display = collapsed ? '' : 'none';
+  btn.textContent = collapsed ? '▲' : '▼';
+  btn.title = collapsed ? 'Collapse' : 'Expand';
+}
+
 function _renderPositionCard(acct) {
   const bal       = acct.balances || {};
   const positions = acct.positions || [];
@@ -2429,9 +2442,9 @@ function _renderPositionCard(acct) {
     : '<span class="chip" style="font-size:10px;background:rgba(99,102,241,.15);color:#818cf8">Paper/Sandbox</span>';
 
   // Normalise balance fields across brokers
-  const netRaw = bal.net_value ?? bal.net_liquidation_value ?? bal.total_equity ?? bal.equity ?? null;
+  const netRaw  = bal.net_value ?? bal.net_liquidation_value ?? bal.total_equity ?? bal.equity ?? null;
   const cashRaw = bal.cash ?? bal.total_cash ?? bal.cash_balance ?? null;
-  const bpRaw  = bal.buying_power ?? bal.cash_power ?? bal.margin?.stock_buying_power ?? null;
+  const bpRaw   = bal.buying_power ?? bal.cash_power ?? bal.margin?.stock_buying_power ?? null;
 
   const netVal = _fmtUsd(netRaw);
   const cash   = _fmtUsd(cashRaw);
@@ -2440,7 +2453,6 @@ function _renderPositionCard(acct) {
   const posRows = positions.length === 0
     ? `<tr><td colspan="7" class="empty-state" style="padding:12px">No open positions</td></tr>`
     : positions.map(p => {
-        // Normalise position fields across brokers
         const sym  = p.symbol || '—';
         const qty  = parseFloat(p.qty ?? p.quantity ?? 0);
         const cost = parseFloat(p.avg_entry_price ?? p.cost_price ?? (p.cost_basis && qty ? p.cost_basis/qty : 0) ?? 0);
@@ -2462,20 +2474,24 @@ function _renderPositionCard(acct) {
         </tr>`;
       }).join('');
 
+  const bodyId = _posCardId(acct.label);
   return `<div class="card" style="margin-bottom:16px;border-left:3px solid ${brokerColors[acct.broker]||'var(--blue)'}">
     <div class="card-header" style="padding:10px 16px">
-      <div style="display:flex;align-items:center;gap:10px">
+      <div style="display:flex;align-items:center;gap:10px;min-width:0">
         <span style="font-weight:700;font-size:13px" title="${acct.label}">${acct.display_name || acct.label}</span>
         ${modeChip}
         <span style="font-size:11px;color:var(--muted)">${acct.broker}</span>
       </div>
-      <div style="display:flex;gap:18px;font-size:12px">
+      <div style="display:flex;align-items:center;gap:18px;font-size:12px">
         <span><span style="color:var(--muted)">Net Value</span> <strong>${netVal}</strong></span>
         <span><span style="color:var(--muted)">Cash</span> <strong>${cash}</strong></span>
         <span><span style="color:var(--muted)">Buying Power</span> <strong>${bp}</strong></span>
+        <button class="btn btn-ghost btn-xs" title="Collapse"
+          style="font-size:10px;padding:2px 6px;margin-left:6px;color:var(--muted)"
+          onclick="togglePositionCard('${bodyId}',this)">▲</button>
       </div>
     </div>
-    <div class="table-wrap" style="padding:0">
+    <div id="${bodyId}" class="table-wrap" style="padding:0">
       <table>
         <thead><tr>
           <th></th><th>Symbol</th><th>Qty</th><th>Avg Cost</th><th>Last Price</th><th>Mkt Value</th><th>Unrealized P&L</th>
