@@ -2704,20 +2704,16 @@ async function loadTradesPage() {
     });
   }
 
-  const TRADE_COLS = '<th>Date</th><th>Time</th><th>Ticker</th><th>Dir</th><th>Qty</th><th>Price</th><th>Account</th><th>Mode</th><th>Status</th>';
+  const TRADE_COLS = '<th>Date</th><th>Time</th><th>Ticker</th><th>Dir</th><th>Qty</th><th>Price</th><th>Account</th><th>Acct #</th><th>Mode</th><th>Status</th>';
   const ORDER_COLS = '<th>Account</th><th>Symbol</th><th>Side</th><th>Type</th><th>Qty</th><th>Limit Price</th><th>Status</th><th>Created</th>';
 
   function _tradeRow(t) {
-    const d    = t._ms ? new Date(t._ms) : null;
-    const date = d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
-    const time = d ? d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+    const d        = t._ms ? new Date(t._ms) : null;
+    const date     = d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+    const time     = d ? d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
     const acctId   = t.account || '';
-    const dispName = _acctMap[acctId] || '';
-    const acctCell = acctId
-      ? (dispName
-          ? `<span style="display:block;font-size:11px">${dispName}</span><span style="display:block;font-size:10px;color:var(--dim);font-family:ui-monospace,monospace">${acctId}</span>`
-          : `<span style="font-size:11px;font-family:ui-monospace,monospace">${acctId}</span>`)
-      : '—';
+    const dispName = acctId ? (_acctMap[acctId] || '—') : '—';
+    const acctNum  = acctId || '—';
     const statusCell = t.event_type === 'reject' && t.reject_reason
       ? `${statusChip(t.event_type)} <span style="font-size:10px;color:var(--red);margin-left:4px" title="${t.reject_reason}">${t.reject_reason.substring(0,40)}${t.reject_reason.length>40?'…':''}</span>`
       : statusChip(t.event_type);
@@ -2728,7 +2724,8 @@ async function loadTradesPage() {
       <td>${directionChip(t.direction)}</td>
       <td class="mono">${t.qty || '—'}</td>
       <td class="mono">${t.price ? '$' + parseFloat(t.price).toFixed(2) : '—'}</td>
-      <td style="line-height:1.4">${acctCell}</td>
+      <td style="font-size:11px">${dispName}</td>
+      <td class="mono" style="font-size:11px;color:var(--muted)">${acctNum}</td>
       <td>${t.mode ? `<span class="chip ${t.mode==='live'?'chip-green':'chip-amber'}">${t.mode}</span>` : '—'}</td>
       <td>${statusCell}</td>
     </tr>`;
