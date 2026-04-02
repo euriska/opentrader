@@ -327,6 +327,36 @@ async def get_overview():
     }
 
 
+# ── API — Market Calendar ─────────────────────────────────────────────────────
+
+@app.get("/api/market/calendar")
+async def get_market_calendar(year: int = None, month: int = None):
+    """Return day-by-day trading status for a given month."""
+    import calendar as _cal
+    from datetime import date as _date
+    now   = now_et()
+    year  = year  or now.year
+    month = month or now.month
+    _, days_in_month = _cal.monthrange(year, month)
+    today = now.date()
+    result = []
+    for day in range(1, days_in_month + 1):
+        d         = _date(year, month, day)
+        is_wknd   = d.weekday() >= 5
+        is_hol    = d in __import__('scheduler.calendar', fromlist=['NYSE_HOLIDAYS']).NYSE_HOLIDAYS
+        is_trade  = not is_wknd and not is_hol
+        result.append({
+            "date":         d.isoformat(),
+            "day":          day,
+            "weekday":      d.strftime("%a"),
+            "trading":      is_trade,
+            "weekend":      is_wknd,
+            "holiday":      is_hol,
+            "today":        d == today,
+        })
+    return {"year": year, "month": month, "month_name": now_et().replace(year=year, month=month).strftime("%B"), "days": result}
+
+
 # ── API — Agents ──────────────────────────────────────────────────────────────
 
 @app.get("/api/agents")
