@@ -2683,15 +2683,23 @@ async function loadTradesPage() {
     apiFetch('/api/trades?limit=500'),
   ]);
 
-  const TRADE_COLS = '<th>Time</th><th>Ticker</th><th>Side</th><th>Qty</th><th>Price</th><th>Account</th><th>Mode</th><th>Status</th>';
+  const TRADE_COLS = '<th>Date / Time</th><th>Ticker</th><th>Side</th><th>Qty</th><th>Price</th><th>Account</th><th>Mode</th><th>Status</th>';
   const ORDER_COLS = '<th>Account</th><th>Symbol</th><th>Side</th><th>Type</th><th>Qty</th><th>Limit Price</th><th>Status</th><th>Created</th>';
+
+  function _fmtTradeTs(ms) {
+    if (!ms) return '—';
+    const d = new Date(ms);
+    const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return `<span style="white-space:nowrap">${date}</span><br><span style="color:var(--muted);font-size:10px">${time}</span>`;
+  }
 
   function _tradeRow(t) {
     const statusCell = t.event_type === 'reject' && t.reject_reason
       ? `${statusChip(t.event_type)} <span style="font-size:10px;color:var(--red);margin-left:4px" title="${t.reject_reason}">${t.reject_reason.substring(0,40)}${t.reject_reason.length>40?'…':''}</span>`
       : statusChip(t.event_type);
     return `<tr>
-      <td class="mono">${fmtTs(t.ts || _tsFromId(t.id))}</td>
+      <td class="mono" style="font-size:11px;line-height:1.5">${_fmtTradeTs(t._ms)}</td>
       <td><strong>${t.ticker || '—'}</strong></td>
       <td>${directionChip(t.direction)}</td>
       <td class="mono">${t.qty || '—'}</td>
@@ -2766,7 +2774,7 @@ async function loadTradesPage() {
   const cutoff = Date.now() - 30 * 86400000;
   let trades = tradeResult.status === 'fulfilled' ? (tradeResult.value || []) : [];
 
-  // Attach timestamp from stream ID if ts field is empty
+  // Attach timestamp from stream ID if ts field is empty, then sort newest first
   trades = trades.map(t => ({
     ...t,
     _ms: (() => {
@@ -2774,7 +2782,7 @@ async function loadTradesPage() {
       const ms = parseInt((t.id || '').split('-')[0]);
       return isNaN(ms) ? 0 : ms;
     })()
-  })).filter(t => t._ms >= cutoff);
+  })).filter(t => t._ms >= cutoff).sort((a, b) => b._ms - a._ms);
 
   html += `<div class="card">
     <div class="card-header">
