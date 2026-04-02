@@ -313,9 +313,22 @@ select option{background:var(--surface2)}
     </div>
   </nav>
   <div class="sidebar-footer">
-    <div class="market-pill" id="market-status">
+    <div class="market-pill" id="market-status" style="margin-bottom:10px">
       <span class="pulse" id="market-dot" style="width:8px;height:8px;border-radius:50%;background:var(--dim);display:inline-block"></span>
       <span id="market-label">Market unknown</span>
+    </div>
+    <!-- LED Clock -->
+    <div style="background:#0a0e1a;border:1px solid #1e2a4a;border-radius:8px;padding:10px 12px;text-align:center">
+      <div style="font-size:9px;font-weight:600;letter-spacing:.1em;color:#4a6fa5;text-transform:uppercase;margin-bottom:5px">New York · ET</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:1px">
+        <span id="led-hh" style="font-family:'Courier New',monospace;font-size:26px;font-weight:700;color:#3b9eff;text-shadow:0 0 14px #3b9eff,0 0 5px #3b9eff;letter-spacing:3px;line-height:1">00</span>
+        <span id="led-colon" style="font-family:'Courier New',monospace;font-size:26px;font-weight:700;color:#3b9eff;text-shadow:0 0 14px #3b9eff;line-height:1;margin:0 1px;transition:opacity .12s">:</span>
+        <span id="led-mm" style="font-family:'Courier New',monospace;font-size:26px;font-weight:700;color:#3b9eff;text-shadow:0 0 14px #3b9eff,0 0 5px #3b9eff;letter-spacing:3px;line-height:1">00</span>
+        <span id="led-colon2" style="font-family:'Courier New',monospace;font-size:26px;font-weight:700;color:#3b9eff;text-shadow:0 0 14px #3b9eff;line-height:1;margin:0 1px;opacity:.35">:</span>
+        <span id="led-ss" style="font-family:'Courier New',monospace;font-size:18px;font-weight:700;color:#2a7dd4;text-shadow:0 0 10px #2a7dd4;letter-spacing:2px;line-height:1;align-self:flex-end;padding-bottom:2px">00</span>
+      </div>
+      <div id="led-date" style="font-size:9px;color:#4a6fa5;letter-spacing:.04em;margin-top:4px">—</div>
+      <div id="led-market-status" style="font-size:9px;font-weight:600;padding:2px 8px;border-radius:20px;background:#0d1628;border:1px solid #1e3a5a;color:#4a6fa5;margin-top:5px;display:inline-block">—</div>
     </div>
   </div>
 </div>
@@ -337,44 +350,26 @@ select option{background:var(--surface2)}
     ════════════════════════════════════════ -->
     <div class="page active" id="page-platform-dashboard">
 
-      <!-- LED Clock + Market Calendar -->
-      <div style="display:grid;grid-template-columns:auto 1fr;gap:16px;margin-bottom:18px;align-items:start">
-
-        <!-- LED Clock -->
-        <div style="background:#0a0e1a;border:1px solid #1e2a4a;border-radius:10px;padding:16px 22px;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:200px">
-          <div style="font-size:10px;font-weight:600;letter-spacing:.12em;color:#4a6fa5;text-transform:uppercase">New York · ET</div>
-          <div style="display:flex;align-items:center;gap:2px">
-            <span id="led-hh" style="font-family:'Courier New',monospace;font-size:42px;font-weight:700;color:#3b9eff;text-shadow:0 0 18px #3b9eff,0 0 6px #3b9eff;letter-spacing:4px;line-height:1">00</span>
-            <span id="led-colon" style="font-family:'Courier New',monospace;font-size:42px;font-weight:700;color:#3b9eff;text-shadow:0 0 18px #3b9eff;line-height:1;margin:0 2px;transition:opacity .12s">:</span>
-            <span id="led-mm" style="font-family:'Courier New',monospace;font-size:42px;font-weight:700;color:#3b9eff;text-shadow:0 0 18px #3b9eff,0 0 6px #3b9eff;letter-spacing:4px;line-height:1">00</span>
-            <span id="led-colon2" style="font-family:'Courier New',monospace;font-size:42px;font-weight:700;color:#3b9eff;text-shadow:0 0 18px #3b9eff;line-height:1;margin:0 2px;opacity:.4">:</span>
-            <span id="led-ss" style="font-family:'Courier New',monospace;font-size:28px;font-weight:700;color:#2a7dd4;text-shadow:0 0 12px #2a7dd4;letter-spacing:3px;line-height:1;align-self:flex-end;padding-bottom:3px">00</span>
-          </div>
-          <div id="led-date" style="font-size:11px;color:#4a6fa5;letter-spacing:.06em">—</div>
-          <div id="led-market-status" style="font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;background:#0d1628;border:1px solid #1e3a5a;color:#4a6fa5">—</div>
+      <!-- Market Calendar -->
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:18px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <button class="btn btn-ghost btn-xs" onclick="calNav(-1)">&#8249;</button>
+          <span id="cal-title" style="font-size:12px;font-weight:600;color:var(--text)">—</span>
+          <button class="btn btn-ghost btn-xs" onclick="calNav(+1)">&#8250;</button>
         </div>
-
-        <!-- Market Calendar -->
-        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-            <button class="btn btn-ghost btn-xs" onclick="calNav(-1)">&#8249;</button>
-            <span id="cal-title" style="font-size:12px;font-weight:600;color:var(--text)">—</span>
-            <button class="btn btn-ghost btn-xs" onclick="calNav(+1)">&#8250;</button>
-          </div>
-          <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center">
-            <div style="font-size:9px;color:var(--dim);padding:2px">Su</div>
-            <div style="font-size:9px;color:var(--dim);padding:2px">Mo</div>
-            <div style="font-size:9px;color:var(--dim);padding:2px">Tu</div>
-            <div style="font-size:9px;color:var(--dim);padding:2px">We</div>
-            <div style="font-size:9px;color:var(--dim);padding:2px">Th</div>
-            <div style="font-size:9px;color:var(--dim);padding:2px">Fr</div>
-            <div style="font-size:9px;color:var(--dim);padding:2px">Sa</div>
-          </div>
-          <div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap">
-            <span style="font-size:9px;color:var(--muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:var(--green);opacity:.7;display:inline-block"></span>Trading day</span>
-            <span style="font-size:9px;color:var(--muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#b45309;opacity:.6;display:inline-block"></span>Holiday</span>
-            <span style="font-size:9px;color:var(--muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:var(--border);display:inline-block"></span>Weekend</span>
-          </div>
+        <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center">
+          <div style="font-size:9px;color:var(--dim);padding:2px">Su</div>
+          <div style="font-size:9px;color:var(--dim);padding:2px">Mo</div>
+          <div style="font-size:9px;color:var(--dim);padding:2px">Tu</div>
+          <div style="font-size:9px;color:var(--dim);padding:2px">We</div>
+          <div style="font-size:9px;color:var(--dim);padding:2px">Th</div>
+          <div style="font-size:9px;color:var(--dim);padding:2px">Fr</div>
+          <div style="font-size:9px;color:var(--dim);padding:2px">Sa</div>
+        </div>
+        <div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap">
+          <span style="font-size:9px;color:var(--muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:var(--green);opacity:.7;display:inline-block"></span>Trading day</span>
+          <span style="font-size:9px;color:var(--muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:#b45309;opacity:.6;display:inline-block"></span>Holiday</span>
+          <span style="font-size:9px;color:var(--muted);display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:var(--border);display:inline-block"></span>Weekend</span>
         </div>
       </div>
 
