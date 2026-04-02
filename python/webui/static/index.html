@@ -2888,11 +2888,10 @@ async function loadConfigPage() {
 
   // ── System settings panel ──────────────────────────────────────────────────
   const SYS_FIELDS = [
-    { key:'TIMEZONE',               label:'Timezone',             type:'text',   hint:'e.g. America/New_York' },
-    { key:'MARKET_OPEN',            label:'Market Open',          type:'text',   hint:'HH:MM — default 09:30' },
-    { key:'MARKET_CLOSE',           label:'Market Close',         type:'text',   hint:'HH:MM — default 16:00' },
-    { key:'EOD_REPORT_TIME',        label:'EOD Report Time',      type:'text',   hint:'HH:MM ET — end-of-day report time' },
-    { key:'REVIEW_TRADE_THRESHOLD', label:'Review Threshold',     type:'number', hint:'Min trades before review agent runs' },
+    { key:'TIMEZONE',               label:'Timezone',         type:'text',   hint:'e.g. America/New_York' },
+    { key:'MARKET_OPEN',            label:'Market Open',      type:'text',   hint:'HH:MM — default 09:30' },
+    { key:'MARKET_CLOSE',           label:'Market Close',     type:'text',   hint:'HH:MM — default 16:00' },
+    { key:'EOD_REPORT_TIME',        label:'EOD Report Time',  type:'text',   hint:'HH:MM ET — end-of-day report time' },
   ];
   const sysGrid = document.getElementById('sys-settings-grid');
   sysGrid.innerHTML = SYS_FIELDS.map(f => {
@@ -2910,6 +2909,15 @@ async function loadConfigPage() {
       <span style="font-size:12px;color:var(--text)">12-hour (AM/PM)</span>
     </label>
     <div style="font-size:9px;color:var(--dim);margin-top:3px">Toggle between 12-hour and 24-hour display on the LED clock</div>
+  </div>
+  <div style="grid-column:1/-1;display:flex;align-items:center;gap:10px;margin-top:4px">
+    <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);white-space:nowrap">Agent Settings</span>
+    <div style="flex:1;height:1px;background:var(--border)"></div>
+  </div>
+  <div style="grid-column:1/-1">
+    <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:block;margin-bottom:5px">Review Threshold</label>
+    <input id="syscfg_REVIEW_TRADE_THRESHOLD" class="bk-field-input" type="number" value="${(env['REVIEW_TRADE_THRESHOLD']||'').replace(/"/g,'&quot;')}" placeholder="Min trades before review agent runs" style="max-width:260px">
+    <div style="font-size:9px;color:var(--dim);margin-top:3px">Min trades before review agent runs</div>
   </div>`;
   // Save button
   sysGrid.insertAdjacentHTML('afterend', `
