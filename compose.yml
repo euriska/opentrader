@@ -283,7 +283,7 @@ services:
     restart: unless-stopped
     environment:
       ALPACA_API_KEY: ${ALPACA_API_KEY:-}
-      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
+      ALPACA_SECRET_KEY: ${ALPACA_API_SECRET:-${ALPACA_SECRET_KEY:-}}
       ALPACA_PAPER_TRADE: ${ALPACA_PAPER_TRADE:-true}
     networks: [trading-net]
 
