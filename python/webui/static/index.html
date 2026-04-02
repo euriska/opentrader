@@ -3548,6 +3548,11 @@ function editStrategy(id) {
     document.getElementById('eng-tp').value         = s.tp_pct;
     document.getElementById('eng-notes').value      = s.notes || '';
     _renderSignalChips(s.signals || []);
+    // Restore strategy document text so user can continue editing
+    const docText = s.notes || s.strategy_text || '';
+    document.getElementById('ai-strategy-doc').value = docText;
+    _aiStrategyText = docText;
+    onAiStrategyEdit();
   }, 50);
 }
 
@@ -3838,19 +3843,28 @@ async function saveAiSession() {
 
 function _parseAiStrategyDoc() {
   const text = document.getElementById('ai-strategy-doc').value;
-  const field = (key) => {
-    const m = text.match(new RegExp(`^${key}\\s*:\\s*(.+)$`, 'im'));
-    return m ? m[1].trim() : '';
+  const field = (...keys) => {
+    for (const key of keys) {
+      const m = text.match(new RegExp(`^${key}\\s*:\\s*(.+)$`, 'im'));
+      if (m) return m[1].trim();
+    }
+    return '';
+  };
+  // Extract a numeric percentage from a field value — handles "2%", "2.5", "2.5%"
+  const numPct = (val, fallback) => {
+    if (!val) return fallback;
+    const m = val.match(/[\d.]+/);
+    return m ? parseFloat(m[0]) : fallback;
   };
   return {
     name:       field('Name') || 'AI Strategy ' + new Date().toLocaleDateString(),
-    asset:      field('Asset Class') || 'equity',
+    asset:      field('Asset Class', 'Asset') || 'equity',
     direction:  field('Direction') || 'long',
-    confidence: parseFloat(field('Min Confidence') || '0.70'),
-    max_pos:    parseFloat(field('Max Position') || '1000'),
-    stop_pct:   parseFloat(field('Stop Loss') || '1.5'),
-    tp_pct:     parseFloat(field('Take Profit') || '3.0'),
-    signals:    (field('Signals') || '').split(',').map(s => s.trim()).filter(Boolean),
+    confidence: parseFloat(field('Min Confidence', 'Confidence', 'Min\\.? Confidence') || '0.70'),
+    max_pos:    parseFloat(field('Max Position', 'Max Position USD', 'Position Size') || '1000'),
+    stop_pct:   numPct(field('Stop Loss', 'Stop-Loss', 'Stop Loss %', 'Stop Loss Pct', 'Stop'), 1.5),
+    tp_pct:     numPct(field('Take Profit', 'Take-Profit', 'Take Profit %', 'Take Profit Pct', 'Target'), 3.0),
+    signals:    (field('Signals', 'Signal Sources', 'Signal') || '').split(',').map(s => s.trim()).filter(Boolean),
     notes:      text,
   };
 }
@@ -4194,46 +4208,138 @@ function _simulateBacktest(s) {
   const tpPct    = (s.tp_pct    || 3.0) / 100;
   const conf     = s.confidence || 0.70;
   let equity = 10000, peak = 10000, maxDD = 0, wins = 0, total = 0;
-  let trades = 0, grossPnl = 0;
+  let trades = 0;
+  const equitySeries   = [10000];
+  const drawdownSeries = [0];
+  // Monthly buckets (approx 21 trading days each)
+  const monthlyReturns = [];
+  let monthStart = 10000, dayInMonth = 0;
 
   for (let i = 0; i < days; i++) {
     const r = dailyRet + (Math.random() - 0.5) * vol * 2;
-    // Filter by confidence threshold (higher conf = fewer but better trades)
-    if (Math.random() > conf * 0.8) continue;
-    trades++;
-    const raw = r * (1 + tpPct - stopPct);
-    grossPnl += raw;
-    if (raw > 0) wins++;
-    total++;
-    equity *= (1 + raw);
-    if (equity > peak) peak = equity;
-    const dd = (peak - equity) / peak;
-    if (dd > maxDD) maxDD = dd;
+    if (Math.random() > conf * 0.8) {
+      equitySeries.push(equity);
+      drawdownSeries.push((peak - equity) / peak * 100);
+    } else {
+      trades++;
+      const raw = r * (1 + tpPct - stopPct);
+      if (raw > 0) wins++;
+      total++;
+      equity *= (1 + raw);
+      if (equity > peak) peak = equity;
+      const dd = (peak - equity) / peak;
+      if (dd > maxDD) maxDD = dd;
+      equitySeries.push(parseFloat(equity.toFixed(2)));
+      drawdownSeries.push(parseFloat((dd * 100).toFixed(2)));
+    }
+    dayInMonth++;
+    if (dayInMonth === 21 || i === days - 1) {
+      monthlyReturns.push(parseFloat(((equity - monthStart) / monthStart * 100).toFixed(2)));
+      monthStart = equity;
+      dayInMonth = 0;
+    }
   }
 
   const totalRet = ((equity - 10000) / 10000 * 100);
   const annVol   = vol * Math.sqrt(252) * 100;
   const sharpe   = totalRet / annVol;
 
+  // Downsample equity series to ~52 points for storage
+  const step = Math.max(1, Math.floor(equitySeries.length / 52));
+  const equitySampled = equitySeries.filter((_, i) => i % step === 0);
+  equitySampled.push(equitySeries[equitySeries.length - 1]);
+
   return {
-    period:      '252 trading days',
-    initial_cap: 10000,
-    final_cap:   parseFloat(equity.toFixed(2)),
-    total_return: parseFloat(totalRet.toFixed(2)),
-    sharpe:       parseFloat(sharpe.toFixed(2)),
-    win_rate:     total ? parseFloat(((wins / total) * 100).toFixed(1)) : 0,
-    max_drawdown: parseFloat((maxDD * 100).toFixed(2)),
-    total_trades: trades,
-    direction:    s.direction,
-    stop_pct:     s.stop_pct,
-    tp_pct:       s.tp_pct,
-    confidence:   s.confidence,
+    period:        '252 trading days',
+    initial_cap:   10000,
+    final_cap:     parseFloat(equity.toFixed(2)),
+    total_return:  parseFloat(totalRet.toFixed(2)),
+    sharpe:        parseFloat(sharpe.toFixed(2)),
+    win_rate:      total ? parseFloat(((wins / total) * 100).toFixed(1)) : 0,
+    max_drawdown:  parseFloat((maxDD * 100).toFixed(2)),
+    total_trades:  trades,
+    direction:     s.direction,
+    stop_pct:      s.stop_pct,
+    tp_pct:        s.tp_pct,
+    confidence:    s.confidence,
+    equity_curve:  equitySampled,
+    monthly_returns: monthlyReturns,
   };
+}
+
+function _svgEquityCurve(series, w, h) {
+  if (!series || series.length < 2) return '';
+  const min  = Math.min(...series);
+  const max  = Math.max(...series);
+  const pad  = { t: 10, r: 8, b: 20, l: 52 };
+  const cw   = w - pad.l - pad.r;
+  const ch   = h - pad.t - pad.b;
+  const xS   = i  => pad.l + (i / (series.length - 1)) * cw;
+  const yS   = v  => pad.t + ch - ((v - min) / (max - min || 1)) * ch;
+  const pts  = series.map((v, i) => `${xS(i).toFixed(1)},${yS(v).toFixed(1)}`).join(' ');
+  const color = series[series.length - 1] >= series[0] ? '#4ade80' : '#f87171';
+  // Fill area under curve
+  const fillPts = `${xS(0).toFixed(1)},${(pad.t + ch).toFixed(1)} ` + pts + ` ${xS(series.length-1).toFixed(1)},${(pad.t + ch).toFixed(1)}`;
+  const baseline = yS(series[0]);
+  const fmt = v => v >= 10000 ? `$${(v/1000).toFixed(1)}k` : `$${v.toFixed(0)}`;
+  return `<svg width="${w}" height="${h}" style="display:block">
+    <defs>
+      <linearGradient id="ecFill" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.25"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
+      </linearGradient>
+    </defs>
+    <!-- grid lines -->
+    <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${pad.t+ch}" stroke="var(--border)" stroke-width="1"/>
+    <line x1="${pad.l}" y1="${pad.t+ch}" x2="${pad.l+cw}" y2="${pad.t+ch}" stroke="var(--border)" stroke-width="1"/>
+    <line x1="${pad.l}" y1="${(pad.t+ch/2).toFixed(1)}" x2="${pad.l+cw}" y2="${(pad.t+ch/2).toFixed(1)}" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="3,3"/>
+    <!-- baseline (initial capital) -->
+    <line x1="${pad.l}" y1="${baseline.toFixed(1)}" x2="${pad.l+cw}" y2="${baseline.toFixed(1)}" stroke="var(--dim)" stroke-width="0.8" stroke-dasharray="4,4"/>
+    <!-- fill -->
+    <polygon points="${fillPts}" fill="url(#ecFill)"/>
+    <!-- curve -->
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <!-- y-axis labels -->
+    <text x="${pad.l-4}" y="${(pad.t+4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${fmt(max)}</text>
+    <text x="${pad.l-4}" y="${(pad.t+ch+4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${fmt(min)}</text>
+    <!-- x-axis labels -->
+    <text x="${pad.l}" y="${(pad.t+ch+14).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--dim)">Day 1</text>
+    <text x="${(pad.l+cw).toFixed(1)}" y="${(pad.t+ch+14).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--dim)">Day 252</text>
+  </svg>`;
+}
+
+function _svgMonthlyBars(monthly, w, h) {
+  if (!monthly || !monthly.length) return '';
+  const pad = { t: 10, r: 8, b: 20, l: 36 };
+  const cw  = w - pad.l - pad.r;
+  const ch  = h - pad.t - pad.b;
+  const maxAbs = Math.max(...monthly.map(Math.abs), 0.1);
+  const barW = Math.max(2, cw / monthly.length - 2);
+  const midY = pad.t + ch / 2;
+  const bars = monthly.map((v, i) => {
+    const x    = pad.l + i * (cw / monthly.length) + 1;
+    const barH = (Math.abs(v) / maxAbs) * (ch / 2);
+    const y    = v >= 0 ? midY - barH : midY;
+    const col  = v >= 0 ? '#4ade80' : '#f87171';
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${col}" opacity="0.8" rx="1"/>`;
+  }).join('');
+  return `<svg width="${w}" height="${h}" style="display:block">
+    <line x1="${pad.l}" y1="${midY.toFixed(1)}" x2="${pad.l+cw}" y2="${midY.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>
+    <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${pad.t+ch}" stroke="var(--border)" stroke-width="1"/>
+    ${bars}
+    <text x="${pad.l-4}" y="${(pad.t+4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">+${maxAbs.toFixed(1)}%</text>
+    <text x="${pad.l-4}" y="${(pad.t+ch+4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">-${maxAbs.toFixed(1)}%</text>
+    <text x="${(pad.l+cw/2).toFixed(1)}" y="${(pad.t+ch+14).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--dim)">Monthly Returns</text>
+  </svg>`;
 }
 
 function _renderBtResults(r) {
   const ret  = r.total_return;
   const retC = ret > 0 ? 'var(--green)' : 'var(--red)';
+  const stopVal = r.stop_pct != null ? r.stop_pct : '—';
+  const tpVal   = r.tp_pct   != null ? r.tp_pct   : '—';
+  const equityChart  = _svgEquityCurve(r.equity_curve, 460, 130);
+  const monthlyChart = _svgMonthlyBars(r.monthly_returns, 460, 90);
   return `
     <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px">
       <div class="stat-card" style="padding:12px">
@@ -4253,13 +4359,20 @@ function _renderBtResults(r) {
         <div class="stat-value" style="color:var(--red)">-${r.max_drawdown}%</div>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
       <div style="font-size:11px;color:var(--muted)">Total Trades<br><strong style="color:var(--text)">${r.total_trades}</strong></div>
       <div style="font-size:11px;color:var(--muted)">Final Capital<br><strong style="color:var(--text)">$${r.final_cap.toLocaleString()}</strong></div>
-      <div style="font-size:11px;color:var(--muted)">Direction<br><strong style="color:var(--text)">${r.direction}</strong></div>
+      <div style="font-size:11px;color:var(--muted)">Direction<br><strong style="color:var(--text)">${r.direction || '—'}</strong></div>
     </div>
+    ${equityChart ? `<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 6px 4px;margin-bottom:10px">
+      <div style="font-size:10px;color:var(--muted);margin-left:46px;margin-bottom:4px">Equity Curve</div>
+      ${equityChart}
+    </div>` : ''}
+    ${monthlyChart ? `<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 6px 4px;margin-bottom:10px">
+      ${monthlyChart}
+    </div>` : ''}
     <div style="font-size:10px;color:var(--dim);border-top:1px solid var(--border);padding-top:8px">
-      Simulated backtest · ${r.period} · Stop ${r.stop_pct}% / TP ${r.tp_pct}% · Min confidence ${(r.confidence*100).toFixed(0)}%
+      Simulated backtest · ${r.period} · Stop ${stopVal}% / TP ${tpVal}% · Min confidence ${r.confidence != null ? (r.confidence*100).toFixed(0) : '—'}%
     </div>`;
 }
 
@@ -4524,7 +4637,7 @@ connectWS();
 
 <!-- ── Backtest Results Modal ── -->
 <div id="bt-results-modal-overlay" class="bk-modal-overlay" style="display:none" onclick="if(event.target===this)closeBtResultsModal()">
-  <div class="bk-modal" style="width:520px">
+  <div class="bk-modal" style="width:560px">
     <div class="bk-modal-head">
       <span style="font-size:20px">📊</span>
       <div>
