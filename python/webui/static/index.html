@@ -2695,15 +2695,18 @@ async function loadTradesPage() {
   const TRADE_COLS = '<th>Date</th><th>Time</th><th>Ticker</th><th>Dir</th><th>Qty</th><th>Price</th><th>Account</th><th>Mode</th><th>Status</th>';
   const ORDER_COLS = '<th>Account</th><th>Symbol</th><th>Side</th><th>Type</th><th>Qty</th><th>Limit Price</th><th>Status</th><th>Created</th>';
 
-  function _tradeRow(t) {
+  function _tradeRow(t, dayCount) {
     const d    = t._ms ? new Date(t._ms) : null;
     const date = d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
     const time = d ? d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+    const dayBadge = (dayCount > 0)
+      ? ` <span style="font-size:9px;font-family:ui-monospace,monospace;color:var(--dim);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1px 5px;margin-left:3px;vertical-align:middle">${dayCount}</span>`
+      : '';
     const statusCell = t.event_type === 'reject' && t.reject_reason
       ? `${statusChip(t.event_type)} <span style="font-size:10px;color:var(--red);margin-left:4px" title="${t.reject_reason}">${t.reject_reason.substring(0,40)}${t.reject_reason.length>40?'…':''}</span>`
       : statusChip(t.event_type);
     return `<tr>
-      <td class="mono" style="font-size:11px;white-space:nowrap">${date}</td>
+      <td class="mono" style="font-size:11px;white-space:nowrap">${date}${dayBadge}</td>
       <td class="mono" style="font-size:11px;white-space:nowrap;color:var(--muted)">${time}</td>
       <td><strong>${t.ticker || '—'}</strong></td>
       <td>${directionChip(t.direction)}</td>
@@ -2811,12 +2814,23 @@ async function loadTradesPage() {
     sortedWeeks.forEach(wk => {
       const wkTrades = weeks[wk].sort((a,b) => b._ms - a._ms);
       const wkId = `wk-trades-${wk}`;
+
+      // Compute per-day trade counts for this week
+      const dayCounts = {};
+      wkTrades.forEach(t => {
+        const dk = t._ms ? new Date(t._ms).toDateString() : '__';
+        dayCounts[dk] = (dayCounts[dk] || 0) + 1;
+      });
+
       html += `<div style="padding:6px 16px;font-size:11px;font-weight:600;color:var(--muted);background:var(--bg);border-bottom:1px solid var(--border);border-top:1px solid var(--border);text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;justify-content:space-between">
-        <span>${_weekLabel(wk)} <span style="font-weight:400;margin-left:6px">(${wkTrades.length})</span></span>
-        <button class="btn btn-ghost btn-xs" title="Collapse" style="font-size:10px;padding:2px 6px;color:var(--muted)" onclick="toggleWeekTable('${wkId}',this)">▲</button>
+        <span>${_weekLabel(wk)}</span>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:11px;font-weight:700;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:2px 9px;letter-spacing:0">${wkTrades.length} trade${wkTrades.length !== 1 ? 's' : ''}</span>
+          <button class="btn btn-ghost btn-xs" title="Collapse" style="font-size:10px;padding:2px 6px;color:var(--muted)" onclick="toggleWeekTable('${wkId}',this)">▲</button>
+        </div>
       </div>`;
       html += `<div id="${wkId}"><table><thead><tr>${TRADE_COLS}</tr></thead><tbody>`;
-      html += wkTrades.map(_tradeRow).join('');
+      html += wkTrades.map(t => _tradeRow(t, dayCounts[t._ms ? new Date(t._ms).toDateString() : '__'])).join('');
       html += '</tbody></table></div>';
     });
     html += '</div>';
