@@ -415,6 +415,7 @@ class JobCreate(BaseModel):
 class JobUpdate(BaseModel):
     name:              Optional[str]  = None
     enabled:           Optional[bool] = None
+    notify:            Optional[bool] = None
     market_hours_only: Optional[bool] = None
     hour:              Optional[int]  = None
     minute:            Optional[int]  = None
@@ -441,14 +442,15 @@ async def _db_upsert_job(job: dict):
         conn = await asyncpg.connect(**_db_connect_kwargs())
         try:
             await conn.execute("""
-                INSERT INTO scheduler_jobs (id, name, schedule, minutes, seconds, enabled, command, payload, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, NOW())
+                INSERT INTO scheduler_jobs (id, name, schedule, minutes, seconds, enabled, notify, command, payload, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, NOW())
                 ON CONFLICT (id) DO UPDATE SET
                     name       = EXCLUDED.name,
                     schedule   = EXCLUDED.schedule,
                     minutes    = EXCLUDED.minutes,
                     seconds    = EXCLUDED.seconds,
                     enabled    = EXCLUDED.enabled,
+                    notify     = EXCLUDED.notify,
                     command    = EXCLUDED.command,
                     payload    = EXCLUDED.payload,
                     updated_at = NOW()
@@ -459,6 +461,7 @@ async def _db_upsert_job(job: dict):
                 job.get("minutes"),
                 job.get("seconds"),
                 job.get("enabled", True),
+                job.get("notify", True),
                 job.get("command"),
                 json.dumps(job.get("payload") or {}),
             )

@@ -104,6 +104,19 @@ async def job_heartbeat_check(redis: aioredis.Redis):
 
 # ── Market open / close jobs ──────────────────────────────────────────────────
 
+async def _job_notify_enabled(redis: aioredis.Redis, job_id: str) -> bool:
+    """Return True if notifications are enabled for this job (default: True)."""
+    import json as _json
+    raw = await redis.get(f"scheduler:job:{job_id}")
+    if not raw:
+        return True
+    try:
+        rec = _json.loads(raw)
+        return rec.get("notify", True)
+    except Exception:
+        return True
+
+
 @tracked
 async def job_market_open(redis: aioredis.Redis):
     """Fires at 09:30 ET on trading days."""
@@ -113,17 +126,17 @@ async def job_market_open(redis: aioredis.Redis):
     await trigger(redis, "market_open", {
         "date": now_et().date().isoformat(),
     })
-    # Notify all channels
-    await redis.xadd(
-        STREAMS["commands"],
-        {
-            "command":   "notify",
-            "channel":   "all",
-            "message":   f"Market open — {now_et().date().isoformat()}",
-            "issued_by": "scheduler",
-        },
-        maxlen=500,
-    )
+    if await _job_notify_enabled(redis, "market_open"):
+        await redis.xadd(
+            STREAMS["commands"],
+            {
+                "command":   "notify",
+                "channel":   "all",
+                "message":   f"Market open — {now_et().date().isoformat()}",
+                "issued_by": "scheduler",
+            },
+            maxlen=500,
+        )
 
 
 @tracked
@@ -135,6 +148,17 @@ async def job_market_close(redis: aioredis.Redis):
     await trigger(redis, "market_close", {
         "date": now_et().date().isoformat(),
     })
+    if await _job_notify_enabled(redis, "market_close"):
+        await redis.xadd(
+            STREAMS["commands"],
+            {
+                "command":   "notify",
+                "channel":   "all",
+                "message":   f"Market closed — {now_et().date().isoformat()}",
+                "issued_by": "scheduler",
+            },
+            maxlen=500,
+        )
 
 
 @tracked

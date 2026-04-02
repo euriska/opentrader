@@ -206,6 +206,7 @@ class Scheduler(BaseAgent):
                 "trigger_type": t_type,
                 "next_run":     j.next_run_time.isoformat() if j.next_run_time else None,
                 "enabled":      existing.get("enabled", True),
+                "notify":       existing.get("notify", True),
                 "command":      existing.get("command", "trigger"),
                 "minutes":      interval_min,
                 "seconds":      interval_sec,

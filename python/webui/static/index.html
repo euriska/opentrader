@@ -1906,8 +1906,15 @@ async function loadSchedulerPage() {
       tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No jobs configured</td></tr>';
       return;
     }
+    const NOTIFY_JOBS = new Set(['market_open', 'market_close', 'daily_summary']);
     tbody.innerHTML = jobs.map(j => {
-      const nextRun = j.next_run ? fmtTs(new Date(j.next_run).getTime()) : '—';
+      const nextRun   = j.next_run ? fmtTs(new Date(j.next_run).getTime()) : '—';
+      const notifyOn  = j.notify !== false;
+      const bellBtn   = NOTIFY_JOBS.has(j.id)
+        ? `<button class="btn btn-ghost btn-xs" style="margin-left:4px;font-size:13px;padding:2px 5px;${notifyOn ? '' : 'opacity:0.35'}"
+             title="${notifyOn ? 'Notifications on — click to mute' : 'Notifications muted — click to enable'}"
+             onclick="toggleJobNotify('${j.id}', ${notifyOn})">${notifyOn ? '🔔' : '🔕'}</button>`
+        : '';
       return `
         <tr>
           <td class="mono">${j.id}</td>
@@ -1925,6 +1932,7 @@ async function loadSchedulerPage() {
           <td style="white-space:nowrap">
             <button class="btn btn-ghost btn-xs" onclick="openJobEdit('${j.id}')">Edit</button>
             <button class="btn btn-ghost btn-xs" style="margin-left:4px" onclick="runJobNow('${j.id}')">Run Now</button>
+            ${bellBtn}
             <button class="btn btn-ghost btn-xs" style="margin-left:4px;color:var(--red)" onclick="deleteJob('${j.id}')">Delete</button>
           </td>
         </tr>
@@ -1940,6 +1948,20 @@ async function toggleJob(jobId) {
   try {
     await apiFetch(`/api/jobs/${jobId}/toggle?token=${encodeURIComponent(token)}`, { method: 'POST' });
     loadSchedulerPage();
+  } catch(e) { toast('error', 'Error', e.message); }
+}
+
+async function toggleJobNotify(jobId, currentlyOn) {
+  const token   = getToken();
+  const newVal  = !currentlyOn;
+  try {
+    await apiFetch(`/api/jobs/${jobId}?token=${encodeURIComponent(token)}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ notify: newVal }),
+    });
+    loadSchedulerPage();
+    toast('success', newVal ? '🔔 Notifications On' : '🔕 Notifications Muted', jobId.replace(/_/g,' '));
   } catch(e) { toast('error', 'Error', e.message); }
 }
 

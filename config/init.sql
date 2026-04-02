@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS scheduler_jobs (
     minutes    INT,
     seconds    INT,
     enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+    notify     BOOLEAN NOT NULL DEFAULT TRUE,
     command    TEXT,
     payload    JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
