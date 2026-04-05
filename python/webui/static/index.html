@@ -265,6 +265,10 @@ select option{background:var(--surface2)}
         <span class="nav-dot" style="background:var(--amber)"></span>
         Trades
       </div>
+      <div class="nav-item" onclick="navigate('page-trading-charts')" data-page="page-trading-charts">
+        <span class="nav-dot" style="background:#f59e0b"></span>
+        Charts
+      </div>
       <div class="nav-item" onclick="navigate('page-trading-broker')" data-page="page-trading-broker">
         <span class="nav-dot" style="background:var(--blue)"></span>
         Broker
@@ -408,7 +412,7 @@ select option{background:var(--surface2)}
         </div>
         <div class="card-body topology-wrap">
           <svg id="topology-svg" class="topo-svg"
-               viewBox="0 0 1100 420"
+               viewBox="0 0 1100 445"
                preserveAspectRatio="xMidYMid meet"
                style="width:100%;height:auto;min-height:200px">
             <defs>
@@ -816,6 +820,61 @@ select option{background:var(--surface2)}
       </div>
       </div><!-- end flex wrapper -->
 
+      <!-- Market Breadth -->
+      <div class="card" id="breadth-card" style="margin-bottom:16px">
+        <div class="card-header" style="padding:12px 16px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="card-title">Market Breadth</span>
+            <span style="font-size:10px;color:var(--muted)">OVTLYR Bull / (Bull + Bear)</span>
+          </div>
+          <span id="breadth-updated" style="font-size:10px;color:var(--dim)"></span>
+        </div>
+        <div class="card-body" style="padding:14px 16px">
+          <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">
+            <!-- Gauge -->
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:80px">
+              <svg id="breadth-gauge" width="80" height="44" viewBox="0 0 80 44">
+                <path d="M8,40 A34,34 0 0,1 72,40" fill="none" stroke="var(--surface2)" stroke-width="8" stroke-linecap="round"/>
+                <path id="breadth-gauge-arc" d="M8,40 A34,34 0 0,1 72,40" fill="none" stroke="var(--muted)" stroke-width="8" stroke-linecap="round" stroke-dasharray="0 107"/>
+              </svg>
+              <div id="breadth-pct-label" style="font-size:22px;font-weight:800;line-height:1;margin-top:-8px;color:var(--muted)">—</div>
+              <div id="breadth-signal-badge" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:100px;background:var(--surface2);color:var(--muted)">No data</div>
+            </div>
+            <!-- Counts -->
+            <div style="display:flex;flex-direction:column;gap:6px;min-width:110px">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <span style="font-size:11px;color:var(--muted)">Bull List</span>
+                <span id="breadth-bull-count" style="font-size:13px;font-weight:700;color:var(--green)">—</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <span style="font-size:11px;color:var(--muted)">Bear List</span>
+                <span id="breadth-bear-count" style="font-size:13px;font-weight:700;color:var(--red)">—</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+                <span style="font-size:11px;color:var(--muted)">Total</span>
+                <span id="breadth-total-count" style="font-size:13px;font-weight:700;color:var(--fg)">—</span>
+              </div>
+            </div>
+            <!-- Trend chart -->
+            <div style="flex:1;min-width:180px">
+              <div style="font-size:10px;color:var(--dim);margin-bottom:4px">Breadth Trend (last 200 readings)</div>
+              <svg id="breadth-chart" width="100%" height="60" preserveAspectRatio="none" viewBox="0 0 400 60" style="display:block;overflow:visible">
+                <line x1="0" y1="30" x2="400" y2="30" stroke="var(--border)" stroke-width="1" stroke-dasharray="4,4"/>
+                <text x="2" y="28" fill="var(--dim)" font-size="8">50%</text>
+                <polyline id="breadth-chart-line" points="" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+                <g id="breadth-chart-crosses"></g>
+              </svg>
+            </div>
+            <!-- Trade direction guidance -->
+            <div id="breadth-direction-box" style="min-width:130px;padding:10px 14px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);text-align:center">
+              <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em">Trade Direction</div>
+              <div id="breadth-direction-label" style="font-size:14px;font-weight:800;color:var(--muted)">—</div>
+              <div id="breadth-direction-sub" style="font-size:10px;color:var(--dim);margin-top:3px">Align trades with breadth</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="card" style="margin-bottom:16px">
         <div class="card-header">
           <span class="card-title">Recent Activity</span>
@@ -978,6 +1037,145 @@ select option{background:var(--surface2)}
           <button class="btn btn-primary" onclick="saveBrokerCfg()">Save to .env</button>
         </div>
       </div>
+    </div>
+
+    <!-- ════════════════════════════════════════
+         PAGE: Charts
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-trading-charts">
+
+      <!-- Position ticker picker -->
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-header" style="padding:10px 14px">
+          <span class="card-title" style="font-size:13px">Open Positions</span>
+          <div style="display:flex;align-items:center;gap:12px">
+            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap">
+              <input type="checkbox" id="chart-exclude-paper" onchange="_chartApplyFilters()" style="cursor:pointer;accent-color:var(--blue)">
+              Exclude paper
+            </label>
+            <select id="chart-broker-filter" onchange="_chartApplyFilters()" class="bk-field-input" style="font-size:11px;padding:3px 6px;height:26px;width:auto;min-width:120px">
+              <option value="">All accounts</option>
+            </select>
+            <button class="btn btn-ghost btn-xs" onclick="_chartRefreshPositions()" id="chart-pos-refresh-btn">&#8635; Refresh</button>
+          </div>
+        </div>
+        <div class="card-body" style="padding:10px 14px">
+          <div id="chart-position-pills" style="display:flex;flex-wrap:wrap;gap:6px;min-height:28px">
+            <span style="color:var(--dim);font-size:11px">Loading positions…</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-body" style="padding:12px 14px">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:6px">
+              <label style="font-size:11px;color:var(--muted);white-space:nowrap">Symbol</label>
+              <input id="chart-symbol-input" class="bk-field-input" type="text" placeholder="AAPL" style="width:80px;text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+            </div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <label style="font-size:11px;color:var(--muted);white-space:nowrap">Exchange</label>
+              <select id="chart-exchange-select" class="bk-field-input" style="width:120px">
+                <option value="NASDAQ">NASDAQ</option>
+                <option value="NYSE">NYSE</option>
+                <option value="AMEX">AMEX</option>
+                <option value="NYSE_ARCA">NYSE ARCA</option>
+                <option value="BINANCE">Binance</option>
+                <option value="COINBASE">Coinbase</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <label style="font-size:11px;color:var(--muted);white-space:nowrap;margin-right:2px">TF</label>
+              <button class="btn btn-sm chart-tf-btn" data-tf="5m"  onclick="_chartSetTf('5m')"  style="padding:3px 8px;font-size:11px">5m</button>
+              <button class="btn btn-sm chart-tf-btn" data-tf="15m" onclick="_chartSetTf('15m')" style="padding:3px 8px;font-size:11px">15m</button>
+              <button class="btn btn-sm chart-tf-btn" data-tf="1h"  onclick="_chartSetTf('1h')"  style="padding:3px 8px;font-size:11px">1h</button>
+              <button class="btn btn-sm chart-tf-btn" data-tf="4h"  onclick="_chartSetTf('4h')"  style="padding:3px 8px;font-size:11px">4h</button>
+              <button class="btn btn-sm chart-tf-btn" data-tf="1d"  onclick="_chartSetTf('1d')"  style="padding:3px 8px;font-size:11px;background:rgba(59,130,246,.25);color:#60a5fa;border:1px solid rgba(59,130,246,.4)">1d</button>
+              <button class="btn btn-sm chart-tf-btn" data-tf="1w"  onclick="_chartSetTf('1w')"  style="padding:3px 8px;font-size:11px">1w</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <label style="font-size:11px;color:var(--muted);white-space:nowrap">Bars</label>
+              <select id="chart-bars-select" class="bk-field-input" style="width:80px">
+                <option value="100">100</option>
+                <option value="200" selected>200</option>
+                <option value="500">500</option>
+              </select>
+            </div>
+            <button class="btn btn-sm" onclick="_chartLoad()" style="background:rgba(59,130,246,.2);color:#60a5fa;border:1px solid rgba(59,130,246,.3);padding:4px 14px">
+              Load Chart
+            </button>
+            <span id="chart-status" style="font-size:11px;color:var(--muted)"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Indicator toggles -->
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-body" style="padding:8px 14px">
+          <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+            <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-right:6px">Overlays</span>
+            <button class="btn btn-sm chart-ind-btn"        data-ind="ema10"  onclick="_chartToggleInd('ema10')"  style="padding:2px 9px;font-size:11px">EMA 10</button>
+            <button class="btn btn-sm chart-ind-btn active" data-ind="ema20"  onclick="_chartToggleInd('ema20')"  style="padding:2px 9px;font-size:11px;color:#3b82f6;border-color:rgba(59,130,246,.4);background:rgba(59,130,246,.15)">EMA 20</button>
+            <button class="btn btn-sm chart-ind-btn active" data-ind="ema50"  onclick="_chartToggleInd('ema50')"  style="padding:2px 9px;font-size:11px;color:#f59e0b;border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.12)">EMA 50</button>
+            <button class="btn btn-sm chart-ind-btn"        data-ind="ema200" onclick="_chartToggleInd('ema200')" style="padding:2px 9px;font-size:11px">EMA 200</button>
+            <button class="btn btn-sm chart-ind-btn"        data-ind="sma20"  onclick="_chartToggleInd('sma20')"  style="padding:2px 9px;font-size:11px">SMA 20</button>
+            <button class="btn btn-sm chart-ind-btn"        data-ind="bb"     onclick="_chartToggleInd('bb')"     style="padding:2px 9px;font-size:11px">BB (20,2)</button>
+            <div style="width:1px;height:16px;background:var(--border);margin:0 4px"></div>
+            <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-right:6px">Panels</span>
+            <button class="btn btn-sm chart-ind-btn active" data-ind="rsi"  onclick="_chartToggleInd('rsi')"  style="padding:2px 9px;font-size:11px;color:#a78bfa;border-color:rgba(167,139,250,.4);background:rgba(167,139,250,.12)">RSI 14</button>
+            <button class="btn btn-sm chart-ind-btn"        data-ind="macd" onclick="_chartToggleInd('macd')" style="padding:2px 9px;font-size:11px">MACD</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Indicator bar -->
+      <div id="chart-indicator-bar" style="display:none;margin-bottom:10px;padding:8px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px">
+        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:11px">
+          <span style="font-weight:700;color:var(--fg)" id="chart-ind-symbol"></span>
+          <span style="color:var(--muted)">Close: <strong id="chart-ind-close" style="color:var(--fg)">—</strong></span>
+          <span style="color:var(--muted)">EMA20: <strong id="chart-ind-ema20" style="color:#60a5fa">—</strong></span>
+          <span style="color:var(--muted)">EMA50: <strong id="chart-ind-ema50" style="color:#f59e0b">—</strong></span>
+          <span style="color:var(--muted)">RSI: <strong id="chart-ind-rsi" style="color:var(--fg)">—</strong></span>
+          <span style="color:var(--muted)">MACD: <strong id="chart-ind-macd" style="color:var(--fg)">—</strong></span>
+          <span style="color:var(--muted)">ADX: <strong id="chart-ind-adx" style="color:var(--fg)">—</strong></span>
+          <span id="chart-ind-recommend" style="padding:2px 8px;border-radius:100px;font-size:10px;font-weight:700"></span>
+          <div id="chart-ovtlyr-bar" style="display:none;border-left:1px solid var(--border);padding-left:14px;gap:12px">
+            <span style="color:var(--muted)">OVTLYR: <strong id="chart-ovt-signal" style="color:var(--fg)">—</strong></span>
+            <span style="color:var(--muted)">NINE: <strong id="chart-ovt-nine" style="color:var(--fg)">—</strong></span>
+            <span style="color:var(--muted)">F&amp;G: <strong id="chart-ovt-fg" style="color:var(--fg)">—</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart -->
+      <div class="card" style="margin-bottom:14px">
+        <div id="chart-container" style="width:100%;height:480px;position:relative">
+          <div id="chart-placeholder" style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--dim);font-size:13px">
+            Select a position or enter a symbol above
+          </div>
+          <div id="chart-loading" style="display:none;position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(10,14,26,.7);z-index:10;font-size:13px;color:var(--muted)">
+            Loading chart data…
+          </div>
+        </div>
+      </div>
+
+      <!-- RSI subpanel -->
+      <div class="card" id="chart-rsi-card" style="display:none;margin-bottom:10px">
+        <div class="card-header" style="padding:6px 14px">
+          <span class="card-title" style="font-size:11px;color:var(--muted)">RSI (14)</span>
+        </div>
+        <div id="chart-rsi-container" style="width:100%;height:110px"></div>
+      </div>
+
+      <!-- MACD subpanel -->
+      <div class="card" id="chart-macd-card" style="display:none;margin-bottom:14px">
+        <div class="card-header" style="padding:6px 14px">
+          <span class="card-title" style="font-size:11px;color:var(--muted)">MACD (12, 26, 9)</span>
+        </div>
+        <div id="chart-macd-container" style="width:100%;height:110px"></div>
+      </div>
+
     </div>
 
     <!-- ════════════════════════════════════════
@@ -1339,6 +1537,7 @@ const PAGE_TITLES = {
 
   'page-trading-trades':     'Trades',
   'page-trading-broker':     'Broker',
+  'page-trading-charts':     'Charts',
   'page-plan-engineer':      'Strategy Engineer',
   'page-plan-library':       'Strategy Library',
 };
@@ -1454,6 +1653,7 @@ function navigate(pageId) {
 
     case 'page-trading-trades':     loadTradesPage();    break;
     case 'page-trading-broker':     loadBrokerPage();       break;
+    case 'page-trading-charts':     loadChartsPage();       break;
     case 'page-plan-engineer':      loadEngineerPage();     break;
     case 'page-plan-library':       loadLibraryPage();      break;
   }
@@ -1648,7 +1848,7 @@ const TOPO_NODES = [
   { id: 'mcp-yahoo',        label: 'MCP Yahoo',        x: 15,  y: 375, group: 'mcp'      },
   { id: 'mcp-alpaca',       label: 'MCP Alpaca',       x: 735, y: 310, group: 'mcp'      },
   { id: 'mcp-tradingview',  label: 'MCP TradingView',  x: 555, y: 230, group: 'mcp'      },
-  { id: 'mcp-massive',       label: 'MCP Massive',      x: 15,  y: 445, group: 'mcp'      },
+  { id: 'mcp-massive',       label: 'MCP Massive',      x: 280, y: 390, group: 'mcp'      },
   // Chat agent
   { id: 'chat-agent',       label: 'Chat Agent',       x: 930, y: 140, group: 'interface'},
 ];
@@ -1691,6 +1891,8 @@ const TOPO_EDGES = [
   { from: 'trader-options',    to: 'broker-gateway',    label: 'broker.commands', color: '#f97316', markerId: 'arrow-orange', dashed: false },
   // Broker gateway heartbeats
   { from: 'broker-gateway',    to: 'orchestrator',      label: 'heartbeat',       color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  // MCP Massive heartbeat
+  { from: 'mcp-massive',       to: 'orchestrator',      label: 'heartbeat',       color: '#334155', markerId: 'arrow-gray',   dashed: true  },
   // MCP Yahoo — used by scraper-yahoo
   { from: 'mcp-yahoo',         to: 'scraper-yahoo',     label: 'mcp/tools',       color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
   // MCP Alpaca — used by broker-gateway area
@@ -1752,7 +1954,7 @@ function resetTopoLayout() {
     'review-agent':735,'review-agent_y':80, 'scheduler':15,'scheduler_y':310,
     'orchestrator':195,'orchestrator_y':310, 'broker-gateway':735,'broker-gateway_y':200,
     'mcp-yahoo':15,'mcp-yahoo_y':375, 'mcp-alpaca':735,'mcp-alpaca_y':310,
-    'mcp-massive':15,'mcp-massive_y':445,
+    'mcp-massive':280,'mcp-massive_y':390,
     'chat-agent':930,'chat-agent_y':140,
   };
   TOPO_NODES.forEach(n => {
@@ -2918,6 +3120,127 @@ function renderTradingDashboard(data) {
         </tr>
       `).join('');
     }
+  }
+
+  // Breadth — fetch independently (not in ws payload)
+  _refreshBreadth();
+}
+
+// ── Market Breadth ────────────────────────────────────────────────────────────
+let _breadthTimer = null;
+
+async function _refreshBreadth() {
+  // Debounce: don't hammer the endpoint on every ws tick
+  if (_breadthTimer) return;
+  _breadthTimer = setTimeout(() => { _breadthTimer = null; }, 15000);
+  try {
+    const d = await apiFetch('/api/ovtlyr/breadth');
+    _renderBreadth(d);
+  } catch(e) {}
+}
+
+function _renderBreadth(d) {
+  const cur     = d?.current;
+  const history = d?.history || [];
+
+  // Gauge arc (semicircle, total arc = 107 px at this radius)
+  const ARC_LEN = 107;
+  const arc     = document.getElementById('breadth-gauge-arc');
+  const pctLbl  = document.getElementById('breadth-pct-label');
+  const sigBadge = document.getElementById('breadth-signal-badge');
+  const bullEl  = document.getElementById('breadth-bull-count');
+  const bearEl  = document.getElementById('breadth-bear-count');
+  const totEl   = document.getElementById('breadth-total-count');
+  const dirBox  = document.getElementById('breadth-direction-box');
+  const dirLbl  = document.getElementById('breadth-direction-label');
+  const dirSub  = document.getElementById('breadth-direction-sub');
+  const updEl   = document.getElementById('breadth-updated');
+
+  if (!cur) {
+    // No data yet — market hours haven't run
+    pctLbl.textContent = '—';
+    return;
+  }
+
+  const pct    = parseFloat(cur.breadth_pct);
+  const signal = cur.signal || 'bearish';
+  const isBull = pct >= 50;
+  const isCross = signal.includes('cross');
+
+  // Colors
+  const color = isBull ? '#22c55e' : '#ef4444';
+  const bg    = isBull ? 'rgba(34,197,94,.12)' : 'rgba(239,68,68,.12)';
+  const bdr   = isBull ? 'rgba(34,197,94,.25)' : 'rgba(239,68,68,.25)';
+
+  // Gauge arc fill
+  const filled = (pct / 100) * ARC_LEN;
+  arc.setAttribute('stroke-dasharray', `${filled.toFixed(1)} ${ARC_LEN}`);
+  arc.setAttribute('stroke', color);
+
+  pctLbl.textContent = pct.toFixed(1) + '%';
+  pctLbl.style.color = color;
+
+  // Signal badge
+  const signalLabels = {
+    bullish_cross: '▲ Bullish Cross',
+    bearish_cross: '▼ Bearish Cross',
+    bullish:       '● Bullish',
+    bearish:       '● Bearish',
+  };
+  sigBadge.textContent = signalLabels[signal] || signal;
+  sigBadge.style.background = isCross ? (isBull ? 'rgba(34,197,94,.25)' : 'rgba(239,68,68,.25)') : bg;
+  sigBadge.style.color      = color;
+  sigBadge.style.border     = `1px solid ${bdr}`;
+  sigBadge.style.fontWeight = isCross ? '800' : '600';
+
+  // Counts
+  bullEl.textContent = (cur.bull_count || 0).toLocaleString();
+  bearEl.textContent = (cur.bear_count || 0).toLocaleString();
+  totEl.textContent  = (cur.total_count || 0).toLocaleString();
+
+  // Trade direction box
+  dirBox.style.background  = bg;
+  dirBox.style.borderColor = bdr;
+  dirLbl.textContent = isBull ? 'LONG ONLY' : 'SHORT ONLY';
+  dirLbl.style.color = color;
+  dirSub.textContent = isCross
+    ? (isBull ? 'Bullish crossover — renewed strength' : 'Bearish crossover — weakness confirmed')
+    : 'Align trades with breadth direction';
+
+  // Timestamp
+  if (cur.ts) {
+    const ms  = Date.parse(cur.ts);
+    const sec = Math.floor((Date.now() - ms) / 1000);
+    updEl.textContent = sec < 60 ? `${sec}s ago`
+      : sec < 3600 ? `${Math.floor(sec/60)}m ago`
+      : `${Math.floor(sec/3600)}h ago`;
+  }
+
+  // Trend chart
+  if (history.length >= 2) {
+    const chartLine   = document.getElementById('breadth-chart-line');
+    const chartCrosses = document.getElementById('breadth-chart-crosses');
+    const W = 400, H = 60;
+    const n = history.length;
+    const pts = history.map((h, i) => {
+      const x = (i / (n - 1)) * W;
+      const y = H - (parseFloat(h.breadth_pct) / 100) * H;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+
+    // Color line by current direction
+    chartLine.setAttribute('points', pts);
+    chartLine.setAttribute('stroke', color);
+
+    // Mark crossovers with a small dot
+    chartCrosses.innerHTML = history
+      .map((h, i) => {
+        if (!h.signal?.includes('cross')) return '';
+        const x = (i / (n - 1)) * W;
+        const y = H - (parseFloat(h.breadth_pct) / 100) * H;
+        const c = h.signal === 'bullish_cross' ? '#22c55e' : '#ef4444';
+        return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${c}" stroke="var(--surface)" stroke-width="1.5"/>`;
+      }).join('');
   }
 }
 
@@ -5531,6 +5854,444 @@ function newStrategy() {
 async function loadLibraryPage() {
   await _loadStrategies();
   _renderLibrary(_strategies);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Charts Page
+// ══════════════════════════════════════════════════════════════════════════════
+
+let _chartTf           = '1d';
+let _chartInstance     = null;
+let _chartRsiInst      = null;
+let _chartMacdInst     = null;
+let _lwcLoaded         = false;
+let _chartAllPositions = [];
+let _chartLastData     = null;  // cached for re-render on toggle
+
+// Active indicator toggles — persisted in localStorage
+const _IND_KEY = 'ot_chart_indicators';
+let _chartInds = (() => {
+  try { return JSON.parse(localStorage.getItem(_IND_KEY)) || {}; } catch(_) { return {}; }
+})();
+// Defaults
+const _IND_DEFAULTS = { ema10: false, ema20: true, ema50: true, ema200: false, sma20: false, bb: false, rsi: true, macd: false };
+function _indOn(k) { return _chartInds[k] !== undefined ? _chartInds[k] : _IND_DEFAULTS[k]; }
+
+// ── Indicator math ────────────────────────────────────────────────────────────
+function _calcEMA(closes, period) {
+  if (closes.length < period) return new Array(closes.length).fill(null);
+  const k = 2 / (period + 1);
+  const out = new Array(closes.length).fill(null);
+  let ema = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  out[period - 1] = ema;
+  for (let i = period; i < closes.length; i++) {
+    ema = closes[i] * k + ema * (1 - k);
+    out[i] = ema;
+  }
+  return out;
+}
+
+function _calcSMA(closes, period) {
+  return closes.map((_, i) =>
+    i < period - 1 ? null : closes.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0) / period
+  );
+}
+
+function _calcBB(closes, period = 20, mult = 2) {
+  const mid = _calcSMA(closes, period);
+  return closes.map((_, i) => {
+    if (mid[i] === null) return { upper: null, mid: null, lower: null };
+    const slice = closes.slice(i - period + 1, i + 1);
+    const mean  = mid[i];
+    const std   = Math.sqrt(slice.reduce((s, v) => s + (v - mean) ** 2, 0) / period);
+    return { upper: mean + mult * std, mid: mean, lower: mean - mult * std };
+  });
+}
+
+function _calcRSI(closes, period = 14) {
+  const out = new Array(closes.length).fill(null);
+  if (closes.length <= period) return out;
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d > 0) gains += d; else losses -= d;
+  }
+  let avgG = gains / period, avgL = losses / period;
+  out[period] = 100 - 100 / (1 + (avgL === 0 ? Infinity : avgG / avgL));
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    avgG = (avgG * (period - 1) + Math.max(d, 0)) / period;
+    avgL = (avgL * (period - 1) + Math.max(-d, 0)) / period;
+    out[i] = 100 - 100 / (1 + (avgL === 0 ? Infinity : avgG / avgL));
+  }
+  return out;
+}
+
+function _calcMACD(closes, fast = 12, slow = 26, signal = 9) {
+  const emaFast = _calcEMA(closes, fast);
+  const emaSlow = _calcEMA(closes, slow);
+  const macdLine = closes.map((_, i) =>
+    emaFast[i] !== null && emaSlow[i] !== null ? emaFast[i] - emaSlow[i] : null
+  );
+  // Signal line = EMA(9) of MACD line
+  const validMacd = macdLine.filter(v => v !== null);
+  const sigRaw    = _calcEMA(validMacd, signal);
+  let si = 0;
+  const sigLine = macdLine.map(v => v === null ? null : sigRaw[si++] ?? null);
+  const hist    = macdLine.map((v, i) => v !== null && sigLine[i] !== null ? v - sigLine[i] : null);
+  return { macdLine, sigLine, hist };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Load lightweight-charts from CDN once
+function _ensureLwc(cb) {
+  if (window.LightweightCharts) { cb(); return; }
+  const s = document.createElement('script');
+  s.src = 'https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js';
+  s.onload = cb;
+  s.onerror = () => { document.getElementById('chart-status').textContent = 'Failed to load charting library'; };
+  document.head.appendChild(s);
+}
+
+function _chartSetTf(tf) {
+  _chartTf = tf;
+  document.querySelectorAll('.chart-tf-btn').forEach(b => {
+    b.style.background = b.dataset.tf === tf ? 'rgba(59,130,246,.25)' : '';
+    b.style.color      = b.dataset.tf === tf ? '#60a5fa' : '';
+    b.style.border     = b.dataset.tf === tf ? '1px solid rgba(59,130,246,.4)' : '';
+  });
+}
+
+function _chartToggleInd(key) {
+  _chartInds[key] = !_indOn(key);
+  localStorage.setItem(_IND_KEY, JSON.stringify(_chartInds));
+  // Update button style
+  const btn = document.querySelector(`.chart-ind-btn[data-ind="${key}"]`);
+  if (btn) _styleIndBtn(btn, key);
+  // Re-render overlays if we have data
+  if (_chartLastData) _chartRender(_chartLastData);
+}
+
+function _styleIndBtn(btn, key) {
+  const on = _indOn(key);
+  const colors = {
+    ema10:  ['#4ade80','rgba(74,222,128,.4)','rgba(74,222,128,.12)'],
+    ema20:  ['#3b82f6','rgba(59,130,246,.4)','rgba(59,130,246,.15)'],
+    ema50:  ['#f59e0b','rgba(245,158,11,.4)','rgba(245,158,11,.12)'],
+    ema200: ['#f43f5e','rgba(244,63,94,.4)','rgba(244,63,94,.12)'],
+    sma20:  ['#14b8a6','rgba(20,184,166,.4)','rgba(20,184,166,.12)'],
+    bb:     ['#8b5cf6','rgba(139,92,246,.4)','rgba(139,92,246,.12)'],
+    rsi:    ['#a78bfa','rgba(167,139,250,.4)','rgba(167,139,250,.12)'],
+    macd:   ['#22d3ee','rgba(34,211,238,.4)','rgba(34,211,238,.12)'],
+  };
+  const [clr, bdr, bg] = colors[key] || ['var(--muted)','var(--border)','transparent'];
+  btn.style.color      = on ? clr : 'var(--muted)';
+  btn.style.borderColor= on ? bdr : 'var(--border)';
+  btn.style.background = on ? bg  : 'transparent';
+}
+
+async function _chartRefreshPositions() {
+  const pills = document.getElementById('chart-position-pills');
+  const btn   = document.getElementById('chart-pos-refresh-btn');
+  if (btn) btn.disabled = true;
+  pills.innerHTML = '<span style="color:var(--dim);font-size:11px">Loading…</span>';
+  try {
+    const d = await apiFetch('/api/charts/positions');
+    _chartAllPositions = d.positions || [];
+
+    // Populate broker account dropdown
+    const sel = document.getElementById('chart-broker-filter');
+    const prev = sel.value;
+    const accounts = [...new Map(_chartAllPositions.map(p => [p.account, p])).values()];
+    sel.innerHTML = '<option value="">All accounts</option>' +
+      accounts.map(p =>
+        `<option value="${p.account}">${p.display_name || p.account} (${p.broker}${p.mode === 'live' ? ' · live' : ''})</option>`
+      ).join('');
+    if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+
+    _chartApplyFilters();
+  } catch(e) {
+    pills.innerHTML = `<span style="color:var(--red);font-size:11px">Error: ${e.message}</span>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _chartApplyFilters() {
+  const pills        = document.getElementById('chart-position-pills');
+  const excludePaper = document.getElementById('chart-exclude-paper')?.checked;
+  const acctFilter   = document.getElementById('chart-broker-filter')?.value || '';
+
+  let positions = _chartAllPositions;
+  if (excludePaper) positions = positions.filter(p => p.mode === 'live');
+  if (acctFilter)   positions = positions.filter(p => p.account === acctFilter);
+
+  if (!positions.length) {
+    pills.innerHTML = '<span style="color:var(--dim);font-size:11px">No positions match filters</span>';
+    return;
+  }
+
+  // Group by symbol, collect accounts
+  const bySymbol = {};
+  for (const p of positions) {
+    if (!bySymbol[p.symbol]) bySymbol[p.symbol] = [];
+    bySymbol[p.symbol].push(p);
+  }
+
+  const brokerColors = { tradier:'#1da462', alpaca:'#f59e0b', webull:'#e82f3e' };
+  pills.innerHTML = Object.entries(bySymbol).map(([sym, accts]) => {
+    const side    = accts[0].side;
+    const sideClr = side === 'long' ? '#4ade80' : '#f87171';
+    const brokers = [...new Set(accts.map(a => a.broker))];
+    const dots    = brokers.map(b =>
+      `<span style="width:6px;height:6px;border-radius:50%;background:${brokerColors[b]||'var(--muted)'};flex-shrink:0;display:inline-block"></span>`
+    ).join('');
+    const tip = accts.map(a => `${a.display_name} (${a.broker}${a.mode === 'live' ? ' live' : ''})`).join(', ');
+    return `<button class="btn btn-sm" title="${tip}"
+      onclick="_chartLoadSymbol('${sym}')"
+      style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;font-size:12px;font-weight:700;color:#ffffff;
+             background:rgba(255,255,255,.04);border:1px solid var(--border)">
+      ${dots}
+      <span>${sym}</span>
+      <span style="font-size:9px;color:${sideClr};font-weight:600">${side.toUpperCase()}</span>
+    </button>`;
+  }).join('');
+}
+
+function _chartLoadSymbol(sym) {
+  document.getElementById('chart-symbol-input').value = sym;
+  _chartLoad();
+}
+
+async function loadChartsPage() {
+  _chartSetTf(_chartTf);
+  await _chartRefreshPositions();
+}
+
+async function _chartLoad() {
+  const sym   = (document.getElementById('chart-symbol-input').value || '').trim().toUpperCase();
+  const exch  = document.getElementById('chart-exchange-select').value;
+  const bars  = parseInt(document.getElementById('chart-bars-select').value) || 200;
+  const status = document.getElementById('chart-status');
+
+  if (!sym) { status.textContent = 'Enter a symbol first'; return; }
+
+  status.textContent = 'Fetching data…';
+  document.getElementById('chart-loading').style.display = 'flex';
+  document.getElementById('chart-placeholder').style.display = 'none';
+
+  _ensureLwc(async () => {
+    try {
+      const d = await apiFetch(
+        `/api/charts/data?symbol=${encodeURIComponent(sym)}&exchange=${encodeURIComponent(exch)}&timeframe=${_chartTf}&bars=${bars}`
+      );
+      _chartRender(d);
+      // Sync exchange dropdown to resolved exchange (auto-detected if symbol not on preferred)
+      if (d.exchange && d.exchange !== exch) {
+        const sel = document.getElementById('chart-exchange-select');
+        if (sel) {
+          // Add option if not present
+          if (![...sel.options].some(o => o.value === d.exchange)) {
+            const opt = document.createElement('option');
+            opt.value = opt.textContent = d.exchange;
+            sel.appendChild(opt);
+          }
+          sel.value = d.exchange;
+        }
+      }
+      status.textContent = `${d.ohlcv.length} candles · ${_chartTf} · ${d.exchange}`;
+    } catch(e) {
+      status.textContent = `Error: ${e.message}`;
+    } finally {
+      document.getElementById('chart-loading').style.display = 'none';
+    }
+  });
+}
+
+function _chartRender(d) {
+  _chartLastData = d;
+  const { symbol, ohlcv, indicators, ovtlyr } = d;
+  const container     = document.getElementById('chart-container');
+  const rsiContainer  = document.getElementById('chart-rsi-container');
+  const macdContainer = document.getElementById('chart-macd-container');
+
+  // Destroy previous instances
+  for (const [inst, key] of [[_chartInstance,'_chartInstance'],[_chartRsiInst,'_chartRsiInst'],[_chartMacdInst,'_chartMacdInst']]) {
+    if (inst) { try { inst.remove(); } catch(_){} }
+  }
+  _chartInstance = _chartRsiInst = _chartMacdInst = null;
+  container.querySelectorAll('.tv-chart').forEach(el => el.remove());
+  rsiContainer.innerHTML = '';
+  macdContainer.innerHTML = '';
+
+  // Sync toggle button styles on render
+  document.querySelectorAll('.chart-ind-btn').forEach(b => _styleIndBtn(b, b.dataset.ind));
+
+  if (!ohlcv.length) {
+    document.getElementById('chart-placeholder').style.display = 'flex';
+    document.getElementById('chart-placeholder').textContent = 'No candle data returned';
+    return;
+  }
+
+  const candles = [...ohlcv].sort((a, b) => a.time - b.time);
+  const closes  = candles.map(c => c.close);
+  const times   = candles.map(c => c.time);
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const LC = LightweightCharts;
+  const BASE_CHART_OPTS = {
+    layout: { background: { color: '#0a0e1a' }, textColor: '#94a3b8' },
+    grid:   { vertLines: { color: '#1e2a4a' }, horzLines: { color: '#1e2a4a' } },
+    crosshair: { mode: LC.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: '#1e2a4a' },
+    timeScale: { borderColor: '#1e2a4a', timeVisible: true, secondsVisible: false },
+  };
+  function makeSub(container, height) {
+    const div = document.createElement('div');
+    div.style.cssText = `width:100%;height:${height}px`;
+    container.appendChild(div);
+    const c = LC.createChart(div, { ...BASE_CHART_OPTS, width: div.clientWidth, height,
+      timeScale: { ...BASE_CHART_OPTS.timeScale, visible: false } });
+    new ResizeObserver(() => c.applyOptions({ width: div.clientWidth })).observe(div);
+    return c;
+  }
+  function toSeries(vals) {
+    return vals.map((v, i) => v != null ? { time: times[i], value: v } : null).filter(Boolean);
+  }
+
+  // ── Main chart ────────────────────────────────────────────────────────────
+  const chartDiv = document.createElement('div');
+  chartDiv.className = 'tv-chart';
+  chartDiv.style.cssText = 'width:100%;height:460px';
+  container.appendChild(chartDiv);
+
+  const chart = LC.createChart(chartDiv, { ...BASE_CHART_OPTS, width: chartDiv.clientWidth, height: 460 });
+  _chartInstance = chart;
+  new ResizeObserver(() => chart.applyOptions({ width: chartDiv.clientWidth })).observe(chartDiv);
+
+  // Candlesticks
+  const cSeries = chart.addCandlestickSeries({
+    upColor:'#22c55e', downColor:'#ef4444',
+    borderUpColor:'#22c55e', borderDownColor:'#ef4444',
+    wickUpColor:'#22c55e', wickDownColor:'#ef4444',
+  });
+  cSeries.setData(candles);
+
+  // Volume
+  const vSeries = chart.addHistogramSeries({
+    priceFormat: { type:'volume' }, priceScaleId:'vol',
+    scaleMargins: { top:0.82, bottom:0 },
+  });
+  vSeries.setData(candles.map(c => ({
+    time: c.time, value: c.volume,
+    color: c.close >= c.open ? 'rgba(34,197,94,.3)' : 'rgba(239,68,68,.3)',
+  })));
+
+  // ── Overlays ──────────────────────────────────────────────────────────────
+  function addLine(vals, color, title, width = 1) {
+    const s = chart.addLineSeries({ color, lineWidth: width, title, lastValueVisible: true, priceLineVisible: false });
+    s.setData(toSeries(vals));
+    return s;
+  }
+
+  if (_indOn('ema10'))  addLine(_calcEMA(closes, 10),  '#4ade80', 'EMA10');
+  if (_indOn('ema20'))  addLine(_calcEMA(closes, 20),  '#3b82f6', 'EMA20');
+  if (_indOn('ema50'))  addLine(_calcEMA(closes, 50),  '#f59e0b', 'EMA50');
+  if (_indOn('ema200')) addLine(_calcEMA(closes, 200), '#f43f5e', 'EMA200');
+  if (_indOn('sma20'))  addLine(_calcSMA(closes, 20),  '#14b8a6', 'SMA20');
+
+  if (_indOn('bb')) {
+    const bb = _calcBB(closes);
+    addLine(bb.map(b => b.upper), '#8b5cf6', 'BB+', 1);
+    addLine(bb.map(b => b.mid),   '#8b5cf6', 'BB mid', 1);
+    addLine(bb.map(b => b.lower), '#8b5cf6', 'BB−', 1);
+  }
+
+  // OVTLYR signal marker
+  if (ovtlyr?.signal) {
+    const last = candles[candles.length - 1];
+    const isBuy = ovtlyr.signal.toLowerCase() === 'buy';
+    cSeries.setMarkers([{
+      time: last.time,
+      position: isBuy ? 'belowBar' : 'aboveBar',
+      color: isBuy ? '#4ade80' : '#f87171',
+      shape: isBuy ? 'arrowUp' : 'arrowDown',
+      text: `OVTLYR ${ovtlyr.signal}${ovtlyr.nine_score != null ? ` (${ovtlyr.nine_score}/9)` : ''}`,
+    }]);
+  }
+
+  chart.timeScale().fitContent();
+
+  // ── RSI subpanel ──────────────────────────────────────────────────────────
+  const showRsi = _indOn('rsi');
+  document.getElementById('chart-rsi-card').style.display = showRsi ? '' : 'none';
+  if (showRsi) {
+    const rsiVals = _calcRSI(closes);
+    const rsiChart = makeSub(rsiContainer, 110);
+    _chartRsiInst = rsiChart;
+    rsiChart.applyOptions({ rightPriceScale: { scaleMargins: { top:0.1, bottom:0.1 } } });
+    const rs = rsiChart.addLineSeries({ color:'#a78bfa', lineWidth:1.5, lastValueVisible:true, priceLineVisible:false, title:'RSI' });
+    rs.setData(toSeries(rsiVals));
+    for (const [lvl, clr] of [[70,'rgba(239,68,68,.45)'],[30,'rgba(34,197,94,.45)'],[50,'rgba(148,163,184,.25)']]) {
+      const ref = rsiChart.addLineSeries({ color:clr, lineWidth:1, lineStyle:LC.LineStyle.Dashed, lastValueVisible:false, priceLineVisible:false });
+      ref.setData(times.map(t => ({ time:t, value:lvl })));
+    }
+    rsiChart.timeScale().fitContent();
+  }
+
+  // ── MACD subpanel ─────────────────────────────────────────────────────────
+  const showMacd = _indOn('macd');
+  document.getElementById('chart-macd-card').style.display = showMacd ? '' : 'none';
+  if (showMacd) {
+    const { macdLine, sigLine, hist } = _calcMACD(closes);
+    const macdChart = makeSub(macdContainer, 110);
+    _chartMacdInst = macdChart;
+    macdChart.applyOptions({ rightPriceScale: { scaleMargins: { top:0.1, bottom:0.1 } } });
+    // Histogram
+    const hs = macdChart.addHistogramSeries({ priceScaleId:'macd_hist', lastValueVisible:false, priceLineVisible:false });
+    hs.setData(hist.map((v, i) => v != null ? { time:times[i], value:v, color: v >= 0 ? 'rgba(34,197,94,.6)' : 'rgba(239,68,68,.6)' } : null).filter(Boolean));
+    // MACD line
+    const ms = macdChart.addLineSeries({ color:'#22d3ee', lineWidth:1.5, lastValueVisible:true, priceLineVisible:false, title:'MACD' });
+    ms.setData(toSeries(macdLine));
+    // Signal line
+    const ss = macdChart.addLineSeries({ color:'#f59e0b', lineWidth:1, lastValueVisible:true, priceLineVisible:false, title:'Signal' });
+    ss.setData(toSeries(sigLine));
+    // Zero line
+    const zs = macdChart.addLineSeries({ color:'rgba(148,163,184,.3)', lineWidth:1, lineStyle:LC.LineStyle.Dashed, lastValueVisible:false, priceLineVisible:false });
+    zs.setData(times.map(t => ({ time:t, value:0 })));
+    macdChart.timeScale().fitContent();
+  }
+
+  // ── Indicator bar (TV scraper current values) ─────────────────────────────
+  document.getElementById('chart-indicator-bar').style.display = '';
+  document.getElementById('chart-ind-symbol').textContent = symbol;
+  document.getElementById('chart-ind-close').textContent  = indicators.close != null ? '$'+indicators.close.toFixed(2) : '—';
+  document.getElementById('chart-ind-ema20').textContent  = indicators.EMA20  != null ? indicators.EMA20.toFixed(2)   : '—';
+  document.getElementById('chart-ind-ema50').textContent  = indicators.EMA50  != null ? indicators.EMA50.toFixed(2)   : '—';
+  document.getElementById('chart-ind-rsi').textContent    = indicators.RSI    != null ? indicators.RSI.toFixed(1)     : '—';
+  const macdV  = indicators.MACD_macd;
+  const macdEl = document.getElementById('chart-ind-macd');
+  macdEl.textContent = macdV != null ? macdV.toFixed(4) : '—';
+  macdEl.style.color = macdV != null ? (macdV >= 0 ? '#4ade80' : '#f87171') : 'var(--fg)';
+  document.getElementById('chart-ind-adx').textContent = indicators.ADX != null ? indicators.ADX.toFixed(1) : '—';
+  const rec   = indicators.Recommend_All;
+  const recEl = document.getElementById('chart-ind-recommend');
+  if (rec != null) {
+    const lbl = rec >= 0.5 ? 'Strong Buy' : rec >= 0.1 ? 'Buy' : rec <= -0.5 ? 'Strong Sell' : rec <= -0.1 ? 'Sell' : 'Neutral';
+    const clr = rec >= 0.1 ? '#4ade80' : rec <= -0.1 ? '#f87171' : '#94a3b8';
+    recEl.textContent = `TV: ${lbl}`; recEl.style.color = clr;
+    recEl.style.background = clr + '22'; recEl.style.border = `1px solid ${clr}55`;
+  } else { recEl.textContent = ''; }
+  const ovtBar = document.getElementById('chart-ovtlyr-bar');
+  if (ovtlyr?.signal || ovtlyr?.nine_score != null) {
+    ovtBar.style.display = 'flex';
+    const se = document.getElementById('chart-ovt-signal');
+    se.textContent = ovtlyr.signal || '—';
+    se.style.color = ovtlyr.signal?.toLowerCase() === 'buy' ? '#4ade80' : '#f87171';
+    document.getElementById('chart-ovt-nine').textContent = ovtlyr.nine_score != null ? ovtlyr.nine_score+'/9' : '—';
+    document.getElementById('chart-ovt-fg').textContent   = ovtlyr.fear_greed  != null ? ovtlyr.fear_greed.toFixed(1) : '—';
+  } else { ovtBar.style.display = 'none'; }
 }
 
 function filterLibrary(q) {

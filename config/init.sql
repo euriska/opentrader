@@ -114,6 +114,19 @@ SELECT create_hypertable('ovtlyr_lists', 'ts', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS ovtlyr_lists_type_ts ON ovtlyr_lists (list_type, ts DESC);
 CREATE INDEX IF NOT EXISTS ovtlyr_lists_ticker ON ovtlyr_lists (ticker, ts DESC);
 
+-- Market breadth snapshots — bull/bear ratio from OVTLYR lists (updated every 3 min during market hours)
+CREATE TABLE IF NOT EXISTS ovtlyr_breadth (
+    ts           TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    bull_count   INT          NOT NULL,
+    bear_count   INT          NOT NULL,
+    total_count  INT          NOT NULL,
+    breadth_pct  NUMERIC(5,2) NOT NULL,  -- bull / (bull + bear) * 100
+    signal       TEXT,                   -- bullish_cross | bearish_cross | bullish | bearish
+    raw          JSONB
+);
+SELECT create_hypertable('ovtlyr_breadth', 'ts', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS ovtlyr_breadth_ts ON ovtlyr_breadth (ts DESC);
+
 -- Per-ticker Fear & Greed scores (one row per ticker per trading day)
 -- Regular table (not hypertable) — small data, needs simple UNIQUE(ticker,date)
 CREATE TABLE IF NOT EXISTS ticker_sentiment (

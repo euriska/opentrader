@@ -341,6 +341,76 @@ class OvtlyrScraperAgent(BaseAgent):
                 )
         await pipe.execute()
 
+        # Compute and store market breadth
+        await self._store_breadth(lists)
+
+    async def _store_breadth(self, lists: dict):
+        """
+        Compute market breadth = bull / (bull + bear) * 100.
+        Detect crossovers vs previous reading, cache in Redis, persist to DB.
+        """
+        import json as _json
+        bull_count  = len(lists.get("bull", []))
+        bear_count  = len(lists.get("bear", []))
+        total_count = bull_count + bear_count
+        if total_count == 0:
+            return
+
+        breadth_pct = round(bull_count / total_count * 100, 2)
+
+        # Detect crossover vs previous reading
+        signal = "bullish" if breadth_pct >= 50 else "bearish"
+        try:
+            prev_raw = await self.redis.get("ovtlyr:market_breadth")
+            if prev_raw:
+                prev = _json.loads(prev_raw)
+                prev_pct = float(prev.get("breadth_pct", breadth_pct))
+                if prev_pct < 50 and breadth_pct >= 50:
+                    signal = "bullish_cross"
+                elif prev_pct >= 50 and breadth_pct < 50:
+                    signal = "bearish_cross"
+        except Exception:
+            pass
+
+        ts_iso = datetime.utcnow().isoformat()
+        snapshot = {
+            "bull_count":  bull_count,
+            "bear_count":  bear_count,
+            "total_count": total_count,
+            "breadth_pct": breadth_pct,
+            "signal":      signal,
+            "ts":          ts_iso,
+        }
+
+        pipe = self.redis.pipeline()
+        # Current snapshot
+        pipe.set("ovtlyr:market_breadth", _json.dumps(snapshot), ex=86400)
+        # Rolling history (last 200 readings ≈ ~10 hours of 3-min data)
+        pipe.lpush("ovtlyr:market_breadth:history", _json.dumps({
+            "breadth_pct": breadth_pct,
+            "signal":      signal,
+            "ts":          ts_iso,
+        }))
+        pipe.ltrim("ovtlyr:market_breadth:history", 0, 199)
+        await pipe.execute()
+
+        # Persist to DB
+        if self._db:
+            try:
+                await self._db.execute(
+                    """
+                    INSERT INTO ovtlyr_breadth (bull_count, bear_count, total_count, breadth_pct, signal, raw)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    """,
+                    bull_count, bear_count, total_count, breadth_pct, signal,
+                    _json.dumps(snapshot),
+                )
+            except Exception as e:
+                log.warning("scraper-ovtlyr.breadth_db_insert_error", error=str(e))
+
+        log.info("scraper-ovtlyr.breadth_stored",
+                 breadth_pct=breadth_pct, bull=bull_count, bear=bear_count, signal=signal)
+
     async def _warmup(self):
         if self._ready:
             await self.ovtlyr.warmup()

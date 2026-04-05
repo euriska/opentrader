@@ -2380,13 +2380,12 @@ async def get_ovtlyr_signals(list_type: str = "bull", limit: int = 100, token: s
 
 
 @app.get("/api/sentiment")
-async def get_sentiment(token: str = ""):
+async def get_sentiment():
     """
     Return latest per-ticker F&G sentiment scores + 30-day trend.
     Scores are computed daily at 16:20 ET by scraper-yahoo-sentiment.
     Response: { "AAPL": { score, label, rsi, ma_score, momentum, vol_score, close, date, trend } }
     """
-    check_token(token)
     import json as _json
     _redis = await get_redis()
 
@@ -2450,6 +2449,243 @@ async def get_sentiment(token: str = ""):
             log.warning("sentiment.db_trend_error", error=str(ex))
 
     return scores
+
+
+@app.get("/api/ovtlyr/breadth")
+async def get_ovtlyr_breadth():
+    """
+    Return current market breadth + rolling history.
+    Breadth = bull_count / (bull + bear) * 100.
+    Updated every 3 min during market hours by scraper-ovtlyr.
+    """
+    import json as _json
+    _redis = await get_redis()
+
+    current_raw = await _redis.get("ovtlyr:market_breadth")
+    current = _json.loads(current_raw) if current_raw else None
+
+    history_raws = await _redis.lrange("ovtlyr:market_breadth:history", 0, 199)
+    history = []
+    for r in history_raws:
+        try:
+            history.append(_json.loads(r))
+        except Exception:
+            pass
+    # History is stored newest-first (LPUSH); reverse for chronological order
+    history = list(reversed(history))
+
+    # Fallback: query DB for history if Redis is empty (e.g. after restart)
+    if not history and DB_URL:
+        try:
+            conn = await asyncpg.connect(**_db_connect_kwargs())
+            try:
+                rows = await conn.fetch(
+                    """
+                    SELECT ts, breadth_pct, bull_count, bear_count, signal
+                    FROM ovtlyr_breadth
+                    ORDER BY ts ASC
+                    LIMIT 200
+                    """
+                )
+                history = [
+                    {
+                        "ts":          row["ts"].isoformat(),
+                        "breadth_pct": float(row["breadth_pct"]),
+                        "bull_count":  row["bull_count"],
+                        "bear_count":  row["bear_count"],
+                        "signal":      row["signal"],
+                    }
+                    for row in rows
+                ]
+            finally:
+                await conn.close()
+        except Exception as ex:
+            log.warning("breadth.db_history_error", error=str(ex))
+
+    return {"current": current, "history": history}
+
+
+# ── TradingView Charts ────────────────────────────────────────────────────────
+
+# Timeframe label → TradingView scraper format (indicators) + stream format
+_TV_TF_MAP = {
+    "1m": ("1m",  "1"),
+    "5m": ("5m",  "5"),
+    "15m":("15m", "15"),
+    "1h": ("1h",  "60"),
+    "4h": ("4h",  "240"),
+    "1d": ("1d",  "1D"),
+    "1w": ("1w",  "1W"),
+}
+
+# US exchange fallback order for auto-detection
+_TV_EXCHANGES = ["NASDAQ", "NYSE", "AMEX", "NYSE_ARCA", "NYSE_MKT"]
+
+
+def _tv_resolve_exchange(symbol: str, preferred: str) -> str:
+    """
+    Return the correct TradingView exchange for a symbol.
+    Tries the preferred exchange first, then falls back through common US exchanges.
+    Returns the first exchange that TradingView accepts, or the preferred if all fail.
+    """
+    import requests
+    exchanges = [preferred] + [e for e in _TV_EXCHANGES if e != preferred]
+    for exch in exchanges:
+        try:
+            r = requests.get(
+                "https://scanner.tradingview.com/symbol",
+                params={"symbol": f"{exch}:{symbol}", "fields": "market"},
+                timeout=5,
+            )
+            if r.status_code == 200:
+                return exch
+        except Exception:
+            pass
+    return preferred
+
+
+def _tv_fetch_indicators(symbol: str, exchange: str, tf_ind: str) -> tuple:
+    """
+    Synchronous — run in subprocess.
+    Returns (resolved_exchange, indicators_dict).
+    """
+    from tradingview_scraper.symbols.technicals import Indicators
+    resolved = _tv_resolve_exchange(symbol, exchange)
+    ind = Indicators()
+    result = ind.scrape(symbol=symbol, exchange=resolved, timeframe=tf_ind, allIndicators=True)
+    data = result.get("data", result) if isinstance(result, dict) else {}
+    return resolved, (data if isinstance(data, dict) else {})
+
+
+def _tv_fetch_ohlcv(symbol: str, exchange: str, tf_stream: str, bars: int) -> list:
+    """Synchronous — run in subprocess via ProcessPoolExecutor."""
+    import os, glob as _glob
+    from tradingview_scraper.symbols.stream import Streamer
+    streamer = Streamer(export_result=True, export_type="json")
+    result = streamer.stream(
+        exchange=exchange,
+        symbol=symbol,
+        timeframe=tf_stream,
+        numb_price_candles=bars,
+    )
+    # Clean up exported JSON files (library always writes one)
+    try:
+        for f in _glob.glob(os.path.join(os.getcwd(), "export", f"ohlc_{symbol.lower()}_*.json")):
+            os.remove(f)
+    except Exception:
+        pass
+    return result.get("ohlc", []) if isinstance(result, dict) else []
+
+
+@app.get("/api/charts/data")
+async def get_chart_data(
+    symbol: str,
+    exchange: str = "NASDAQ",
+    timeframe: str = "1d",
+    bars: int = 200,
+):
+    """
+    Return OHLCV candles + key indicators for a symbol via tradingview_scraper.
+    timeframe: 1m | 5m | 15m | 1h | 4h | 1d | 1w
+    """
+    import asyncio
+    from concurrent.futures import ProcessPoolExecutor
+    tf_ind, tf_stream = _TV_TF_MAP.get(timeframe, ("1d", "1D"))
+    loop = asyncio.get_event_loop()
+
+    # tradingview_scraper uses signal.alarm (main-thread only) — must run in subprocess
+    # Resolve exchange first (fast HTTP check), then fetch indicators + OHLCV in parallel
+    try:
+        with ProcessPoolExecutor(max_workers=3) as pool:
+            # indicators fetch also resolves the exchange and returns it
+            ind_future  = loop.run_in_executor(pool, _tv_fetch_indicators, symbol.upper(), exchange.upper(), tf_ind)
+            resolved_exchange, raw_ind = await ind_future
+            # use confirmed exchange for OHLCV
+            raw_ohlcv = await loop.run_in_executor(pool, _tv_fetch_ohlcv, symbol.upper(), resolved_exchange, tf_stream, bars)
+    except Exception as ex:
+        raise HTTPException(status_code=502, detail=f"TradingView fetch error: {ex}")
+
+    # Pull the indicator keys we care about
+    def _f(k):
+        v = raw_ind.get(k)
+        return round(float(v), 4) if v is not None else None
+
+    indicators = {
+        "close":        _f("close"),
+        "EMA10":        _f("EMA10"),
+        "EMA20":        _f("EMA20"),
+        "EMA50":        _f("EMA50"),
+        "EMA200":       _f("EMA200"),
+        "SMA20":        _f("SMA20"),
+        "SMA50":        _f("SMA50"),
+        "RSI":          _f("RSI"),
+        "MACD_macd":    _f("MACD.macd"),
+        "MACD_signal":  _f("MACD.signal"),
+        "ADX":          _f("ADX"),
+        "BBPower":      _f("BBPower"),
+        "Recommend_All":_f("Recommend.All"),
+        "Recommend_MA": _f("Recommend.MA"),
+    }
+
+    # Normalise OHLCV: ensure timestamps are in seconds
+    ohlcv = []
+    for c in raw_ohlcv:
+        ts = c.get("timestamp") or c.get("time") or 0
+        ohlcv.append({
+            "time":   int(float(ts)),
+            "open":   float(c.get("open", 0)),
+            "high":   float(c.get("high", 0)),
+            "low":    float(c.get("low", 0)),
+            "close":  float(c.get("close", 0)),
+            "volume": float(c.get("volume", 0)),
+        })
+
+    # Attach OVTLYR intel for this ticker if available
+    import json as _json
+    _redis = await get_redis()
+    ovtlyr_raw = await _redis.hget("ovtlyr:position_intel", symbol.upper())
+    ovtlyr = _json.loads(ovtlyr_raw) if ovtlyr_raw else {}
+
+    return {
+        "symbol":     symbol.upper(),
+        "exchange":   resolved_exchange,
+        "timeframe":  timeframe,
+        "ohlcv":      ohlcv,
+        "indicators": indicators,
+        "ovtlyr":     ovtlyr,
+    }
+
+
+@app.get("/api/charts/positions")
+async def get_chart_positions():
+    """
+    Return a flat list of open position tickers across all connected broker accounts.
+    Calls the broker gateway live (same as /api/broker/positions) and flattens to
+    { symbol, broker, account, display_name, mode, qty, side }.
+    """
+    # Reuse the live positions fetch
+    pos_data = await get_broker_positions()
+    positions = []
+    for acct in pos_data.get("accounts", []):
+        label   = acct.get("label", "")
+        broker  = acct.get("broker", "")
+        mode    = acct.get("mode", "")
+        display = acct.get("display_name") or label
+        for p in acct.get("positions", []):
+            sym = (p.get("symbol") or "").upper()
+            if not sym:
+                continue
+            qty = float(p.get("qty") or p.get("quantity") or 0)
+            positions.append({
+                "symbol":       sym,
+                "broker":       broker,
+                "account":      label,
+                "display_name": display,
+                "mode":         mode,
+                "qty":          qty,
+                "side":         "long" if qty >= 0 else "short",
+            })
+    return {"positions": positions}
 
 
 @app.get("/api/broker/webull/subscriptions")

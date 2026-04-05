@@ -1,0 +1,29 @@
+# Changelog
+
+All notable changes to OpenTrader will be documented here.
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
+
+---
+
+## [3.5.1] - 2026-04-05
+
+### Added
+- TradingView Charts page with position picker across all broker connectors
+- Client-side technical indicators: EMA 10/20/50/200, SMA 20, Bollinger Bands, RSI 14, MACD
+- Indicator toggles with localStorage persistence
+- Exchange auto-resolution for TradingView (NASDAQ → NYSE → AMEX → NYSE_ARCA → NYSE_MKT)
+- OVTLYR market breadth widget: semicircle gauge, sparkline, crossover detection
+- Market breadth pipeline: scraper → Redis → TimescaleDB → API → dashboard
+- MCP Massive agent added to platform topology diagram
+- Broker/paper account filter on Charts position picker
+- Fear & Greed trend data now populating correctly
+
+### Fixed
+- `/api/sentiment` returning 401 due to erroneous token check (read-only endpoint)
+- `pkg_resources` missing in Python 3.12-slim webui container
+- `signal.alarm` thread error in tradingview-scraper (switched to ProcessPoolExecutor)
+- OHLCV streamer returning generator instead of data (export_result=True)
+- CCL and other NYSE tickers rejected as invalid NASDAQ exchange symbols
+- MCP Massive topology node rendering off-screen
+
+---
