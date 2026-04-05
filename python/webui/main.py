@@ -41,6 +41,8 @@ ACCOUNTS_CONFIG = "/app/config/accounts.toml"
 DB_URL                 = os.getenv("DB_URL", "")
 STRATEGIES_CONFIG_PATH = "/app/config/strategies.json"
 STRATEGY_VERSIONS_DIR  = "/app/config/strategy_versions"
+ASSIGNMENTS_PATH       = "/app/config/assignments.json"
+EXCLUSIONS_PATH        = "/app/config/exclusions.json"
 os.makedirs(STRATEGY_VERSIONS_DIR, exist_ok=True)
 
 
@@ -3303,6 +3305,173 @@ async def get_strategy_session(name: str):
             return json.load(f)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
+
+
+# ── Strategy Assignments ──────────────────────────────────────────────────────
+
+def _read_assignments() -> list:
+    try:
+        with open(ASSIGNMENTS_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def _write_assignments(assignments: list):
+    tmp = ASSIGNMENTS_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(assignments, f, indent=2)
+    os.replace(tmp, ASSIGNMENTS_PATH)
+
+def _read_exclusions() -> dict:
+    try:
+        with open(EXCLUSIONS_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {"sectors": [], "tickers": []}
+
+def _write_exclusions(excl: dict):
+    tmp = EXCLUSIONS_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(excl, f, indent=2)
+    os.replace(tmp, EXCLUSIONS_PATH)
+
+def _enrich_assignments(assignments: list, strategies: list) -> list:
+    """Attach latest_version and update_available flags from the strategy library."""
+    lib = {s["family_id"]: s for s in strategies}
+    enriched = []
+    for a in assignments:
+        a = dict(a)
+        lib_entry = lib.get(a.get("strategy_family_id", ""))
+        if lib_entry:
+            a["latest_version"]   = lib_entry.get("version", 1)
+            a["strategy_name"]    = lib_entry.get("name", a.get("strategy_name", ""))
+            a["update_available"] = a.get("pinned_version", 1) < lib_entry.get("version", 1)
+        else:
+            a["latest_version"]   = a.get("pinned_version", 1)
+            a["update_available"] = False
+        enriched.append(a)
+    return enriched
+
+class AssignmentBody(BaseModel):
+    account_label:      str
+    broker:             str
+    mode:               str
+    strategy_family_id: str
+    strategy_name:      str
+    pinned_version:     int = 1
+
+class ExclusionsBody(BaseModel):
+    sectors: list = []
+    tickers: list = []
+
+@app.get("/api/assignments")
+async def get_assignments():
+    assignments = _read_assignments()
+    strategies  = _read_strategies()
+    return _enrich_assignments(assignments, strategies)
+
+@app.post("/api/assignments")
+async def create_assignment(body: AssignmentBody, token: str = ""):
+    check_token(token)
+    assignments = _read_assignments()
+
+    # Prevent duplicate: same account + same strategy
+    for a in assignments:
+        if (a["account_label"] == body.account_label and
+                a["strategy_family_id"] == body.strategy_family_id and
+                a.get("status") != "inactive"):
+            raise HTTPException(status_code=409,
+                detail="Strategy already assigned to this account")
+
+    import uuid as _uuid
+    new = {
+        "id":                 str(_uuid.uuid4()),
+        "account_label":      body.account_label,
+        "broker":             body.broker,
+        "mode":               body.mode,
+        "strategy_family_id": body.strategy_family_id,
+        "strategy_name":      body.strategy_name,
+        "pinned_version":     body.pinned_version,
+        "status":             "active",
+        "assigned_at":        datetime.utcnow().isoformat() + "Z",
+        "updated_at":         datetime.utcnow().isoformat() + "Z",
+    }
+    assignments.append(new)
+    _write_assignments(assignments)
+    strategies = _read_strategies()
+    return _enrich_assignments([new], strategies)[0]
+
+class AssignmentPatch(BaseModel):
+    status:         str | None = None
+    pinned_version: int | None = None
+
+@app.patch("/api/assignments/{assignment_id}")
+async def patch_assignment(assignment_id: str, body: AssignmentPatch, token: str = ""):
+    check_token(token)
+    assignments = _read_assignments()
+    idx = next((i for i, a in enumerate(assignments) if a["id"] == assignment_id), None)
+    if idx is None:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    a = dict(assignments[idx])
+    if body.status is not None:
+        a["status"] = body.status
+    if body.pinned_version is not None:
+        a["pinned_version"] = body.pinned_version
+    a["updated_at"] = datetime.utcnow().isoformat() + "Z"
+    assignments[idx] = a
+    _write_assignments(assignments)
+    strategies = _read_strategies()
+    return _enrich_assignments([a], strategies)[0]
+
+@app.delete("/api/assignments/{assignment_id}")
+async def delete_assignment(assignment_id: str, token: str = ""):
+    check_token(token)
+    assignments = _read_assignments()
+    before = len(assignments)
+    assignments = [a for a in assignments if a["id"] != assignment_id]
+    if len(assignments) == before:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    _write_assignments(assignments)
+    return {"ok": True}
+
+@app.get("/api/assignments/exclusions")
+async def get_exclusions():
+    return _read_exclusions()
+
+@app.post("/api/assignments/exclusions")
+async def save_exclusions(body: ExclusionsBody, token: str = ""):
+    check_token(token)
+    excl = {
+        "sectors": [s.strip() for s in body.sectors if s.strip()],
+        "tickers": [t.strip().upper() for t in body.tickers if t.strip()],
+    }
+    _write_exclusions(excl)
+    return excl
+
+@app.get("/api/assignments/conflicts")
+async def check_conflicts(account_label: str, family_id: str):
+    """Return tickers that would conflict (traded by another active strategy on same account)."""
+    assignments = _read_assignments()
+    strategies  = _read_strategies()
+    lib = {s["family_id"]: s for s in strategies}
+
+    # Active assignments on this account excluding the strategy being checked
+    active = [a for a in assignments
+              if a["account_label"] == account_label
+              and a["strategy_family_id"] != family_id
+              and a.get("status") == "active"]
+
+    # Collect tickers currently in positions for those strategies
+    # (placeholder — in practice would query broker positions)
+    conflicts = []
+    for a in active:
+        entry = lib.get(a["strategy_family_id"], {})
+        conflicts.append({
+            "strategy": entry.get("name", a["strategy_family_id"]),
+            "note": "Active on same account",
+        })
+    return {"account_label": account_label, "conflicts": conflicts}
 
 
 # ── Strategy Version Control ──────────────────────────────────────────────────

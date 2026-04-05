@@ -284,6 +284,10 @@ select option{background:var(--surface2)}
         <span class="nav-dot" style="background:var(--teal)"></span>
         Strategy Library
       </div>
+      <div class="nav-item" onclick="navigate('page-plan-assignment')" data-page="page-plan-assignment">
+        <span class="nav-dot" style="background:#f59e0b"></span>
+        Strategy Assignment
+      </div>
     </div>
     <div class="nav-group">
       <div class="nav-label">Platform</div>
@@ -1463,8 +1467,140 @@ select option{background:var(--surface2)}
       </div>
     </div>
 
+    <!-- ════════════════════════════════════════
+         PAGE: Strategy Assignment
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-plan-assignment">
+
+      <!-- Global Exclusions -->
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-header" style="cursor:pointer" onclick="_toggleExclusions()">
+          <span class="card-title">Global Exclusions</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="font-size:11px;color:var(--muted)">Applies to all strategies on all accounts</span>
+            <span id="excl-chevron" style="color:var(--muted);font-size:13px">▶</span>
+          </div>
+        </div>
+        <div id="excl-body" style="display:none;padding:14px 18px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Excluded Sectors</div>
+              <textarea id="excl-sectors" rows="4" placeholder="One sector per line e.g. Healthcare"
+                style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);padding:8px;font-size:12px;resize:vertical;font-family:inherit"></textarea>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Excluded Tickers</div>
+              <textarea id="excl-tickers" rows="4" placeholder="One ticker per line e.g. GME"
+                style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg);padding:8px;font-size:12px;resize:vertical;font-family:inherit"></textarea>
+            </div>
+          </div>
+          <div style="margin-top:10px;display:flex;gap:8px">
+            <button class="btn btn-sm" onclick="_saveExclusions()"
+              style="background:rgba(59,130,246,.2);color:#60a5fa;border:1px solid rgba(59,130,246,.3)">Save Exclusions</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Assign button + summary bar -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:13px;font-weight:600;color:var(--fg)">Account Assignments</span>
+          <span id="assign-summary" style="font-size:11px;color:var(--muted)"></span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <select id="assign-filter-acct" class="select-input" style="font-size:12px;padding:4px 8px"
+            onchange="_renderAssignments()">
+            <option value="">All accounts</option>
+          </select>
+          <select id="assign-filter-status" class="select-input" style="font-size:12px;padding:4px 8px"
+            onchange="_renderAssignments()">
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+          <button class="btn btn-sm" onclick="_openAssignModal()"
+            style="background:rgba(59,130,246,.2);color:#60a5fa;border:1px solid rgba(59,130,246,.3)">+ Assign Strategy</button>
+        </div>
+      </div>
+
+      <!-- Assignments table -->
+      <div class="card">
+        <div class="card-body" style="padding:0">
+          <table class="agents-table" style="width:100%">
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Broker / Mode</th>
+                <th>Strategy</th>
+                <th>Version</th>
+                <th>Status</th>
+                <th>Assigned</th>
+                <th style="text-align:right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="assign-tbody">
+              <tr><td colspan="7" class="empty-state">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </div><!-- end .content -->
 </div><!-- end .main -->
+
+<!-- ── Strategy Assignment Modal ── -->
+<div id="assign-modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000" onclick="_closeAssignModal()"></div>
+<div id="assign-modal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:520px;max-width:95vw;background:var(--surface);border:1px solid var(--border);border-radius:12px;z-index:2001;padding:24px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+    <span style="font-size:15px;font-weight:700;color:var(--fg)">Assign Strategy to Account</span>
+    <button onclick="_closeAssignModal()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button>
+  </div>
+  <div style="display:grid;gap:14px">
+    <div>
+      <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:5px">Account</label>
+      <select id="modal-acct" class="select-input" style="width:100%" onchange="_modalCheckConflicts()">
+        <option value="">Select account…</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:5px">Strategy</label>
+      <select id="modal-strategy" class="select-input" style="width:100%" onchange="_modalCheckConflicts()">
+        <option value="">Select strategy…</option>
+      </select>
+    </div>
+    <!-- Strategy preview -->
+    <div id="modal-preview" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Strategy Details</div>
+      <div id="modal-preview-body" style="font-size:12px;color:var(--fg);display:grid;grid-template-columns:1fr 1fr;gap:6px"></div>
+    </div>
+    <!-- Conflict warning -->
+    <div id="modal-conflicts" style="display:none;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:12px">
+      <div style="font-size:12px;color:#f87171;font-weight:600;margin-bottom:6px">⚠ Conflicts Detected</div>
+      <div id="modal-conflicts-body" style="font-size:12px;color:var(--fg)"></div>
+    </div>
+    <!-- Global exclusions reminder -->
+    <div style="background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.2);border-radius:8px;padding:10px;font-size:12px;color:#fbbf24">
+      <strong>Global exclusions apply:</strong> <span id="modal-excl-text">—</span>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px">
+    <button class="btn btn-ghost btn-sm" onclick="_closeAssignModal()">Cancel</button>
+    <button id="modal-assign-btn" class="btn btn-sm" onclick="_submitAssignment()"
+      style="background:rgba(59,130,246,.2);color:#60a5fa;border:1px solid rgba(59,130,246,.3)"
+      disabled>Assign</button>
+  </div>
+</div>
+
+<!-- ── Strategy Assignment Drawer ── -->
+<div id="assign-drawer-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2200" onclick="_closeAssignDrawer()"></div>
+<div id="assign-drawer" style="display:none;position:fixed;top:0;right:0;width:480px;height:100vh;background:var(--surface);border-left:1px solid var(--border);z-index:2201;overflow-y:auto;padding:24px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+    <span id="drawer-title" style="font-size:15px;font-weight:700;color:var(--fg)">Assignment Detail</span>
+    <button onclick="_closeAssignDrawer()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button>
+  </div>
+  <div id="drawer-body" style="font-size:13px;color:var(--fg)"></div>
+</div>
 
 <!-- ── Log Panel (slide-in) ── -->
 <div class="log-overlay" id="log-overlay" onclick="closeLogPanel()"></div>
@@ -1540,6 +1676,7 @@ const PAGE_TITLES = {
   'page-trading-charts':     'Charts',
   'page-plan-engineer':      'Strategy Engineer',
   'page-plan-library':       'Strategy Library',
+  'page-plan-assignment':    'Strategy Assignment',
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1656,6 +1793,7 @@ function navigate(pageId) {
     case 'page-trading-charts':     loadChartsPage();       break;
     case 'page-plan-engineer':      loadEngineerPage();     break;
     case 'page-plan-library':       loadLibraryPage();      break;
+    case 'page-plan-assignment':    loadAssignmentPage();   break;
   }
 }
 
@@ -7458,6 +7596,387 @@ setInterval(loadOvtlyrMarketSignals, 5 * 60 * 1000); // refresh every 5 min
     popup.style.display = 'none';
   });
 })();
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Strategy Assignment
+// ══════════════════════════════════════════════════════════════════════════════
+
+let _assignData       = [];   // current enriched assignments from API
+let _assignStrategies = [];   // strategy library cache
+let _assignAccounts   = [];   // parsed from accounts API
+let _assignExclusions = { sectors: [], tickers: [] };
+
+async function loadAssignmentPage() {
+  await Promise.all([
+    _assignLoadStrategies(),
+    _assignLoadAccounts(),
+    _assignLoadExclusions(),
+  ]);
+  await _assignLoadAssignments();
+}
+
+async function _assignLoadStrategies() {
+  try {
+    const r = await fetch('/api/strategies');
+    _assignStrategies = await r.json();
+  } catch(_) {}
+}
+
+async function _assignLoadAccounts() {
+  try {
+    const r = await fetch('/api/broker/status');
+    const d = await r.json();
+    // Response: { brokers: { tradier: { accounts: [...] }, alpaca: {...}, webull: {...} } }
+    _assignAccounts = [];
+    for (const [broker, info] of Object.entries(d.brokers || {})) {
+      for (const acct of (info.accounts || [])) {
+        _assignAccounts.push({ ...acct, broker });
+      }
+    }
+  } catch(_) { _assignAccounts = []; }
+}
+
+async function _assignLoadExclusions() {
+  try {
+    const r = await fetch('/api/assignments/exclusions');
+    _assignExclusions = await r.json();
+  } catch(_) {}
+
+  // Populate exclusion textareas
+  const sec = document.getElementById('excl-sectors');
+  const tic = document.getElementById('excl-tickers');
+  if (sec) sec.value = (_assignExclusions.sectors || []).join('\n');
+  if (tic) tic.value = (_assignExclusions.tickers || []).join('\n');
+}
+
+async function _assignLoadAssignments() {
+  try {
+    const r = await fetch('/api/assignments');
+    _assignData = await r.json();
+  } catch(_) { _assignData = []; }
+  _renderAssignments();
+}
+
+function _toggleExclusions() {
+  const body    = document.getElementById('excl-body');
+  const chevron = document.getElementById('excl-chevron');
+  const open    = body.style.display !== 'none';
+  body.style.display    = open ? 'none' : 'block';
+  chevron.textContent   = open ? '▶' : '▼';
+}
+
+async function _saveExclusions() {
+  const sectors = (document.getElementById('excl-sectors').value || '').split('\n').map(s=>s.trim()).filter(Boolean);
+  const tickers = (document.getElementById('excl-tickers').value || '').split('\n').map(s=>s.trim().toUpperCase()).filter(Boolean);
+  try {
+    const tok = localStorage.getItem('ot_token') || '';
+    await fetch(`/api/assignments/exclusions?token=${encodeURIComponent(tok)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sectors, tickers }),
+    });
+    _assignExclusions = { sectors, tickers };
+    showToast('Global exclusions saved', 'success');
+  } catch(e) {
+    showToast('Failed to save exclusions', 'error');
+  }
+}
+
+function _renderAssignments() {
+  const tbody      = document.getElementById('assign-tbody');
+  const filterAcct = (document.getElementById('assign-filter-acct')?.value || '').toLowerCase();
+  const filterStat = document.getElementById('assign-filter-status')?.value || '';
+
+  // Rebuild account filter dropdown options (preserve selection)
+  const acctSel  = document.getElementById('assign-filter-acct');
+  const acctCur  = acctSel?.value || '';
+  if (acctSel) {
+    const labels = [...new Set(_assignData.map(a => a.account_label))].sort();
+    acctSel.innerHTML = '<option value="">All accounts</option>' +
+      labels.map(l => `<option value="${l}" ${l===acctCur?'selected':''}>${l}</option>`).join('');
+  }
+
+  let rows = _assignData;
+  if (filterAcct) rows = rows.filter(a => a.account_label.toLowerCase() === filterAcct);
+  if (filterStat) rows = rows.filter(a => a.status === filterStat);
+
+  // Summary
+  const active   = _assignData.filter(a => a.status === 'active').length;
+  const updates  = _assignData.filter(a => a.update_available).length;
+  const sumEl    = document.getElementById('assign-summary');
+  if (sumEl) sumEl.textContent = `${active} active · ${_assignData.length} total` + (updates ? ` · ${updates} update${updates>1?'s':''} available` : '');
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No assignments yet — click "+ Assign Strategy" to get started</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(a => {
+    const broker     = a.broker || '—';
+    const mode       = a.mode   || '—';
+    const modeBadge  = mode === 'live'    ? `<span style="background:rgba(239,68,68,.15);color:#f87171;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:600">LIVE</span>`
+                     : mode === 'sandbox' ? `<span style="background:rgba(59,130,246,.15);color:#60a5fa;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:600">SANDBOX</span>`
+                     : `<span style="background:rgba(20,184,166,.15);color:#2dd4bf;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:600">PAPER</span>`;
+    const statBadge  = a.status === 'active'
+      ? `<span style="background:rgba(34,197,94,.15);color:#4ade80;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600">Active</span>`
+      : `<span style="background:rgba(100,116,139,.15);color:#94a3b8;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600">Inactive</span>`;
+    const verBadge   = a.update_available
+      ? `v${a.pinned_version} <span style="background:rgba(245,158,11,.15);color:#fbbf24;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:600;margin-left:4px" title="v${a.latest_version} available">v${a.latest_version} available</span>`
+      : `v${a.pinned_version}`;
+    const assigned   = a.assigned_at ? a.assigned_at.slice(0,10) : '—';
+    const toggleBtn  = a.status === 'active'
+      ? `<button class="btn btn-ghost btn-sm" onclick="_assignToggle('${a.id}','inactive')" style="font-size:11px;color:#f87171">Deactivate</button>`
+      : `<button class="btn btn-ghost btn-sm" onclick="_assignToggle('${a.id}','active')" style="font-size:11px;color:#4ade80">Activate</button>`;
+    const updateBtn  = a.update_available
+      ? `<button class="btn btn-ghost btn-sm" onclick="_assignApplyUpdate('${a.id}',${a.latest_version})" style="font-size:11px;color:#fbbf24">Apply v${a.latest_version}</button>`
+      : '';
+    const removeBtn  = `<button class="btn btn-ghost btn-sm" onclick="_assignRemove('${a.id}')" style="font-size:11px;color:var(--muted)">Remove</button>`;
+    const detailBtn  = `<button class="btn btn-ghost btn-sm" onclick="_openAssignDrawer('${a.id}')" style="font-size:11px">Detail</button>`;
+
+    return `<tr>
+      <td style="font-weight:600">${a.account_label}</td>
+      <td>${broker} &nbsp;${modeBadge}</td>
+      <td>${a.strategy_name || '—'}</td>
+      <td style="white-space:nowrap">${verBadge}</td>
+      <td>${statBadge}</td>
+      <td style="color:var(--muted);font-size:12px">${assigned}</td>
+      <td style="text-align:right;white-space:nowrap">${detailBtn} ${updateBtn} ${toggleBtn} ${removeBtn}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function _assignToggle(id, status) {
+  const tok = localStorage.getItem('ot_token') || '';
+  try {
+    await fetch(`/api/assignments/${id}?token=${encodeURIComponent(tok)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    showToast(`Strategy ${status === 'active' ? 'activated' : 'deactivated'}`, 'success');
+    await _assignLoadAssignments();
+  } catch(e) {
+    showToast('Failed to update assignment', 'error');
+  }
+}
+
+async function _assignApplyUpdate(id, latestVersion) {
+  if (!confirm(`Apply v${latestVersion}? This does not affect open positions or trade history.`)) return;
+  const tok = localStorage.getItem('ot_token') || '';
+  try {
+    await fetch(`/api/assignments/${id}?token=${encodeURIComponent(tok)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinned_version: latestVersion }),
+    });
+    showToast(`Updated to v${latestVersion}`, 'success');
+    await _assignLoadAssignments();
+  } catch(e) {
+    showToast('Failed to apply update', 'error');
+  }
+}
+
+async function _assignRemove(id) {
+  if (!confirm('Remove this strategy assignment? Open positions and trade history are not affected.')) return;
+  const tok = localStorage.getItem('ot_token') || '';
+  try {
+    await fetch(`/api/assignments/${id}?token=${encodeURIComponent(tok)}`, { method: 'DELETE' });
+    showToast('Assignment removed', 'success');
+    await _assignLoadAssignments();
+  } catch(e) {
+    showToast('Failed to remove assignment', 'error');
+  }
+}
+
+// ── Assign Modal ──────────────────────────────────────────────────────────────
+
+async function _openAssignModal() {
+  // Ensure data is loaded — fetch fresh if needed
+  if (!_assignAccounts.length)   await _assignLoadAccounts();
+  if (!_assignStrategies.length) await _assignLoadStrategies();
+
+  // Populate account dropdown
+  const acctSel = document.getElementById('modal-acct');
+  acctSel.innerHTML = '<option value="">Select account…</option>' +
+    _assignAccounts.map(a => {
+      const label = a.label || a.account_label || a.id || '';
+      const broker = a.broker || '';
+      const mode   = a.mode   || '';
+      return `<option value="${label}" data-broker="${broker}" data-mode="${mode}">${label} (${broker} · ${mode})</option>`;
+    }).join('');
+
+  // Populate strategy dropdown
+  const strSel = document.getElementById('modal-strategy');
+  strSel.innerHTML = '<option value="">Select strategy…</option>' +
+    _assignStrategies.map(s =>
+      `<option value="${s.family_id}" data-version="${s.version}" data-name="${s.name}" data-asset="${s.asset}" data-conf="${s.confidence}" data-maxpos="${s.max_pos}" data-stop="${s.stop_pct}" data-tp="${s.tp_pct}">${s.name} (v${s.version} · ${s.asset})</option>`
+    ).join('');
+
+  // Show exclusions reminder
+  const exclText = document.getElementById('modal-excl-text');
+  const parts = [];
+  if (_assignExclusions.sectors?.length) parts.push(`Sectors: ${_assignExclusions.sectors.join(', ')}`);
+  if (_assignExclusions.tickers?.length) parts.push(`Tickers: ${_assignExclusions.tickers.join(', ')}`);
+  if (exclText) exclText.textContent = parts.length ? parts.join(' · ') : 'None configured';
+
+  document.getElementById('modal-preview').style.display    = 'none';
+  document.getElementById('modal-conflicts').style.display  = 'none';
+  document.getElementById('modal-assign-btn').disabled      = true;
+  document.getElementById('assign-modal-overlay').style.display = 'block';
+  document.getElementById('assign-modal').style.display         = 'block';
+}
+
+function _closeAssignModal() {
+  document.getElementById('assign-modal-overlay').style.display = 'none';
+  document.getElementById('assign-modal').style.display         = 'none';
+}
+
+function _modalCheckConflicts() {
+  const acctSel = document.getElementById('modal-acct');
+  const strSel  = document.getElementById('modal-strategy');
+  const selOpt  = strSel.options[strSel.selectedIndex];
+  const acctVal = acctSel.value;
+  const famId   = strSel.value;
+
+  // Strategy preview
+  const preview = document.getElementById('modal-preview');
+  if (famId && selOpt) {
+    const d = selOpt.dataset;
+    document.getElementById('modal-preview-body').innerHTML = `
+      <div><span style="color:var(--muted)">Asset</span><br>${d.asset || '—'}</div>
+      <div><span style="color:var(--muted)">Min Confidence</span><br>${d.conf || '—'}</div>
+      <div><span style="color:var(--muted)">Max Position</span><br>$${d.maxpos || '—'}</div>
+      <div><span style="color:var(--muted)">Stop / TP</span><br>${d.stop || '—'}% / ${d.tp || '—'}%</div>
+    `;
+    preview.style.display = 'block';
+  } else {
+    preview.style.display = 'none';
+  }
+
+  // Conflict check
+  const conflicts = document.getElementById('modal-conflicts');
+  const conflBody = document.getElementById('modal-conflicts-body');
+  if (acctVal && famId) {
+    // Check existing active assignments on same account for same strategy
+    const dup = _assignData.find(a =>
+      a.account_label === acctVal &&
+      a.strategy_family_id === famId &&
+      a.status === 'active'
+    );
+    if (dup) {
+      conflBody.textContent = `"${dup.strategy_name}" is already active on ${acctVal}.`;
+      conflicts.style.display = 'block';
+      document.getElementById('modal-assign-btn').disabled = true;
+      return;
+    }
+    // Check ticker overlap with other active strategies on same account
+    const sameAcct = _assignData.filter(a =>
+      a.account_label === acctVal &&
+      a.strategy_family_id !== famId &&
+      a.status === 'active'
+    );
+    if (sameAcct.length) {
+      conflBody.innerHTML = `<strong>${sameAcct.length} other strategy/strategies active on ${acctVal}.</strong><br>The same ticker cannot trade across multiple strategies on this account. Conflicts will be enforced at execution time.`;
+      conflicts.style.display = 'block';
+    } else {
+      conflicts.style.display = 'none';
+    }
+  } else {
+    conflicts.style.display = 'none';
+  }
+
+  document.getElementById('modal-assign-btn').disabled = !(acctVal && famId);
+}
+
+async function _submitAssignment() {
+  const acctSel   = document.getElementById('modal-acct');
+  const strSel    = document.getElementById('modal-strategy');
+  const acctOpt   = acctSel.options[acctSel.selectedIndex];
+  const strOpt    = strSel.options[strSel.selectedIndex];
+  const acctLabel = acctSel.value;
+  const famId     = strSel.value;
+  if (!acctLabel || !famId) return;
+
+  const broker  = acctOpt?.dataset?.broker || '';
+  const mode    = acctOpt?.dataset?.mode   || '';
+  const name    = strOpt?.dataset?.name    || strSel.options[strSel.selectedIndex].text;
+  const version = parseInt(strOpt?.dataset?.version || '1');
+
+  const tok = localStorage.getItem('ot_token') || '';
+  try {
+    const r = await fetch(`/api/assignments?token=${encodeURIComponent(tok)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        account_label:      acctLabel,
+        broker,
+        mode,
+        strategy_family_id: famId,
+        strategy_name:      name,
+        pinned_version:     version,
+      }),
+    });
+    if (!r.ok) {
+      const err = await r.json();
+      showToast(err.detail || 'Assignment failed', 'error');
+      return;
+    }
+    showToast(`Strategy assigned to ${acctLabel}`, 'success');
+    _closeAssignModal();
+    await _assignLoadAssignments();
+  } catch(e) {
+    showToast('Failed to assign strategy', 'error');
+  }
+}
+
+// ── Detail Drawer ─────────────────────────────────────────────────────────────
+
+function _openAssignDrawer(id) {
+  const a = _assignData.find(x => x.id === id);
+  if (!a) return;
+  const strat = _assignStrategies.find(s => s.family_id === a.strategy_family_id);
+
+  document.getElementById('drawer-title').textContent = a.strategy_name || 'Assignment Detail';
+
+  const updateNotice = a.update_available
+    ? `<div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#fbbf24">
+        <strong>v${a.latest_version} available in library.</strong> Click "Apply v${a.latest_version}" in the table to update. Open positions and trade history are unaffected.
+      </div>` : '';
+
+  const exclSectors = (_assignExclusions.sectors || []).join(', ') || 'None';
+  const exclTickers = (_assignExclusions.tickers || []).join(', ') || 'None';
+
+  const notes = strat?.notes || '';
+  const notesHtml = notes
+    ? `<div style="margin-top:14px"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Strategy Plan</div>
+       <pre style="white-space:pre-wrap;font-size:11px;color:var(--fg);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;max-height:340px;overflow-y:auto">${notes}</pre></div>` : '';
+
+  document.getElementById('drawer-body').innerHTML = `
+    ${updateNotice}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+      <div><span style="font-size:11px;color:var(--muted)">Account</span><br><strong>${a.account_label}</strong></div>
+      <div><span style="font-size:11px;color:var(--muted)">Broker / Mode</span><br>${a.broker} · ${a.mode}</div>
+      <div><span style="font-size:11px;color:var(--muted)">Strategy</span><br><strong>${a.strategy_name}</strong></div>
+      <div><span style="font-size:11px;color:var(--muted)">Pinned Version</span><br>v${a.pinned_version} ${a.update_available ? `<span style="color:#fbbf24;font-size:11px">(v${a.latest_version} available)</span>` : ''}</div>
+      <div><span style="font-size:11px;color:var(--muted)">Status</span><br>${a.status === 'active' ? '<span style="color:#4ade80">Active</span>' : '<span style="color:#94a3b8">Inactive</span>'}</div>
+      <div><span style="font-size:11px;color:var(--muted)">Assigned</span><br>${a.assigned_at?.slice(0,10) || '—'}</div>
+    </div>
+    <div style="background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.18);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px">
+      <strong style="color:#fbbf24">Global Exclusions (enforced)</strong><br>
+      <span style="color:var(--muted)">Sectors:</span> ${exclSectors}<br>
+      <span style="color:var(--muted)">Tickers:</span> ${exclTickers}
+    </div>
+    ${notesHtml}
+  `;
+
+  document.getElementById('assign-drawer-overlay').style.display = 'block';
+  document.getElementById('assign-drawer').style.display          = 'block';
+}
+
+function _closeAssignDrawer() {
+  document.getElementById('assign-drawer-overlay').style.display = 'none';
+  document.getElementById('assign-drawer').style.display          = 'none';
+}
 </script>
 
 <!-- ── Toast container ── -->
