@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.3] - 2026-04-05
+
+### Added
+- Resources section in nav with Library page
+- Trading book library with ISBN lookup (Open Library API)
+- Tile and table view with cover art, star ratings, status tracking
+- Filter and sort by title, author, category
+- Detail drawer and add/edit modal with ISBN auto-fill
+
+---
+
 ## [3.5.2] - 2026-04-05
 
 ### Added
@@ -16,6 +27,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 ### Fixed
 - Strategy Assignment modal placement (was inside display:none parent)
 - Assignment modal now fetches data on demand if page not yet loaded
+
+---
+
+## [3.5.3] - 2026-04-05
+
+### Added
+- Resources section in nav with Library page
+- Trading book library with ISBN lookup (Open Library API)
+- Tile and table view with cover art, star ratings, status tracking
+- Filter and sort by title, author, category
+- Detail drawer and add/edit modal with ISBN auto-fill
 
 ---
 
@@ -42,6 +64,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.3] - 2026-04-05
+
+### Added
+- Resources section in nav with Library page
+- Trading book library with ISBN lookup (Open Library API)
+- Tile and table view with cover art, star ratings, status tracking
+- Filter and sort by title, author, category
+- Detail drawer and add/edit modal with ISBN auto-fill
+
+---
+
 ## [3.5.2] - 2026-04-05
 
 ### Added
@@ -53,5 +86,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 ### Fixed
 - Strategy Assignment modal placement (was inside display:none parent)
 - Assignment modal now fetches data on demand if page not yet loaded
+
+---
+
+## [3.5.3] - 2026-04-05
+
+### Added
+- Resources section in nav with Library page
+- Trading book library with ISBN lookup (Open Library API)
+- Tile and table view with cover art, star ratings, status tracking
+- Filter and sort by title, author, category
+- Detail drawer and add/edit modal with ISBN auto-fill
 
 ---
