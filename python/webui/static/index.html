@@ -4915,6 +4915,13 @@ const CFG_META = {
       { key: 'MASSIVE_MCP_URL', label: 'MCP URL', type: 'text', hint: 'Default: http://ot-mcp-massive:8000/mcp (auto-set)' },
     ],
   },
+  google_books: {
+    label: 'Google Books', letter: 'G', bg: '#4285F4', fg: '#fff',
+    fields: [
+      { key: 'GOOGLE_BOOKS_API_KEY', label: 'API Key', type: 'password', required: true, mono: true,
+        hint: 'Get a free key at console.cloud.google.com → APIs → Books API — enables ISBN lookups in the Library' },
+    ],
+  },
 };
 
 let _cfgCurrentService = null;

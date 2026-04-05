@@ -3836,6 +3836,35 @@ async def lookup_isbn(isbn: str):
                     "cover_url":      cover_url,
                 }
 
+    async def _google_books():
+        """Google Books API — requires GOOGLE_BOOKS_API_KEY in env."""
+        import aiohttp as aiohttp_
+        api_key = os.getenv("GOOGLE_BOOKS_API_KEY", "")
+        if not api_key:
+            return {}
+        url = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{clean}&key={api_key}"
+        async with aiohttp_.ClientSession() as s:
+            async with s.get(url, timeout=aiohttp_.ClientTimeout(total=12)) as r:
+                data = await r.json(content_type=None)
+                items = data.get("items", [])
+                if not items:
+                    return {}
+                info = items[0].get("volumeInfo", {})
+                thumb = info.get("imageLinks", {}).get("thumbnail", "")
+                cover = thumb.replace("http://", "https://") if thumb else \
+                        f"https://covers.openlibrary.org/b/isbn/{clean}-L.jpg"
+                return {
+                    "isbn":           clean,
+                    "title":          info.get("title", ""),
+                    "author":         ", ".join(info.get("authors", [])),
+                    "description":    info.get("description", ""),
+                    "category":       (info.get("categories") or [""])[0],
+                    "publisher":      info.get("publisher", ""),
+                    "published_date": info.get("publishedDate", ""),
+                    "pages":          info.get("pageCount"),
+                    "cover_url":      cover,
+                }
+
     # 1. Open Library full data
     try:
         result = await _ol_data()
@@ -3848,6 +3877,13 @@ async def lookup_isbn(isbn: str):
             result = await _ol_search()
         except Exception as e:
             log.warning("library.isbn_ol_search_error", isbn=clean, error=str(e))
+
+    # 3. Google Books fallback (if API key configured)
+    if not result.get("title"):
+        try:
+            result = await _google_books()
+        except Exception as e:
+            log.warning("library.isbn_google_error", isbn=clean, error=str(e))
 
     if not result.get("title"):
         raise HTTPException(status_code=404, detail="Book not found for this ISBN")
