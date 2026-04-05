@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.2] - 2026-04-05
+
+### Added
+- Strategy Assignment dashboard with global exclusions and version tracking
+- EMA 10 indicator overlay on Charts page
+- Charts moved above Broker in nav
+- Release versioning system with GitHub Actions CI/CD
+
+### Fixed
+- Strategy Assignment modal placement (was inside display:none parent)
+- Assignment modal now fetches data on demand if page not yet loaded
+
+---
+
 ## [3.5.1] - 2026-04-05
 
 ### Added
@@ -25,5 +39,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 - OHLCV streamer returning generator instead of data (export_result=True)
 - CCL and other NYSE tickers rejected as invalid NASDAQ exchange symbols
 - MCP Massive topology node rendering off-screen
+
+---
+
+## [3.5.2] - 2026-04-05
+
+### Added
+- Strategy Assignment dashboard with global exclusions and version tracking
+- EMA 10 indicator overlay on Charts page
+- Charts moved above Broker in nav
+- Release versioning system with GitHub Actions CI/CD
+
+### Fixed
+- Strategy Assignment modal placement (was inside display:none parent)
+- Assignment modal now fetches data on demand if page not yet loaded
 
 ---
