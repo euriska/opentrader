@@ -8021,8 +8021,8 @@ async function _libLookupISBN() {
 
 async function _libSaveBook() {
   const title = document.getElementById('lib-f-title').value.trim();
-  if (!title) { showToast('Title is required', 'error'); return; }
-  const tok = localStorage.getItem('ot_token') || '';
+  if (!title) { toast('error', 'Validation', 'Title is required'); return; }
+  const tok = getToken();
   const payload = {
     isbn:           document.getElementById('lib-isbn-input').value.trim() || null,
     title,
@@ -8047,22 +8047,22 @@ async function _libSaveBook() {
       body: JSON.stringify(payload),
     });
     if (!r.ok) throw new Error(await r.text());
-    showToast(_libEditId ? 'Book updated' : 'Book added', 'success');
+    toast('success', 'Library', _libEditId ? 'Book updated' : 'Book added');
     _libCloseModal();
     await Promise.all([_libLoad(), _libLoadStats()]);
   } catch(e) {
-    showToast('Save failed: ' + e.message, 'error');
+    toast('error', 'Save Failed', e.message);
   }
 }
 
 async function _libDelete(id) {
   if (!confirm('Remove this book from your library?')) return;
-  const tok = localStorage.getItem('ot_token') || '';
+  const tok = getToken();
   try {
     await fetch(`/api/library/books/${id}?token=${encodeURIComponent(tok)}`, { method: 'DELETE' });
-    showToast('Book removed', 'success');
+    toast('success', 'Library', 'Book removed');
     await Promise.all([_libLoad(), _libLoadStats()]);
-  } catch(e) { showToast('Delete failed', 'error'); }
+  } catch(e) { toast('error', 'Library', 'Delete failed'); }
 }
 
 // ── Detail Drawer ─────────────────────────────────────────────────────────────
@@ -8197,9 +8197,9 @@ async function _saveExclusions() {
       body: JSON.stringify({ sectors, tickers }),
     });
     _assignExclusions = { sectors, tickers };
-    showToast('Global exclusions saved', 'success');
+    toast('success', 'Exclusions', 'Global exclusions saved');
   } catch(e) {
-    showToast('Failed to save exclusions', 'error');
+    toast('error', 'Exclusions', 'Failed to save exclusions');
   }
 }
 
@@ -8267,45 +8267,45 @@ function _renderAssignments() {
 }
 
 async function _assignToggle(id, status) {
-  const tok = localStorage.getItem('ot_token') || '';
+  const tok = getToken();
   try {
     await fetch(`/api/assignments/${id}?token=${encodeURIComponent(tok)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     });
-    showToast(`Strategy ${status === 'active' ? 'activated' : 'deactivated'}`, 'success');
+    toast('success', 'Assignment', `Strategy ${status === 'active' ? 'activated' : 'deactivated'}`);
     await _assignLoadAssignments();
   } catch(e) {
-    showToast('Failed to update assignment', 'error');
+    toast('error', 'Assignment', 'Failed to update assignment');
   }
 }
 
 async function _assignApplyUpdate(id, latestVersion) {
   if (!confirm(`Apply v${latestVersion}? This does not affect open positions or trade history.`)) return;
-  const tok = localStorage.getItem('ot_token') || '';
+  const tok = getToken();
   try {
     await fetch(`/api/assignments/${id}?token=${encodeURIComponent(tok)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pinned_version: latestVersion }),
     });
-    showToast(`Updated to v${latestVersion}`, 'success');
+    toast('success', 'Assignment', `Updated to v${latestVersion}`);
     await _assignLoadAssignments();
   } catch(e) {
-    showToast('Failed to apply update', 'error');
+    toast('error', 'Assignment', 'Failed to apply update');
   }
 }
 
 async function _assignRemove(id) {
   if (!confirm('Remove this strategy assignment? Open positions and trade history are not affected.')) return;
-  const tok = localStorage.getItem('ot_token') || '';
+  const tok = getToken();
   try {
     await fetch(`/api/assignments/${id}?token=${encodeURIComponent(tok)}`, { method: 'DELETE' });
-    showToast('Assignment removed', 'success');
+    toast('success', 'Assignment', 'Assignment removed');
     await _assignLoadAssignments();
   } catch(e) {
-    showToast('Failed to remove assignment', 'error');
+    toast('error', 'Assignment', 'Failed to remove assignment');
   }
 }
 
@@ -8423,7 +8423,7 @@ async function _submitAssignment() {
   const name    = strOpt?.dataset?.name    || strSel.options[strSel.selectedIndex].text;
   const version = parseInt(strOpt?.dataset?.version || '1');
 
-  const tok = localStorage.getItem('ot_token') || '';
+  const tok = getToken();
   try {
     const r = await fetch(`/api/assignments?token=${encodeURIComponent(tok)}`, {
       method: 'POST',
@@ -8439,14 +8439,14 @@ async function _submitAssignment() {
     });
     if (!r.ok) {
       const err = await r.json();
-      showToast(err.detail || 'Assignment failed', 'error');
+      toast('error', 'Assignment', err.detail || 'Assignment failed');
       return;
     }
-    showToast(`Strategy assigned to ${acctLabel}`, 'success');
+    toast('success', 'Assignment', `Strategy assigned to ${acctLabel}`);
     _closeAssignModal();
     await _assignLoadAssignments();
   } catch(e) {
-    showToast('Failed to assign strategy', 'error');
+    toast('error', 'Assignment', 'Failed to assign strategy');
   }
 }
 
