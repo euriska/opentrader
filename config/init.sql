@@ -168,3 +168,14 @@ CREATE TABLE IF NOT EXISTS library_books (
 CREATE INDEX IF NOT EXISTS library_books_author   ON library_books (author);
 CREATE INDEX IF NOT EXISTS library_books_category ON library_books (category);
 CREATE INDEX IF NOT EXISTS library_books_status   ON library_books (status);
+
+-- Library categories (managed list, persists even if no books use them)
+CREATE TABLE IF NOT EXISTS library_categories (
+    id         UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+    name       TEXT        NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+-- Migrate any categories already stored in books
+INSERT INTO library_categories (name)
+    SELECT DISTINCT category FROM library_books WHERE category IS NOT NULL
+    ON CONFLICT (name) DO NOTHING;

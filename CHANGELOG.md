@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.8] - 2026-04-05
+
+### Added
+- `library_categories` table stores managed category list in the database
+- `GET/POST /api/library/categories` and `DELETE /api/library/categories/{name}` endpoints
+- "＋ Add Category…" option always anchored at the bottom of the category filter dropdown
+- Small "Add Category" modal opens when the option is selected; saves to DB and selects the new category
+- Category field in the Add/Edit book modal uses `<datalist>` for autocomplete from stored categories
+- Categories auto-upserted to `library_categories` when a book is saved or edited with a new category
+
+---
+
 ## [3.5.7] - 2026-04-05
 
 ### Fixed

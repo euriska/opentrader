@@ -1592,7 +1592,7 @@ select option{background:var(--surface2)}
           <option value="purchased">Purchased</option>
           <option value="reference">Reference</option>
         </select>
-        <select id="lib-filter-category" class="select-input" style="font-size:12px;padding:4px 8px" onchange="_libLoad()">
+        <select id="lib-filter-category" class="select-input" style="font-size:12px;padding:4px 8px" onchange="_libCategoryFilterChange(this)">
           <option value="">All categories</option>
         </select>
         <div style="flex:1"></div>
@@ -1672,7 +1672,8 @@ select option{background:var(--surface2)}
     </div>
     <div>
       <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Category</label>
-      <input id="lib-f-category" class="select-input" style="width:100%;padding:7px 10px;font-size:13px" placeholder="e.g. Technical Analysis">
+      <input id="lib-f-category" class="select-input" list="lib-category-list" style="width:100%;padding:7px 10px;font-size:13px" placeholder="e.g. Technical Analysis">
+      <datalist id="lib-category-list"></datalist>
     </div>
     <div>
       <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Publisher</label>
@@ -1743,6 +1744,21 @@ select option{background:var(--surface2)}
 <div id="lib-drawer-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2200" onclick="_libCloseDrawer()"></div>
 <div id="lib-drawer" style="display:none;position:fixed;top:0;right:0;width:400px;height:100vh;background:var(--surface);border-left:1px solid var(--border);z-index:2201;overflow-y:auto;padding:0">
   <div id="lib-drawer-body" style="height:100%"></div>
+</div>
+
+<!-- ── Add Category Modal ── -->
+<div id="lib-cat-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2300" onclick="_libCloseCatModal()"></div>
+<div id="lib-cat-modal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:340px;max-width:95vw;background:var(--surface);border:1px solid var(--border);border-radius:12px;z-index:2301;padding:24px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <span style="font-size:14px;font-weight:700;color:var(--fg)">Add Category</span>
+    <button onclick="_libCloseCatModal()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button>
+  </div>
+  <input id="lib-cat-input" class="select-input" style="width:100%;padding:8px 10px;font-size:13px;margin-bottom:14px" placeholder="Category name…">
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn btn-ghost btn-sm" onclick="_libCloseCatModal()">Cancel</button>
+    <button class="btn btn-sm" onclick="_libSaveCategory()"
+      style="background:rgba(167,139,250,.2);color:#a78bfa;border:1px solid rgba(167,139,250,.3)">Save</button>
+  </div>
 </div>
 
 <!-- ── Strategy Assignment Modal ── -->
@@ -7828,7 +7844,12 @@ async function _libLoadStats() {
     const sel = document.getElementById('lib-filter-category');
     const cur = sel.value;
     sel.innerHTML = '<option value="">All categories</option>' +
-      (d.categories || []).map(c => `<option value="${c}" ${c===cur?'selected':''}>${c}</option>`).join('');
+      (d.categories || []).map(c => `<option value="${c}" ${c===cur?'selected':''}>${c}</option>`).join('') +
+      '<option disabled style="color:var(--border)">──────────</option>' +
+      '<option value="__add__" style="color:#a78bfa">＋ Add Category…</option>';
+    // Populate category datalist in modal
+    const dl = document.getElementById('lib-category-list');
+    if (dl) dl.innerHTML = (d.categories || []).map(c => `<option value="${c}">`).join('');
   } catch(_) {}
 }
 
@@ -8117,6 +8138,56 @@ function _libCloseDrawer() {
   document.getElementById('lib-drawer-overlay').style.display = 'none';
   document.getElementById('lib-drawer').style.display = 'none';
 }
+
+// ── Category filter handler ───────────────────────────────────────────────────
+function _libCategoryFilterChange(sel) {
+  if (sel.value === '__add__') {
+    sel.value = '';  // reset to "All categories"
+    _libOpenCatModal();
+    return;
+  }
+  _libLoad();
+}
+
+function _libOpenCatModal() {
+  document.getElementById('lib-cat-input').value = '';
+  document.getElementById('lib-cat-overlay').style.display = 'block';
+  document.getElementById('lib-cat-modal').style.display = 'block';
+  setTimeout(() => document.getElementById('lib-cat-input').focus(), 50);
+}
+
+function _libCloseCatModal() {
+  document.getElementById('lib-cat-overlay').style.display = 'none';
+  document.getElementById('lib-cat-modal').style.display = 'none';
+}
+
+async function _libSaveCategory() {
+  const name = document.getElementById('lib-cat-input').value.trim();
+  if (!name) { toast('error', 'Validation', 'Category name is required'); return; }
+  const tok = getToken();
+  try {
+    const r = await fetch(`/api/library/categories?token=${encodeURIComponent(tok)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    _libCloseCatModal();
+    toast('success', 'Library', `Category "${name}" added`);
+    await _libLoadStats();  // refresh filter dropdown + datalist
+    // Select the new category in the filter
+    const sel = document.getElementById('lib-filter-category');
+    if (sel) { sel.value = name; _libLoad(); }
+  } catch(e) {
+    toast('error', 'Category', e.message);
+  }
+}
+
+// Allow Enter key in the category name input
+document.addEventListener('DOMContentLoaded', () => {
+  const inp = document.getElementById('lib-cat-input');
+  if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') _libSaveCategory(); });
+});
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Strategy Assignment

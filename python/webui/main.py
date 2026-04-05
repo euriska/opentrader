@@ -3910,6 +3910,43 @@ async def list_library_books(sort: str = "title", status: str = "", category: st
     )
     return [dict(r) for r in rows]
 
+@app.get("/api/library/categories")
+async def get_library_categories():
+    if not DB_URL:
+        return []
+    pool = await _get_db_pool()
+    rows = await pool.fetch("SELECT name FROM library_categories ORDER BY name")
+    return [r["name"] for r in rows]
+
+class LibraryCategoryBody(BaseModel):
+    name: str
+
+@app.post("/api/library/categories")
+async def add_library_category(body: LibraryCategoryBody, token: str = ""):
+    check_token(token)
+    if not DB_URL:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Category name required")
+    pool = await _get_db_pool()
+    await pool.execute(
+        "INSERT INTO library_categories (name) VALUES ($1) ON CONFLICT (name) DO NOTHING",
+        name
+    )
+    rows = await pool.fetch("SELECT name FROM library_categories ORDER BY name")
+    return [r["name"] for r in rows]
+
+@app.delete("/api/library/categories/{name}")
+async def delete_library_category(name: str, token: str = ""):
+    check_token(token)
+    if not DB_URL:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    pool = await _get_db_pool()
+    await pool.execute("DELETE FROM library_categories WHERE name = $1", name)
+    rows = await pool.fetch("SELECT name FROM library_categories ORDER BY name")
+    return [r["name"] for r in rows]
+
 @app.get("/api/library/stats")
 async def library_stats():
     if not DB_URL:
@@ -3917,13 +3954,13 @@ async def library_stats():
     pool = await _get_db_pool()
     rows = await pool.fetch("SELECT status, COUNT(*) as cnt FROM library_books GROUP BY status")
     counts = {r["status"]: r["cnt"] for r in rows}
-    cats   = await pool.fetch("SELECT DISTINCT category FROM library_books WHERE category IS NOT NULL ORDER BY category")
+    cats   = await pool.fetch("SELECT name FROM library_categories ORDER BY name")
     return {
         "total":     sum(counts.values()),
         "reading":   counts.get("reading", 0),
         "purchased": counts.get("purchased", 0),
         "reference": counts.get("reference", 0),
-        "categories": [r["category"] for r in cats if r["category"]],
+        "categories": [r["name"] for r in cats],
     }
 
 @app.post("/api/library/books")
@@ -3942,6 +3979,11 @@ async def add_library_book(body: LibraryBookBody, token: str = ""):
         body.publisher, body.published_date, body.pages, body.cover_url,
         body.price, body.rating, body.review, body.status, body.notes
     )
+    if body.category:
+        await pool.execute(
+            "INSERT INTO library_categories (name) VALUES ($1) ON CONFLICT (name) DO NOTHING",
+            body.category.strip()
+        )
     return dict(row)
 
 @app.patch("/api/library/books/{book_id}")
@@ -3961,6 +4003,11 @@ async def update_library_book(book_id: str, body: LibraryBookPatch, token: str =
     )
     if not row:
         raise HTTPException(status_code=404, detail="Book not found")
+    if body.category:
+        await pool.execute(
+            "INSERT INTO library_categories (name) VALUES ($1) ON CONFLICT (name) DO NOTHING",
+            body.category.strip()
+        )
     return dict(row)
 
 @app.delete("/api/library/books/{book_id}")
