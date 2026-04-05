@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.9] - 2026-04-05
+
+### Fixed
+- Category field in the Add/Edit book modal is now a `<select>` dropdown populated from the managed category list, so newly added categories are immediately available when editing an existing book
+
+---
+
 ## [3.5.8] - 2026-04-05
 
 ### Added
