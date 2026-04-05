@@ -1672,8 +1672,9 @@ select option{background:var(--surface2)}
     </div>
     <div>
       <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Category</label>
-      <input id="lib-f-category" class="select-input" list="lib-category-list" style="width:100%;padding:7px 10px;font-size:13px" placeholder="e.g. Technical Analysis">
-      <datalist id="lib-category-list"></datalist>
+      <select id="lib-f-category" class="select-input" style="width:100%;padding:7px 10px;font-size:13px">
+        <option value="">— No Category —</option>
+      </select>
     </div>
     <div>
       <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Publisher</label>
@@ -7847,9 +7848,13 @@ async function _libLoadStats() {
       (d.categories || []).map(c => `<option value="${c}" ${c===cur?'selected':''}>${c}</option>`).join('') +
       '<option disabled style="color:var(--border)">──────────</option>' +
       '<option value="__add__" style="color:#a78bfa">＋ Add Category…</option>';
-    // Populate category datalist in modal
-    const dl = document.getElementById('lib-category-list');
-    if (dl) dl.innerHTML = (d.categories || []).map(c => `<option value="${c}">`).join('');
+    // Populate category select in book form
+    const catSel = document.getElementById('lib-f-category');
+    if (catSel) {
+      const curCat = catSel.value;
+      catSel.innerHTML = '<option value="">— No Category —</option>' +
+        (d.categories || []).map(c => `<option value="${c}"${c===curCat?' selected':''}>${c}</option>`).join('');
+    }
   } catch(_) {}
 }
 
@@ -7985,6 +7990,13 @@ function _libOpenEdit(id) {
   document.getElementById('lib-modal-title').textContent = 'Edit Book';
   document.getElementById('lib-isbn-input').value        = b.isbn || '';
   document.getElementById('lib-lookup-status').textContent = '';
+  // If this book has a category not yet in the managed list, add it so it's selectable
+  if (b.category) {
+    const catSel = document.getElementById('lib-f-category');
+    if (catSel && !Array.from(catSel.options).some(o => o.value === b.category)) {
+      catSel.add(new Option(b.category, b.category));
+    }
+  }
   const fields = { title: b.title, author: b.author, category: b.category,
     publisher: b.publisher, published_date: b.published_date, pages: b.pages,
     price: b.price, cover_url: b.cover_url, description: b.description,
