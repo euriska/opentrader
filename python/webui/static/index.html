@@ -1709,20 +1709,26 @@ select option{background:var(--surface2)}
       </div>
     </div>
     <div style="grid-column:1/-1">
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Review / Comments</label>
+      <textarea id="lib-f-review" rows="3"
+        style="width:100%;padding:7px 10px;font-size:13px;resize:vertical;font-family:inherit;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg)"
+        placeholder="Your thoughts on this book — what did you learn, would you recommend it?"></textarea>
+    </div>
+    <div style="grid-column:1/-1">
       <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Cover URL</label>
       <input id="lib-f-cover_url" class="select-input" style="width:100%;padding:7px 10px;font-size:13px" placeholder="Auto-filled from ISBN lookup">
     </div>
     <div style="grid-column:1/-1">
       <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Description</label>
-      <textarea id="lib-f-description" rows="3" class="select-input"
+      <textarea id="lib-f-description" rows="3"
         style="width:100%;padding:7px 10px;font-size:13px;resize:vertical;font-family:inherit;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg)"
-        placeholder="Book description"></textarea>
+        placeholder="Book description (auto-filled from ISBN lookup)"></textarea>
     </div>
     <div style="grid-column:1/-1">
       <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Notes</label>
-      <textarea id="lib-f-notes" rows="2" class="select-input"
+      <textarea id="lib-f-notes" rows="2"
         style="width:100%;padding:7px 10px;font-size:13px;resize:vertical;font-family:inherit;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg)"
-        placeholder="Personal notes"></textarea>
+        placeholder="Personal notes, page references, quotes…"></textarea>
     </div>
   </div>
 
@@ -7940,7 +7946,7 @@ function _libOpenAdd() {
   _libEditId = null;
   _libRating = 0;
   document.getElementById('lib-modal-title').textContent = 'Add Book';
-  ['title','author','category','publisher','published_date','pages','price','cover_url','description','notes']
+  ['title','author','category','publisher','published_date','pages','price','cover_url','description','review','notes']
     .forEach(f => { const el = document.getElementById('lib-f-'+f); if(el) el.value = ''; });
   document.getElementById('lib-f-status').value = 'purchased';
   document.getElementById('lib-isbn-input').value = '';
@@ -7960,7 +7966,8 @@ function _libOpenEdit(id) {
   document.getElementById('lib-lookup-status').textContent = '';
   const fields = { title: b.title, author: b.author, category: b.category,
     publisher: b.publisher, published_date: b.published_date, pages: b.pages,
-    price: b.price, cover_url: b.cover_url, description: b.description, notes: b.notes };
+    price: b.price, cover_url: b.cover_url, description: b.description,
+    review: b.review, notes: b.notes };
   for (const [k, v] of Object.entries(fields)) {
     const el = document.getElementById('lib-f-'+k);
     if (el) el.value = v ?? '';
@@ -8028,6 +8035,7 @@ async function _libSaveBook() {
     cover_url:      document.getElementById('lib-f-cover_url').value.trim()    || null,
     price:          parseFloat(document.getElementById('lib-f-price').value)   || null,
     rating:         _libRating || null,
+    review:         document.getElementById('lib-f-review').value.trim()       || null,
     status:         document.getElementById('lib-f-status').value,
     notes:          document.getElementById('lib-f-notes').value.trim()        || null,
   };
@@ -8086,6 +8094,13 @@ function _libOpenDrawer(id) {
         ${b.pages ? `<div><span style="color:var(--muted)">Pages</span><br>${b.pages}</div>` : ''}
         ${b.isbn ? `<div><span style="color:var(--muted)">ISBN</span><br>${b.isbn}</div>` : ''}
       </div>
+      ${b.review ? `<div style="background:var(--bg);border:1px solid var(--border);border-left:3px solid #f59e0b;border-radius:6px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600">My Review</span>
+          <span>${_libStars(b.rating, 14)}</span>
+        </div>
+        <div style="font-size:12px;color:var(--fg);line-height:1.6">${b.review}</div>
+      </div>` : ''}
       ${b.notes ? `<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px;color:var(--fg);line-height:1.5"><strong style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.06em">Notes</strong><br>${b.notes}</div>` : ''}
       <div style="display:flex;gap:8px;margin-top:16px">
         <button class="btn btn-sm" onclick="_libCloseDrawer();_libOpenEdit('${b.id}')"
@@ -8175,7 +8190,7 @@ async function _saveExclusions() {
   const sectors = (document.getElementById('excl-sectors').value || '').split('\n').map(s=>s.trim()).filter(Boolean);
   const tickers = (document.getElementById('excl-tickers').value || '').split('\n').map(s=>s.trim().toUpperCase()).filter(Boolean);
   try {
-    const tok = localStorage.getItem('ot_token') || '';
+    const tok = getToken();
     await fetch(`/api/assignments/exclusions?token=${encodeURIComponent(tok)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -160,6 +160,7 @@ CREATE TABLE IF NOT EXISTS library_books (
     price        NUMERIC(10,2),
     rating       SMALLINT    CHECK (rating BETWEEN 1 AND 5),
     status       VARCHAR(20) NOT NULL DEFAULT 'purchased' CHECK (status IN ('reading','purchased','reference')),
+    review       TEXT,
     notes        TEXT,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()

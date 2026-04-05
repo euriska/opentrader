@@ -3753,6 +3753,7 @@ class LibraryBookBody(BaseModel):
     cover_url:      str | None = None
     price:          float | None = None
     rating:         int | None = None
+    review:         str | None = None
     status:         str = "purchased"
     notes:          str | None = None
 
@@ -3767,6 +3768,7 @@ class LibraryBookPatch(BaseModel):
     cover_url:      str | None = None
     price:          float | None = None
     rating:         int | None = None
+    review:         str | None = None
     status:         str | None = None
     notes:          str | None = None
 
@@ -3933,12 +3935,12 @@ async def add_library_book(body: LibraryBookBody, token: str = ""):
     row = await pool.fetchrow(
         """INSERT INTO library_books
             (isbn, title, author, description, category, publisher, published_date,
-             pages, cover_url, price, rating, status, notes)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+             pages, cover_url, price, rating, review, status, notes)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
            RETURNING *""",
         body.isbn, body.title, body.author, body.description, body.category,
         body.publisher, body.published_date, body.pages, body.cover_url,
-        body.price, body.rating, body.status, body.notes
+        body.price, body.rating, body.review, body.status, body.notes
     )
     return dict(row)
 
