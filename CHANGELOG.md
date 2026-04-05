@@ -5,12 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
+
+---
+
 ## [3.5.4] - 2026-04-05
 
 ### Added
 - Google Books API connector in Configuration page
 - Google Books as tertiary ISBN fallback in Library (after Open Library)
 - GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
+
+---
+
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
 
 ---
 
@@ -25,12 +43,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
+
+---
+
 ## [3.5.4] - 2026-04-05
 
 ### Added
 - Google Books API connector in Configuration page
 - Google Books as tertiary ISBN fallback in Library (after Open Library)
 - GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
+
+---
+
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
 
 ---
 
@@ -48,12 +84,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
+
+---
+
 ## [3.5.4] - 2026-04-05
 
 ### Added
 - Google Books API connector in Configuration page
 - Google Books as tertiary ISBN fallback in Library (after Open Library)
 - GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
+
+---
+
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
 
 ---
 
@@ -68,12 +122,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
+
+---
+
 ## [3.5.4] - 2026-04-05
 
 ### Added
 - Google Books API connector in Configuration page
 - Google Books as tertiary ISBN fallback in Library (after Open Library)
 - GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
+
+---
+
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
 
 ---
 
@@ -100,12 +172,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
+
+---
+
 ## [3.5.4] - 2026-04-05
 
 ### Added
 - Google Books API connector in Configuration page
 - Google Books as tertiary ISBN fallback in Library (after Open Library)
 - GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
+
+---
+
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
 
 ---
 
@@ -120,12 +210,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
+
+---
+
 ## [3.5.4] - 2026-04-05
 
 ### Added
 - Google Books API connector in Configuration page
 - Google Books as tertiary ISBN fallback in Library (after Open Library)
 - GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
+
+---
+
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
 
 ---
 
@@ -143,12 +251,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
+
+---
+
 ## [3.5.4] - 2026-04-05
 
 ### Added
 - Google Books API connector in Configuration page
 - Google Books as tertiary ISBN fallback in Library (after Open Library)
 - GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
+
+---
+
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
 
 ---
 
@@ -163,11 +289,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
+
+---
+
 ## [3.5.4] - 2026-04-05
 
 ### Added
 - Google Books API connector in Configuration page
 - Google Books as tertiary ISBN fallback in Library (after Open Library)
 - GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
+
+---
+
+## [3.5.5] - 2026-04-05
+
+### Fixed
+- Library save broken (token read from localStorage instead of sessionStorage)
+- Added Review/Comments field to Library modal with star rating
+- Review shown in detail drawer with amber accent
 
 ---
