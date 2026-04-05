@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.4] - 2026-04-05
+
+### Added
+- Google Books API connector in Configuration page
+- Google Books as tertiary ISBN fallback in Library (after Open Library)
+- GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
+
+---
+
 ## [3.5.3] - 2026-04-05
 
 ### Added
@@ -13,6 +22,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 - Tile and table view with cover art, star ratings, status tracking
 - Filter and sort by title, author, category
 - Detail drawer and add/edit modal with ISBN auto-fill
+
+---
+
+## [3.5.4] - 2026-04-05
+
+### Added
+- Google Books API connector in Configuration page
+- Google Books as tertiary ISBN fallback in Library (after Open Library)
+- GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
 
 ---
 
@@ -30,6 +48,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.4] - 2026-04-05
+
+### Added
+- Google Books API connector in Configuration page
+- Google Books as tertiary ISBN fallback in Library (after Open Library)
+- GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
+
+---
+
 ## [3.5.3] - 2026-04-05
 
 ### Added
@@ -38,6 +65,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 - Tile and table view with cover art, star ratings, status tracking
 - Filter and sort by title, author, category
 - Detail drawer and add/edit modal with ISBN auto-fill
+
+---
+
+## [3.5.4] - 2026-04-05
+
+### Added
+- Google Books API connector in Configuration page
+- Google Books as tertiary ISBN fallback in Library (after Open Library)
+- GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
 
 ---
 
@@ -64,6 +100,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.4] - 2026-04-05
+
+### Added
+- Google Books API connector in Configuration page
+- Google Books as tertiary ISBN fallback in Library (after Open Library)
+- GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
+
+---
+
 ## [3.5.3] - 2026-04-05
 
 ### Added
@@ -72,6 +117,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 - Tile and table view with cover art, star ratings, status tracking
 - Filter and sort by title, author, category
 - Detail drawer and add/edit modal with ISBN auto-fill
+
+---
+
+## [3.5.4] - 2026-04-05
+
+### Added
+- Google Books API connector in Configuration page
+- Google Books as tertiary ISBN fallback in Library (after Open Library)
+- GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
 
 ---
 
@@ -89,6 +143,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.4] - 2026-04-05
+
+### Added
+- Google Books API connector in Configuration page
+- Google Books as tertiary ISBN fallback in Library (after Open Library)
+- GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
+
+---
+
 ## [3.5.3] - 2026-04-05
 
 ### Added
@@ -97,5 +160,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 - Tile and table view with cover art, star ratings, status tracking
 - Filter and sort by title, author, category
 - Detail drawer and add/edit modal with ISBN auto-fill
+
+---
+
+## [3.5.4] - 2026-04-05
+
+### Added
+- Google Books API connector in Configuration page
+- Google Books as tertiary ISBN fallback in Library (after Open Library)
+- GOOGLE_BOOKS_API_KEY saved via standard .env connector flow
 
 ---
