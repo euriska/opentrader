@@ -77,6 +77,15 @@ async def job_scrape_ovtlyr(redis: aioredis.Redis):
 
 
 @tracked
+async def job_scrape_position_intel(redis: aioredis.Redis):
+    """Scrape OVTLYR dashboard for each open position. Active session only."""
+    if not is_active_session():
+        log.debug("scheduler.skip", job="scrape_position_intel", reason="market_closed")
+        return
+    await trigger(redis, "scrape_position_intel", {"source": "ovtlyr"})
+
+
+@tracked
 async def job_scrape_sentiment(redis: aioredis.Redis):
     """Trigger all sentiment scrapers (WSB, SeekingAlpha, Yahoo). Active session only."""
     if not is_active_session():
@@ -85,6 +94,15 @@ async def job_scrape_sentiment(redis: aioredis.Redis):
     await trigger(redis, "scrape_wsb",       {"source": "wsb"})
     await trigger(redis, "scrape_seekalpha", {"source": "seekalpha"})
     await trigger(redis, "scrape_yahoo",     {"source": "yahoo"})
+
+
+@tracked
+async def job_score_ticker_sentiment(redis: aioredis.Redis):
+    """Score F&G sentiment for open positions + OVTLYR signal tickers. Runs after close."""
+    if not is_trading_day():
+        log.debug("scheduler.skip", job="score_ticker_sentiment", reason="not_trading_day")
+        return
+    await trigger(redis, "score_ticker_sentiment", {})
 
 
 @tracked

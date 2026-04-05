@@ -62,7 +62,7 @@ class ReviewAgent(BaseAgent):
 
     def __init__(self):
         super().__init__("review-agent")
-        self._db:      Optional[asyncpg.Connection] = None
+        self._db:      Optional[asyncpg.Pool] = None
         self.notifier  = Notifier("review")
         self.gateway   = TradierGateway()
         self._trades_since_review = 0
@@ -98,7 +98,10 @@ class ReviewAgent(BaseAgent):
         dsn = _safe_db_url(DB_URL)
         for attempt in range(1, 6):
             try:
-                self._db = await asyncpg.connect(dsn)
+                self._db = await asyncpg.create_pool(
+                    dsn, min_size=1, max_size=3,
+                    max_inactive_connection_lifetime=300,
+                )
                 log.info("review-agent.db_connected")
                 return
             except Exception as e:
@@ -114,7 +117,8 @@ class ReviewAgent(BaseAgent):
             (CMD_STREAM, CMD_GROUP),
         ]:
             try:
-                await self.redis.xgroup_create(stream, group, id="$", mkstream=True)
+                # id="0" so a fresh group replays all unprocessed messages from the start
+                await self.redis.xgroup_create(stream, group, id="0", mkstream=True)
             except Exception as e:
                 if "BUSYGROUP" not in str(e):
                     log.warning("review-agent.group_create", stream=stream, error=str(e))
@@ -154,55 +158,54 @@ class ReviewAgent(BaseAgent):
                     self.redis = await get_redis()
 
     async def _record_trade(self, msg_id: str, data: dict):
-        try:
-            event_type = data.get("event_type", "fill")
+        event_type = data.get("event_type", "fill")
 
-            # Map broker-side values ("buy"/"sell") to DB-accepted values ("long"/"short")
-            raw_dir = (data.get("direction") or "long").lower()
-            if raw_dir in ("sell", "sell_short", "short"):
-                direction = "short"
-            else:
-                direction = "long"
+        raw_dir = (data.get("direction") or "long").lower()
+        direction = "short" if raw_dir in ("sell", "sell_short", "short") else "long"
 
-            # Don't write rejected orders to the trades table
-            if event_type == "reject":
-                await self.notifier.trade_reject(data)
-            else:
-                if self._db:
-                    await self._db.execute(
-                        """
-                        INSERT INTO trades
-                            (account_id, broker, mode, ticker, asset_class,
-                             direction, qty, entry_price, signal_src, strategy, status)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-                        """,
-                        data.get("account_id", ""),
-                        data.get("broker", "tradier"),
-                        data.get("mode", "sandbox"),
-                        data.get("ticker", ""),
-                        data.get("asset_class", "equity"),
-                        direction,
-                        float(data.get("qty", 1)),
-                        float(data.get("price") or 0) or None,
-                        "predictor",
-                        data.get("strategy", "momentum_equity"),
-                        event_type,  # status = "fill" | "pending" | "open"
-                    )
-                    self._trades_since_review += 1
-
-                # Notify on fills and pending orders (limit orders submitted)
-                if event_type in ("fill", "pending"):
-                    await self.notifier.trade_fill(data)
-
-            # Check strategic review threshold
-            if self._trades_since_review >= STRATEGY_REVIEW_THRESHOLD:
-                asyncio.create_task(self._run_strategy_review())
-                self._trades_since_review = 0
-
-        except Exception as e:
-            log.error("review-agent.record_trade_error", error=str(e))
-        finally:
+        if event_type == "reject":
+            await self.notifier.trade_reject(data)
             await self.redis.xack(ORD_STREAM, ORD_GROUP, msg_id)
+            return
+
+        # Write to DB — do NOT ACK if this fails; the message will redeliver on restart
+        if self._db:
+            try:
+                await self._db.execute(
+                    """
+                    INSERT INTO trades
+                        (account_id, broker, mode, ticker, asset_class,
+                         direction, qty, entry_price, signal_src, strategy, status)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                    """,
+                    data.get("account_id", ""),
+                    data.get("broker", "tradier"),
+                    data.get("mode", "sandbox"),
+                    data.get("ticker", ""),
+                    data.get("asset_class", "equity"),
+                    direction,
+                    float(data.get("qty", 1)),
+                    float(data.get("price") or 0) or None,
+                    "predictor",
+                    data.get("strategy", "momentum_equity"),
+                    event_type,
+                )
+                self._trades_since_review += 1
+            except Exception as e:
+                log.error("review-agent.record_trade_error",
+                          ticker=data.get("ticker"), error=str(e))
+                # Leave message unACK'd — pool will reconnect and it will redeliver
+                return
+
+        # ACK only after DB write confirmed (or if no DB configured)
+        await self.redis.xack(ORD_STREAM, ORD_GROUP, msg_id)
+
+        if event_type in ("fill", "pending"):
+            await self.notifier.trade_fill(data)
+
+        if self._trades_since_review >= STRATEGY_REVIEW_THRESHOLD:
+            asyncio.create_task(self._run_strategy_review())
+            self._trades_since_review = 0
 
     # ── Commands loop — EOD report trigger ───────────────────────────────────
 

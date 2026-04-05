@@ -174,7 +174,12 @@ class BrokerRegistry:
         if broker:
             results = [r for r in results if r.broker == broker]
         if mode:
-            results = [r for r in results if r.mode == mode]
+            # "sandbox" is the trader's generic non-live intent;
+            # match both "sandbox" (Tradier) and "paper" (Webull/Alpaca) accounts.
+            if mode == "sandbox":
+                results = [r for r in results if r.mode in ("sandbox", "paper")]
+            else:
+                results = [r for r in results if r.mode == mode]
         if strategy_tag:
             results = [r for r in results if strategy_tag in r.strategy_tags]
         return results

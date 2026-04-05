@@ -499,6 +499,243 @@ class OvtlyrScraper:
             return min(v, 100.0)
         return 50.0
 
+    async def scrape_ticker(self, ticker: str) -> dict:
+        """
+        Navigate to /dashboard/{ticker} and extract key OVTLYR metrics.
+        Returns a dict with signal, nine_score, oscillator, fear_greed, last_close, avg_vol_30d.
+        Must be called after start() — reuses the logged-in session.
+        """
+        if not self._logged_in:
+            await self._login()
+            if not self._logged_in:
+                return {}
+
+        url = f"https://console.ovtlyr.com/dashboard/{ticker.upper()}"
+        try:
+            await self._page.goto(url, timeout=30_000)
+            await self._page.wait_for_load_state("networkidle", timeout=20_000)
+            await asyncio.sleep(4)
+        except Exception as e:
+            log.warning("ovtlyr.scrape_ticker_nav_error", ticker=ticker, error=str(e))
+            return {}
+
+        try:
+            text = await self._page.evaluate("() => document.body.innerText || ''")
+        except Exception as e:
+            log.warning("ovtlyr.scrape_ticker_eval_error", ticker=ticker, error=str(e))
+            return {}
+
+        result: dict = {}
+
+        # Signal: "Sell" or "Buy" near "Current Signal"
+        m = re.search(r'Current Signal[^\n]*\n+\s*(Buy|Sell)', text, re.IGNORECASE)
+        if m:
+            result["signal"] = m.group(1).capitalize()
+
+        # Active status
+        result["signal_active"] = bool(re.search(r'\bActive\b', text))
+
+        # Signal date — e.g. "(Apr 02, 2026)"
+        m = re.search(r'Current Signal.*?\(([A-Za-z]+ \d+,\s*\d{4})\)', text, re.DOTALL)
+        if not m:
+            m = re.search(r'Active Signal.*?\(([A-Za-z]+ \d+,\s*\d{4})\)', text, re.DOTALL)
+        if m:
+            result["signal_date_str"] = m.group(1).strip()
+
+        # OVTLYR NINE score — "(5 / 9)"
+        m = re.search(r'\(\s*(\d+)\s*/\s*9\s*\)', text)
+        if m:
+            result["nine_score"] = int(m.group(1))
+
+        # Oscillator direction
+        m = re.search(r'Oscillator direction\s*\n+\s*([^\n]+)', text)
+        if m:
+            result["oscillator"] = m.group(1).strip()
+
+        # Fear & Greed score — standalone decimal like "32.71"
+        m = re.search(r'\b(\d{1,3}\.\d{2})\s*\n*\s*arrow_outward', text)
+        if m:
+            try:
+                result["fear_greed"] = float(m.group(1))
+            except ValueError:
+                pass
+
+        # Last close — "$655.24" near "Last Day Close"
+        m = re.search(r'Last Day Close\s*\n+\s*\$?([\d,]+\.?\d*)', text)
+        if m:
+            try:
+                result["last_close"] = float(m.group(1).replace(",", ""))
+            except ValueError:
+                pass
+
+        # 30-day avg volume
+        m = re.search(r'30-Day Avg\. Vol\.\s*\n+\s*([\d,]+)', text)
+        if m:
+            try:
+                result["avg_vol_30d"] = int(m.group(1).replace(",", ""))
+            except ValueError:
+                pass
+
+        result["ticker"] = ticker.upper()
+        log.info("ovtlyr.scrape_ticker", ticker=ticker, signal=result.get("signal"),
+                 nine_score=result.get("nine_score"), fear_greed=result.get("fear_greed"))
+        return result
+
+    @staticmethod
+    def _entry_to_signal(e: dict) -> dict:
+        from datetime import datetime as _dt
+        sig_date = None
+        raw_date = e.get("BuySellDate", "")
+        if raw_date:
+            try:
+                sig_date = _dt.fromisoformat(raw_date.replace("Z", "")).date().isoformat()
+            except Exception:
+                pass
+        return {
+            "ticker":      (e.get("Symbol") or "").upper(),
+            "name":        e.get("Name", ""),
+            "sector":      e.get("gics_Sector", ""),
+            "signal":      e.get("BuySellStatus", ""),
+            "signal_date": sig_date,
+            "last_price":  e.get("LastPrice"),
+            "avg_vol_30d": int(e.get("averageVol30Days", 0)) if e.get("averageVol30Days") else None,
+        }
+
+    async def scrape_lists(self) -> dict:
+        """
+        Fetch all OVTLYR list types via paginated POST calls (using the page's CSRF token).
+        Lists: bull, bear, market_leaders, alpha_picks
+        Returns dict: { list_type: [{ ticker, name, sector, signal, signal_date, last_price, avg_vol_30d }] }
+        """
+        if not self._logged_in:
+            await self._login()
+            if not self._logged_in:
+                return {}
+
+        # Navigate to watchlist to get a valid CSRF token
+        try:
+            await self._page.goto(WATCHLIST_URL, timeout=30_000)
+            await self._page.wait_for_load_state("networkidle", timeout=20_000)
+            await asyncio.sleep(2)
+        except Exception as e:
+            log.warning("ovtlyr.scrape_lists_nav_error", error=str(e))
+            return {}
+
+        csrf = await self._page.evaluate(
+            "() => document.querySelector('[name=__RequestVerificationToken]')?.value || ''"
+        )
+        if not csrf:
+            log.warning("ovtlyr.scrape_lists_no_csrf")
+            return {}
+
+        # (handler, list_type, base_payload)
+        LISTS = [
+            ("GetBullsList_Stocks", "bull", {
+                "page_size": 500, "page_index": 0, "stockTypeId": 1, "status": "buy",
+                "filter_sectorIds": None, "filter_industryNames": None,
+                "filter_minMarkerCap": None, "filter_maxMarkerCap": None,
+                "sortOrder": "0", "sortBy": "0",
+                "filter_BuySellFinalRegion": None, "filter_UnaTmt": None,
+            }),
+            ("GetBearsList_Stocks", "bear", {
+                "page_size": 500, "page_index": 0, "stockTypeId": 1, "status": "sell",
+                "filter_sectorIds": None, "filter_industryNames": None,
+                "filter_minMarkerCap": None, "filter_maxMarkerCap": None,
+                "sortOrder": "0", "sortBy": "0",
+                "filter_BuySellFinalRegion": None, "filter_UnaTmt": None,
+            }),
+            ("AjaxGetHighCoverage_Stocks", "market_leaders", {
+                "page_size": 500, "page_index": 0, "stockTypeId": 1, "status": "",
+                "filter_sectorIds": None, "filter_industryNames": None,
+                "filter_minMarkerCap": None, "filter_maxMarkerCap": None,
+                "sortOrder": "0", "sortBy": "0",
+                "filter_BuySellFinalRegion": None, "filter_IsHighNewsCoverage": True,
+                "filter_UnaTmt": None, "filter_CurrentSentiment": None,
+            }),
+        ]
+
+        result: dict = {"bull": [], "bear": [], "market_leaders": [], "alpha_picks": []}
+
+        import json as _json
+        for handler, list_type, base_payload in LISTS:
+            all_entries: list = []
+            page_index = 0
+            while True:
+                payload = {**base_payload, "page_index": page_index}
+                payload_str = _json.dumps(payload).replace("'", "\\'")
+                resp = await self._page.evaluate(f"""
+                    async () => {{
+                        try {{
+                            const r = await fetch('/watchlist?handler={handler}', {{
+                                method: 'POST',
+                                headers: {{
+                                    'RequestVerificationToken': '{csrf}',
+                                    'X-Requested-With': 'XMLHttpRequest',
+                                    'Content-Type': 'application/json;charset=UTF-8'
+                                }},
+                                body: '{payload_str}',
+                                credentials: 'include'
+                            }});
+                            if (!r.ok) return null;
+                            return await r.json();
+                        }} catch(e) {{ return null; }}
+                    }}
+                """)
+                if not resp:
+                    break
+                lst = resp.get("lst_stk") or []
+                if not lst:
+                    break
+                all_entries.extend(lst)
+                count_total = resp.get("count_total", 0)
+                if len(all_entries) >= count_total:
+                    break
+                page_index += 1
+                if page_index > 30:   # safety cap (~15 000 tickers max)
+                    break
+
+            result[list_type] = [self._entry_to_signal(e) for e in all_entries if e.get("Symbol")]
+            log.info("ovtlyr.list_fetched", list_type=list_type, count=len(result[list_type]))
+
+        # Try Alpha Picks — attempt several likely handler names
+        for alpha_handler in ("GetAlphaPicks_Stocks", "AjaxGetAlphaPicks_Stocks",
+                              "GetAlphaPicksList", "GetAlphaPicks"):
+            payload_str = _json.dumps({"page_size": 500, "page_index": 0, "stockTypeId": 1,
+                                       "sortOrder": "0", "sortBy": "0"})
+            payload_str = payload_str.replace("'", "\\'")
+            resp = await self._page.evaluate(f"""
+                async () => {{
+                    try {{
+                        const r = await fetch('/watchlist?handler={alpha_handler}', {{
+                            method: 'POST',
+                            headers: {{
+                                'RequestVerificationToken': '{csrf}',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'Content-Type': 'application/json;charset=UTF-8'
+                            }},
+                            body: '{payload_str}',
+                            credentials: 'include'
+                        }});
+                        if (!r.ok) return null;
+                        const data = await r.json();
+                        return data.count_total > 0 ? data : null;
+                    }} catch(e) {{ return null; }}
+                }}
+            """)
+            if resp and resp.get("lst_stk"):
+                result["alpha_picks"] = [
+                    self._entry_to_signal(e) for e in resp["lst_stk"] if e.get("Symbol")
+                ]
+                log.info("ovtlyr.alpha_fetched", handler=alpha_handler,
+                         count=len(result["alpha_picks"]))
+                break
+
+        log.info("ovtlyr.lists_scraped",
+                 bull=len(result["bull"]), bear=len(result["bear"]),
+                 market_leaders=len(result["market_leaders"]),
+                 alpha_picks=len(result["alpha_picks"]))
+        return result
+
     async def warmup(self):
         """Pre-market warmup — just refresh the session."""
         if not self._logged_in:

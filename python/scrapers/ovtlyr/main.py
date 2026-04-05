@@ -7,6 +7,10 @@ import asyncio
 import json
 import os
 import structlog
+from datetime import datetime
+from typing import Optional
+
+import asyncpg
 
 from shared.base_agent import BaseAgent
 from shared.redis_client import STREAMS, GROUPS, REDIS_URL
@@ -19,6 +23,7 @@ SCANNER_STREAM = STREAMS["scanner"]
 CONSUMER_GROUP = GROUPS["scraper-ovtlyr"]
 CONSUMER_NAME  = os.getenv("HOSTNAME", "scraper-ovtlyr-0")
 MAX_TICKERS    = int(os.getenv("MAX_OVTLYR_TICKERS", "30"))
+DB_URL         = os.getenv("DB_URL", "")
 
 
 class OvtlyrScraperAgent(BaseAgent):
@@ -27,6 +32,7 @@ class OvtlyrScraperAgent(BaseAgent):
         super().__init__("scraper-ovtlyr")
         self.ovtlyr = OvtlyrScraper()
         self._ready = False
+        self._db: Optional[asyncpg.Pool] = None
 
     async def run(self):
         await self.setup()
@@ -35,6 +41,26 @@ class OvtlyrScraperAgent(BaseAgent):
             REDIS_URL, encoding="utf-8", decode_responses=True,
             socket_connect_timeout=10, socket_timeout=None,
         )
+        if DB_URL:
+            from urllib.parse import urlparse, unquote
+            try:
+                # asyncpg's own URL parser breaks on unencoded '@' in passwords;
+                # parse with stdlib and pass kwargs instead.
+                p = urlparse(DB_URL)
+                db_kwargs = dict(
+                    host=p.hostname, port=p.port or 5432,
+                    user=p.username,
+                    password=unquote(p.password) if p.password else None,
+                    database=p.path.lstrip("/"),
+                )
+                self._db = await asyncpg.create_pool(
+                    min_size=1, max_size=3,
+                    max_inactive_connection_lifetime=300,
+                    **db_kwargs,
+                )
+                log.info("scraper-ovtlyr.db_connected")
+            except Exception as e:
+                log.error("scraper-ovtlyr.db_connect_failed", error=str(e))
         await self._ensure_group()
         asyncio.create_task(self._init_ovtlyr())
         log.info("scraper-ovtlyr.starting")
@@ -93,6 +119,8 @@ class OvtlyrScraperAgent(BaseAgent):
             if data.get("command") == "trigger":
                 if job == "scrape_ovtlyr":
                     await self._run_scrape()
+                elif job == "scrape_position_intel":
+                    await self._run_position_intel()
                 elif job == "pre_market_prep":
                     await self._warmup()
         except Exception as e:
@@ -141,9 +169,177 @@ class OvtlyrScraperAgent(BaseAgent):
             )
             published += 1
 
-        pipe.expire("scanner:ovtlyr:latest", 3600)
+        pipe.expire("scanner:ovtlyr:latest", 86400)  # 24h — outlasts any schedule interval
         await pipe.execute()
         log.info("scraper-ovtlyr.published", count=published)
+
+        # Scrape all list types and save to DB
+        await self._run_list_scrape()
+
+    async def _get_position_tickers(self) -> list[str]:
+        """
+        Collect open position tickers.
+        Primary: broker:position_tickers Redis key written by the webui on each positions fetch.
+        Fallback: DB trades table (status='open').
+        """
+        import json as _json
+
+        # Primary: webui writes this key after every /api/broker/positions call
+        try:
+            raw = await self.redis.get("broker:position_tickers")
+            if raw:
+                tickers = _json.loads(raw)
+                if isinstance(tickers, list) and tickers:
+                    return tickers
+        except Exception as e:
+            log.warning("scraper-ovtlyr.position_tickers_redis_error", error=str(e))
+
+        # Fallback: DB trades table
+        if self._db:
+            try:
+                rows = await self._db.fetch(
+                    "SELECT DISTINCT ticker FROM trades WHERE status = 'open' ORDER BY ticker"
+                )
+                return [r["ticker"] for r in rows]
+            except Exception as e:
+                log.warning("scraper-ovtlyr.position_tickers_db_error", error=str(e))
+
+        return []
+
+    async def _run_position_intel(self):
+        """Scrape OVTLYR dashboard for each open position ticker and store in Redis/DB."""
+        if not self._ready:
+            log.warning("scraper-ovtlyr.position_intel_not_ready")
+            return
+
+        # Always include market benchmarks; add open position tickers
+        base_tickers = ["SPY", "QQQ"]
+        position_tickers = await self._get_position_tickers()
+
+        # Deduplicate while preserving order: benchmarks first, then positions
+        seen = set(base_tickers)
+        tickers = list(base_tickers)
+        for t in position_tickers:
+            if t not in seen:
+                seen.add(t)
+                tickers.append(t)
+
+        if not position_tickers:
+            log.info("scraper-ovtlyr.position_intel_no_open_positions_scraping_benchmarks")
+
+        log.info("scraper-ovtlyr.position_intel_start", tickers=tickers)
+        scraped = 0
+
+        for ticker in tickers:
+            try:
+                data = await self.ovtlyr.scrape_ticker(ticker)
+                if not data:
+                    continue
+
+                # Parse signal_date from string if present
+                signal_date = None
+                date_str = data.get("signal_date_str", "")
+                if date_str:
+                    try:
+                        signal_date = datetime.strptime(date_str, "%b %d, %Y").date()
+                    except ValueError:
+                        pass
+
+                # Always cache in Redis (primary path — works without DB)
+                await self.redis.hset(
+                    "ovtlyr:position_intel",
+                    ticker,
+                    json.dumps({**data, "ts": datetime.utcnow().isoformat()}),
+                )
+                scraped += 1
+
+                # Persist to DB if available
+                if self._db:
+                    try:
+                        await self._db.execute(
+                            """
+                            INSERT INTO ovtlyr_intel
+                                (ticker, signal, signal_active, signal_date, nine_score,
+                                 oscillator, fear_greed, last_close, avg_vol_30d, raw)
+                            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                            """,
+                            ticker,
+                            data.get("signal"),
+                            data.get("signal_active"),
+                            signal_date,
+                            data.get("nine_score"),
+                            data.get("oscillator"),
+                            data.get("fear_greed"),
+                            data.get("last_close"),
+                            data.get("avg_vol_30d"),
+                            json.dumps({k: v for k, v in data.items() if k != "signal_date_str"}),
+                        )
+                    except Exception as db_err:
+                        log.warning("scraper-ovtlyr.position_intel_db_insert_error",
+                                    ticker=ticker, error=str(db_err))
+
+            except Exception as e:
+                log.error("scraper-ovtlyr.position_intel_ticker_error",
+                          ticker=ticker, error=str(e))
+
+        await self.redis.expire("ovtlyr:position_intel", 7200)
+        log.info("scraper-ovtlyr.position_intel_done", scraped=scraped, total=len(tickers))
+
+    async def _run_list_scrape(self):
+        """Scrape Bull/Bear/Market Leaders/Alpha Picks lists and store in DB."""
+        if not self._db:
+            return
+        try:
+            lists = await self.ovtlyr.scrape_lists()
+        except Exception as e:
+            log.error("scraper-ovtlyr.list_scrape_failed", error=str(e))
+            return
+
+        inserted = 0
+        for list_type, entries in lists.items():
+            if not entries:
+                continue
+            for entry in entries:
+                if not entry.get("ticker"):
+                    continue
+                try:
+                    sig_date = None
+                    if entry.get("signal_date"):
+                        from datetime import date as _date
+                        sig_date = _date.fromisoformat(entry["signal_date"])
+                    await self._db.execute(
+                        """
+                        INSERT INTO ovtlyr_lists
+                            (list_type, ticker, name, sector, signal, signal_date, last_price, avg_vol_30d)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                        """,
+                        list_type,
+                        entry["ticker"],
+                        entry.get("name"),
+                        entry.get("sector"),
+                        entry.get("signal"),
+                        sig_date,
+                        float(entry["last_price"]) if entry.get("last_price") else None,
+                        entry.get("avg_vol_30d"),
+                    )
+                    inserted += 1
+                except Exception as e:
+                    log.error("scraper-ovtlyr.list_insert_error",
+                              ticker=entry.get("ticker"), error=str(e))
+
+        log.info("scraper-ovtlyr.lists_saved", inserted=inserted)
+
+        # Cache latest snapshot per list in Redis for fast API reads
+        import json as _json
+        pipe = self.redis.pipeline()
+        for list_type, entries in lists.items():
+            if entries:
+                pipe.set(
+                    f"ovtlyr:list:{list_type}",
+                    _json.dumps(entries),
+                    ex=7200,
+                )
+        await pipe.execute()
 
     async def _warmup(self):
         if self._ready:
@@ -154,6 +350,8 @@ class OvtlyrScraperAgent(BaseAgent):
     async def shutdown(self):
         self._running = False
         await self.ovtlyr.close()
+        if self._db:
+            await self._db.close()
         if self.redis:
             await self.redis.aclose()
 

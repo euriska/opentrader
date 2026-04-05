@@ -95,13 +95,14 @@ KNOWN_AGENTS = [
     "orchestrator", "scheduler", "predictor",
     "trader-equity", "trader-options",
     "scraper-ovtlyr", "scraper-wsb", "scraper-seekalpha", "scraper-yahoo",
+    "scraper-yahoo-sentiment",
     "aggregator", "review-agent", "broker-gateway",
     # MCP servers & chat agent — health derived from Podman (no heartbeat)
-    "mcp-yahoo", "mcp-alpaca", "mcp-tradingview", "chat-agent",
+    "mcp-yahoo", "mcp-alpaca", "mcp-tradingview", "mcp-massive", "chat-agent",
 ]
 
 # Containers that don't publish heartbeats — health is read from Podman status
-PODMAN_HEALTH_ONLY = {"mcp-yahoo", "mcp-alpaca", "mcp-tradingview", "chat-agent"}
+PODMAN_HEALTH_ONLY = {"mcp-yahoo", "mcp-alpaca", "mcp-tradingview", "mcp-massive", "chat-agent"}
 
 CONTAINER_MAP = {
     "orchestrator":    "ot-orchestrator",
@@ -112,13 +113,15 @@ CONTAINER_MAP = {
     "scraper-ovtlyr":  "ot-scraper-ovtlyr",
     "scraper-wsb":     "ot-scraper-wsb",
     "scraper-seekalpha":"ot-scraper-seekalpha",
-    "scraper-yahoo":   "ot-scraper-yahoo",
+    "scraper-yahoo":            "ot-scraper-yahoo",
+    "scraper-yahoo-sentiment":  "ot-scraper-yahoo-sentiment",
     "aggregator":      "ot-aggregator",
     "review-agent":    "ot-review-agent",
     "broker-gateway":  "ot-broker-gateway",
     "mcp-yahoo":        "ot-mcp-yahoo",
     "mcp-alpaca":       "ot-mcp-alpaca",
     "mcp-tradingview":  "ot-mcp-tradingview",
+    "mcp-massive":      "ot-mcp-massive",
     "chat-agent":      "ot-chat-agent",
     "redis":           "ot-redis",
     "timescaledb":     "ot-timescaledb",
@@ -443,15 +446,20 @@ class JobCreate(BaseModel):
 
 
 class JobUpdate(BaseModel):
-    name:              Optional[str]  = None
-    enabled:           Optional[bool] = None
-    notify:            Optional[bool] = None
-    market_hours_only: Optional[bool] = None
-    hour:              Optional[int]  = None
-    minute:            Optional[int]  = None
-    seconds:           Optional[int]  = None
-    minutes:           Optional[int]  = None
-    payload:           Optional[dict] = None
+    name:                   Optional[str]  = None
+    enabled:                Optional[bool] = None
+    notify:                 Optional[bool] = None
+    market_hours_only:      Optional[bool] = None
+    schedule:               Optional[str]  = None
+    hour:                   Optional[int]  = None
+    minute:                 Optional[int]  = None
+    seconds:                Optional[int]  = None
+    minutes:                Optional[int]  = None
+    payload:                Optional[dict] = None
+    intraday_start:         Optional[str]  = None
+    intraday_end:           Optional[str]  = None
+    intraday_interval_min:  Optional[int]  = None
+    intraday_days:          Optional[str]  = None
 
 
 def _db_connect_kwargs() -> dict:
@@ -472,18 +480,24 @@ async def _db_upsert_job(job: dict):
         conn = await asyncpg.connect(**_db_connect_kwargs())
         try:
             await conn.execute("""
-                INSERT INTO scheduler_jobs (id, name, schedule, minutes, seconds, enabled, notify, command, payload, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, NOW())
+                INSERT INTO scheduler_jobs
+                    (id, name, schedule, minutes, seconds, enabled, notify, command, payload,
+                     intraday_start, intraday_end, intraday_interval_min, intraday_days, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, NOW())
                 ON CONFLICT (id) DO UPDATE SET
-                    name       = EXCLUDED.name,
-                    schedule   = EXCLUDED.schedule,
-                    minutes    = EXCLUDED.minutes,
-                    seconds    = EXCLUDED.seconds,
-                    enabled    = EXCLUDED.enabled,
-                    notify     = EXCLUDED.notify,
-                    command    = EXCLUDED.command,
-                    payload    = EXCLUDED.payload,
-                    updated_at = NOW()
+                    name                  = EXCLUDED.name,
+                    schedule              = EXCLUDED.schedule,
+                    minutes               = EXCLUDED.minutes,
+                    seconds               = EXCLUDED.seconds,
+                    enabled               = EXCLUDED.enabled,
+                    notify                = EXCLUDED.notify,
+                    command               = EXCLUDED.command,
+                    payload               = EXCLUDED.payload,
+                    intraday_start        = EXCLUDED.intraday_start,
+                    intraday_end          = EXCLUDED.intraday_end,
+                    intraday_interval_min = EXCLUDED.intraday_interval_min,
+                    intraday_days         = EXCLUDED.intraday_days,
+                    updated_at            = NOW()
             """,
                 job["id"],
                 job.get("name", job["id"]),
@@ -494,6 +508,10 @@ async def _db_upsert_job(job: dict):
                 job.get("notify", True),
                 job.get("command"),
                 json.dumps(job.get("payload") or {}),
+                job.get("intraday_start"),
+                job.get("intraday_end"),
+                job.get("intraday_interval_min"),
+                job.get("intraday_days"),
             )
         finally:
             await conn.close()
@@ -637,10 +655,13 @@ async def get_trades(limit: int = 50):
     trades = []
     for entry_id, fields in entries:
         try:
+            # Derive timestamp from stream entry ID (format: {ms}-{seq}) if no ts field
+            ts_from_id = int(entry_id.split("-")[0]) if "-" in entry_id else 0
+            ts = fields.get("ts_utc") or fields.get("ts") or ts_from_id or ""
             # Fields are written flat by equity_trader (no JSON payload wrapper)
             trades.append({
                 "id":            entry_id,
-                "ts":            fields.get("ts_utc") or fields.get("ts", ""),
+                "ts":            ts,
                 "ticker":        fields.get("ticker", ""),
                 "asset_class":   fields.get("asset_class", ""),
                 "direction":     fields.get("direction", ""),
@@ -743,16 +764,95 @@ async def get_positions_signals():
         parsed = _json.loads(pos_raw[1])
         pos_results = parsed if isinstance(parsed, list) else [parsed]
 
-    # Read all OVTLYR signals from hash
-    ovtlyr_raw = await redis.hgetall("scanner:ovtlyr:latest")
+    # Collect all position tickers so we can do a targeted DB lookup
+    all_syms: set[str] = set()
+    for r in pos_results:
+        if r.get("status") != "ok":
+            continue
+        items = r.get("data", {})
+        items = items.get("items", items.get("positions", []))
+        for p in (items if isinstance(items, list) else []):
+            sym = (p.get("symbol") or "").upper()
+            if sym:
+                all_syms.add(sym)
+
+    # Layer 1: position-specific intel (scraped per-ticker by scrape_position_intel job)
+    pos_intel_raw = await redis.hgetall("ovtlyr:position_intel")
+    # Layer 2: general screener results (up to ~30 tickers from OVTLYR screener)
+    screener_raw  = await redis.hgetall("scanner:ovtlyr:latest")
     await redis.aclose()
 
-    ovtlyr: dict = {}
-    for ticker, val in ovtlyr_raw.items():
+    def _parse_hash(raw: dict) -> dict:
+        out = {}
+        for k, v in raw.items():
+            try:
+                out[k.upper()] = _json.loads(v)
+            except Exception:
+                pass
+        return out
+
+    pos_intel = _parse_hash(pos_intel_raw)
+    screener  = _parse_hash(screener_raw)
+
+    # Layer 3: DB fallback — latest signal per ticker from ovtlyr_intel table
+    db_signals: dict = {}
+    if all_syms:
         try:
-            ovtlyr[ticker.upper()] = _json.loads(val)
+            import asyncpg as _asyncpg
+            from urllib.parse import urlparse as _urlparse, unquote as _unquote
+            _db_url = os.getenv("DB_URL", "")
+            if _db_url:
+                _p = _urlparse(_db_url)
+                _conn = await _asyncpg.connect(
+                    host=_p.hostname, port=_p.port or 5432,
+                    user=_p.username,
+                    password=_unquote(_p.password) if _p.password else None,
+                    database=_p.path.lstrip("/"),
+                )
+                try:
+                    _rows = await _conn.fetch(
+                        """
+                        SELECT DISTINCT ON (ticker)
+                            ticker, signal, signal_active, signal_date,
+                            nine_score, oscillator, last_close
+                        FROM ovtlyr_intel
+                        WHERE ticker = ANY($1::text[])
+                        ORDER BY ticker, ts DESC
+                        """,
+                        list(all_syms),
+                    )
+                    for row in _rows:
+                        db_signals[row["ticker"].upper()] = {
+                            "direction":    row["signal"],
+                            "signal_active": row["signal_active"],
+                            "signal_date":  str(row["signal_date"]) if row["signal_date"] else None,
+                            "score":        row["nine_score"],
+                            "oscillator":   row["oscillator"],
+                            "price":        row["last_close"],
+                            "source":       "db",
+                        }
+                finally:
+                    await _conn.close()
         except Exception:
-            pass
+            pass  # DB fallback is best-effort
+
+    def _normalize(raw: dict) -> dict:
+        """Normalize signal dict to common field names regardless of source."""
+        if not raw:
+            return {}
+        return {
+            "direction": raw.get("direction") or raw.get("signal"),
+            "score":     raw.get("score") or raw.get("nine_score"),
+            "price":     raw.get("price") or raw.get("last_close"),
+            "sector":    raw.get("sector"),
+            "ts_utc":    raw.get("ts_utc") or raw.get("ts"),
+            "source":    raw.get("source", "redis"),
+        }
+
+    def _resolve_signal(sym: str) -> dict:
+        """Priority: position_intel > screener > db"""
+        raw = pos_intel.get(sym) or screener.get(sym) or db_signals.get(sym)
+        return _normalize(raw) if raw else {}
 
     _env = _read_env_file()
     def _ev(k): return _env.get(k) or os.getenv(k, "")
@@ -770,7 +870,7 @@ async def get_positions_signals():
 
         for p in items:
             sym    = (p.get("symbol") or "").upper()
-            signal = ovtlyr.get(sym, {})
+            signal = _resolve_signal(sym)
             rows.append({
                 "symbol":           sym,
                 "account_label":    label,
@@ -785,20 +885,205 @@ async def get_positions_signals():
                 # OVTLYR data points
                 "has_signal":       bool(signal),
                 "signal_direction": signal.get("direction"),
-                "signal_score":     signal.get("score"),     # 0–100
+                "signal_score":     signal.get("score"),
                 "signal_price":     signal.get("price"),
                 "signal_sector":    signal.get("sector"),
                 "signal_ts":        signal.get("ts_utc"),
+                "signal_source":    signal.get("source", "redis") if signal else None,
             })
 
     rows.sort(key=lambda x: (x["symbol"], x["account_label"]))
 
-    latest_ts = max((v.get("ts_utc", 0) for v in ovtlyr.values()), default=0)
+    all_signals = {**db_signals, **screener, **pos_intel}
+    latest_ts = max((v.get("ts_utc", 0) for v in all_signals.values() if v.get("ts_utc")), default=0)
     return {
         "positions":    rows,
-        "ovtlyr_count": len(ovtlyr),
+        "ovtlyr_count": len(all_signals),
         "ovtlyr_ts":    latest_ts,
     }
+
+
+_SECTOR_STATIC: dict = {
+    # ETFs
+    "SPY":"ETF","QQQ":"ETF","IWM":"ETF","DIA":"ETF","VTI":"ETF","VOO":"ETF",
+    "VEA":"ETF","VWO":"ETF","VYMI":"ETF","VIG":"ETF","VYM":"ETF","SCHD":"ETF",
+    "AGG":"ETF","BND":"ETF","TLT":"ETF","IEF":"ETF","SHY":"ETF","SGOV":"ETF",
+    "GLD":"ETF","SLV":"ETF","USO":"ETF","XLE":"ETF","XLF":"ETF","XLK":"ETF",
+    "XLV":"ETF","XLI":"ETF","XLP":"ETF","XLY":"ETF","XLU":"ETF","XLB":"ETF",
+    "ARKK":"ETF","ARKW":"ETF","ARKG":"ETF","ARKF":"ETF",
+    # Technology
+    "AAPL":"Technology","MSFT":"Technology","NVDA":"Technology","GOOGL":"Technology",
+    "GOOG":"Technology","META":"Technology","AMZN":"Technology","TSLA":"Technology",
+    "AMD":"Technology","INTC":"Technology","AVGO":"Technology","QCOM":"Technology",
+    "TXN":"Technology","MU":"Technology","AMAT":"Technology","LRCX":"Technology",
+    "KLAC":"Technology","MRVL":"Technology","SNPS":"Technology","CDNS":"Technology",
+    "AEIS":"Technology","AMSC":"Technology","HOOW":"Technology",
+    "CRM":"Technology","ORCL":"Technology","SAP":"Technology","ADBE":"Technology",
+    "NOW":"Technology","INTU":"Technology","PANW":"Technology","CRWD":"Technology",
+    "ZS":"Technology","FTNT":"Technology","NET":"Technology","OKTA":"Technology",
+    "SNOW":"Technology","DDOG":"Technology","MDB":"Technology","PLTR":"Technology",
+    # Healthcare
+    "JNJ":"Healthcare","UNH":"Healthcare","PFE":"Healthcare","ABBV":"Healthcare",
+    "MRK":"Healthcare","TMO":"Healthcare","ABT":"Healthcare","DHR":"Healthcare",
+    "BMY":"Healthcare","LLY":"Healthcare","AMGN":"Healthcare","GILD":"Healthcare",
+    "BIIB":"Healthcare","REGN":"Healthcare","VRTX":"Healthcare","ISRG":"Healthcare",
+    "ALNY":"Healthcare","ARWR":"Healthcare","APLS":"Healthcare","AQST":"Healthcare",
+    "ARCT":"Healthcare","ALGS":"Healthcare","ALKS":"Healthcare","ALLO":"Healthcare",
+    "ABUS":"Healthcare","BMEA":"Healthcare","CYTK":"Healthcare","DARE":"Healthcare",
+    "BFAM":"Consumer Cyclical",
+    # Financial Services
+    "JPM":"Financial Services","BAC":"Financial Services","WFC":"Financial Services",
+    "GS":"Financial Services","MS":"Financial Services","C":"Financial Services",
+    "BLK":"Financial Services","SPGI":"Financial Services","ICE":"Financial Services",
+    "CME":"Financial Services","V":"Financial Services","MA":"Financial Services",
+    "AXP":"Financial Services","BK":"Financial Services","BBAR":"Financial Services",
+    "BBT":"Financial Services","STT":"Financial Services","NTRS":"Financial Services",
+    "USB":"Financial Services","TFC":"Financial Services","PNC":"Financial Services",
+    # Consumer Cyclical
+    "AMZN":"Consumer Cyclical","TSLA":"Consumer Cyclical","HD":"Consumer Cyclical",
+    "MCD":"Consumer Cyclical","NKE":"Consumer Cyclical","SBUX":"Consumer Cyclical",
+    "ABNB":"Consumer Cyclical","BKNG":"Consumer Cyclical","MAR":"Consumer Cyclical",
+    "HLT":"Consumer Cyclical","CCL":"Consumer Cyclical","RCL":"Consumer Cyclical",
+    "CHWY":"Consumer Cyclical","DAN":"Consumer Cyclical","BYD":"Consumer Cyclical",
+    # Consumer Defensive
+    "PG":"Consumer Defensive","KO":"Consumer Defensive","PEP":"Consumer Defensive",
+    "WMT":"Consumer Defensive","COST":"Consumer Defensive","CL":"Consumer Defensive",
+    "ADM":"Consumer Defensive","AVO":"Consumer Defensive",
+    # Industrials
+    "CAT":"Industrials","GE":"Industrials","HON":"Industrials","UPS":"Industrials",
+    "FDX":"Industrials","LMT":"Industrials","RTX":"Industrials","NOC":"Industrials",
+    "BA":"Industrials","AL":"Industrials","OC":"Industrials","DAR":"Basic Materials",
+    # Basic Materials
+    "ALB":"Basic Materials","FCX":"Basic Materials","NEM":"Basic Materials",
+    "VALE":"Basic Materials","BHP":"Basic Materials","RIO":"Basic Materials",
+    # Energy
+    "XOM":"Energy","CVX":"Energy","COP":"Energy","SLB":"Energy","EOG":"Energy",
+    "PXD":"Energy","OXY":"Energy","VLO":"Energy","MPC":"Energy","PSX":"Energy",
+    # Utilities
+    "NEE":"Utilities","DUK":"Utilities","SO":"Utilities","D":"Utilities",
+    "AEP":"Utilities","XEL":"Utilities","WEC":"Utilities","ES":"Utilities",
+    "CWT":"Utilities","BHE":"Utilities","CEPU":"Utilities",
+    # Communication Services
+    "NFLX":"Communication Services","DIS":"Communication Services",
+    "CMCSA":"Communication Services","T":"Communication Services",
+    "VZ":"Communication Services","TMUS":"Communication Services",
+    # Real Estate
+    "AMT":"Real Estate","PLD":"Real Estate","EQIX":"Real Estate",
+    "SPG":"Real Estate","O":"Real Estate","WELL":"Real Estate",
+}
+
+
+async def _fetch_sector_yahoo(ticker: str, session) -> str | None:
+    """Fetch sector from Yahoo Finance chart API (free, no auth required)."""
+    import asyncio as _asyncio
+    _SECTOR_FROM_TYPE = {
+        "ETF": "ETF", "MUTUALFUND": "Mutual Fund", "INDEX": "Index",
+        "CRYPTOCURRENCY": "Crypto", "CURRENCY": "Currency",
+    }
+    try:
+        hdrs = {"User-Agent": "Mozilla/5.0", "Accept": "*/*"}
+        async with session.get(
+            f"https://query2.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=1d",
+            headers=hdrs, timeout=aiohttp.ClientTimeout(total=8)
+        ) as r:
+            if r.status != 200:
+                return None
+            d = await r.json(content_type=None)
+            meta = d.get("chart", {}).get("result", [{}])[0].get("meta", {})
+            itype = (meta.get("instrumentType") or "").upper()
+            return _SECTOR_FROM_TYPE.get(itype)  # returns None for EQUITY (no sector in chart API)
+    except Exception:
+        return None
+
+
+@app.get("/api/positions/sector-map")
+async def get_position_sector_map(token: str = ""):
+    """
+    Return { ticker: sector } for all current position tickers.
+    Priority: Redis cache → OVTLYR signal data → DB → static map → Yahoo Finance type.
+    Results cached in Redis hash ticker:sectors (30 day TTL per field).
+    """
+    check_token(token)
+    import aiohttp as _aiohttp
+
+    _redis = await get_redis()
+
+    # Get current position tickers
+    tickers_raw = await _redis.get("broker:position_tickers")
+    tickers: list = json.loads(tickers_raw) if tickers_raw else []
+
+    result: dict = {}
+
+    # 1. OVTLYR Redis sources
+    try:
+        for key in ("ovtlyr:position_intel", "scanner:ovtlyr:latest"):
+            raw = await _redis.hgetall(key)
+            for sym, val in raw.items():
+                try:
+                    d = json.loads(val) if isinstance(val, str) else val
+                    sec = d.get("sector") or d.get("Sector")
+                    if sec:
+                        result[sym] = sec
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # 2. Redis sector cache
+    try:
+        cached = await _redis.hgetall("ticker:sectors")
+        for sym, sec in cached.items():
+            if sym not in result and sec:
+                result[sym] = sec
+    except Exception:
+        pass
+
+    # 3. DB historical signals
+    if DB_URL:
+        try:
+            conn = await asyncpg.connect(**_db_connect_kwargs())
+            try:
+                rows = await conn.fetch(
+                    "SELECT DISTINCT ON (ticker) ticker, sector FROM ovtlyr_signals "
+                    "WHERE sector IS NOT NULL ORDER BY ticker, ts DESC"
+                )
+                for row in rows:
+                    if row["ticker"] not in result:
+                        result[row["ticker"]] = row["sector"]
+            finally:
+                await conn.close()
+        except Exception:
+            pass
+
+    # 4. Static map fallback
+    for sym in tickers:
+        if sym not in result and sym in _SECTOR_STATIC:
+            result[sym] = _SECTOR_STATIC[sym]
+
+    # 5. Yahoo Finance chart API for any still-missing tickers
+    missing = [sym for sym in tickers if sym not in result]
+    if missing:
+        try:
+            async with _aiohttp.ClientSession() as session:
+                for sym in missing[:20]:  # cap to avoid long waits
+                    sec = await _fetch_sector_yahoo(sym, session)
+                    if sec:
+                        result[sym] = sec
+
+        except Exception:
+            pass
+
+    # Cache everything we found
+    if result:
+        try:
+            pipe = _redis.pipeline()
+            for sym, sec in result.items():
+                pipe.hset("ticker:sectors", sym, sec)
+            await pipe.execute()
+        except Exception:
+            pass
+
+    return result
 
 
 # ── API — Stream stats ────────────────────────────────────────────────────────
@@ -908,8 +1193,8 @@ async def get_broker_status():
     _BROKER_CREDS = {
         ("tradier", "sandbox"):  ["TRADIER_SANDBOX_API_KEY"],
         ("tradier", "live"):     ["TRADIER_PRODUCTION_API_KEY"],
-        ("alpaca",  "paper"):    ["ALPACA_API_SECRET_KEY"],
-        ("alpaca",  "live"):     ["ALPACA_LIVE_API_SECRET_KEY"],
+        ("alpaca",  "paper"):    ["ALPACA_API_SECRET"],
+        ("alpaca",  "live"):     ["ALPACA_LIVE_API_SECRET"],
         ("webull",  "paper"):    ["WEBULL_API_KEY", "WEBULL_SECRET_KEY"],
         ("webull",  "live"):     ["WEBULL_API_KEY", "WEBULL_SECRET_KEY"],
     }
@@ -953,7 +1238,7 @@ async def get_broker_status():
     tradier_ok = bool(t_token) and not _is_placeholder(t_token)
 
     # Alpaca
-    a_secret = ev("ALPACA_API_SECRET_KEY")
+    a_secret = ev("ALPACA_API_SECRET")
     alpaca_ok = bool(a_secret) and not _is_placeholder(a_secret)
 
     # Webull
@@ -988,9 +1273,9 @@ async def get_broker_status():
                 "connected": alpaca_ok,
                 "accounts":  accounts_by_broker["alpaca"],
                 "env": {
-                    "ALPACA_API_SECRET_KEY":      _masked(a_secret),
+                    "ALPACA_API_SECRET":      _masked(a_secret),
                     "ALPACA_PAPER_ACCOUNT_ID":    ev("ALPACA_PAPER_ACCOUNT_ID"),
-                    "ALPACA_LIVE_API_SECRET_KEY": _masked(ev("ALPACA_LIVE_API_SECRET_KEY")),
+                    "ALPACA_LIVE_API_SECRET": _masked(ev("ALPACA_LIVE_API_SECRET")),
                     "ALPACA_LIVE_ACCOUNT_ID":     ev("ALPACA_LIVE_ACCOUNT_ID"),
                     "ALPACA_DATA_FEED":           ev("ALPACA_DATA_FEED") or "iex",
                 },
@@ -1054,6 +1339,26 @@ async def get_broker_positions():
         _blpop(f"broker:reply:{pos_id}"),
         _blpop(f"broker:reply:{bal_id}"),
     )
+
+    # Cache position tickers so the OVTLYR scraper can find them without a DB query
+    try:
+        tickers: set[str] = set()
+        for r in pos_results:
+            if r.get("status") == "ok":
+                d = r.get("data", {})
+                for p in d.get("items", d.get("positions", [])):
+                    sym = (p.get("symbol") or "").upper().strip()
+                    if sym:
+                        tickers.add(sym)
+        if tickers:
+            await redis.set(
+                "broker:position_tickers",
+                _json.dumps(sorted(tickers)),
+                ex=14400,  # 4 hours
+            )
+    except Exception:
+        pass
+
     await redis.aclose()
 
     # Index by account_label
@@ -1067,6 +1372,47 @@ async def get_broker_positions():
     _pos_env = _read_env_file()
     def _pos_ev(k): return _pos_env.get(k) or os.getenv(k, "")
 
+    # Build sector lookup: Redis cache → static map
+    sector_lookup: dict = {}
+    try:
+        _sr = await get_redis()
+        # Redis sector cache (populated by sector-map endpoint)
+        cached_sectors = await _sr.hgetall("ticker:sectors")
+        sector_lookup.update(cached_sectors)
+        # OVTLYR position intel
+        for key in ("ovtlyr:position_intel", "scanner:ovtlyr:latest"):
+            raw = await _sr.hgetall(key)
+            for sym, val in raw.items():
+                try:
+                    d = json.loads(val) if isinstance(val, str) else val
+                    sec = d.get("sector") or d.get("Sector")
+                    if sec:
+                        sector_lookup[sym] = sec
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    # Static fallback for anything still missing
+    for sym, sec in _SECTOR_STATIC.items():
+        if sym not in sector_lookup:
+            sector_lookup[sym] = sec
+
+    # Also get sentiment close prices for value estimation
+    sent_prices: dict = {}
+    try:
+        sent_raw = await get_redis()
+        raw_sent = await sent_raw.hgetall("sentiment:latest")
+        for sym, val in raw_sent.items():
+            try:
+                d = json.loads(val)
+                close = d.get("close")
+                if close is not None:
+                    sent_prices[sym] = float(close)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     all_labels = sorted(set(balances) | set(positions))
     accounts = []
     for label in all_labels:
@@ -1076,6 +1422,31 @@ async def get_broker_positions():
         if not pos and "positions" in bal:
             pos = bal.pop("positions", [])
         bal.pop("raw", None)   # strip verbose raw field
+
+        # Enrich each position with sector + resolved market_value
+        enriched_pos = []
+        for p in pos:
+            p = dict(p)
+            sym = (p.get("symbol") or "").upper().strip()
+            # Inject sector
+            if sym and "sector" not in p:
+                p["sector"] = sector_lookup.get(sym)
+            # Inject market_value when broker doesn't provide it
+            if not p.get("market_value"):
+                qty  = abs(float(p.get("qty") or p.get("quantity") or 0))
+                last = float(p.get("current_price") or p.get("last_price") or 0)
+                if not last and sym in sent_prices:
+                    last = sent_prices[sym]
+                if qty and last:
+                    p["market_value"] = round(qty * last, 2)
+                elif not p.get("market_value"):
+                    p["market_value"] = abs(float(p.get("cost_basis") or 0))
+            # Inject current_price when missing
+            if not p.get("current_price") and not p.get("last_price"):
+                if sym in sent_prices:
+                    p["current_price"] = sent_prices[sym]
+            enriched_pos.append(p)
+
         dn_key = label.upper().replace("-", "_") + "_DISPLAY_NAME"
         accounts.append({
             "label":        label,
@@ -1083,7 +1454,7 @@ async def get_broker_positions():
             "broker":       next((r["broker"] for r in bal_results + pos_results if r.get("account_label") == label), ""),
             "mode":         next((r["mode"]   for r in bal_results + pos_results if r.get("account_label") == label), ""),
             "balances":     bal,
-            "positions":    pos,
+            "positions":    enriched_pos,
         })
 
     return {"accounts": accounts}
@@ -1546,6 +1917,25 @@ async def test_config_connector(service: str, body: CfgTestBody = CfgTestBody())
                     return {"ok": True, "message": f"API key valid — {count} models available"}
                 raise HTTPException(status_code=400, detail=f"OpenRouter returned HTTP {resp.status}")
 
+            elif service == "massive":
+                api_key = ev("MASSIVE_API_KEY")
+                if not api_key:
+                    raise HTTPException(status_code=400, detail="MASSIVE_API_KEY is required")
+                resp = await s.get(
+                    "https://api.polygon.io/v2/aggs/ticker/AAPL/range/1/day/2024-01-01/2024-01-02",
+                    params={"apiKey": api_key},
+                    timeout=_aiohttp.ClientTimeout(total=10),
+                )
+                if resp.status == 403:
+                    raise HTTPException(status_code=400, detail="Invalid Massive API key — access forbidden")
+                if resp.status == 401:
+                    raise HTTPException(status_code=400, detail="Invalid Massive API key — unauthorized")
+                if resp.status == 200:
+                    data = await resp.json()
+                    plan = data.get("queryCount", "?")
+                    return {"ok": True, "message": f"Massive API key valid — market data accessible"}
+                raise HTTPException(status_code=400, detail=f"Massive API returned HTTP {resp.status}")
+
             else:
                 raise HTTPException(status_code=404, detail=f"Unknown service: {service}")
 
@@ -1690,8 +2080,8 @@ async def test_broker_connection(broker: str):
             return {"ok": ok, "message": " | ".join(results)}
 
         elif broker == "alpaca":
-            paper_key = ev("ALPACA_API_SECRET_KEY")
-            live_key  = ev("ALPACA_LIVE_API_SECRET_KEY")
+            paper_key = ev("ALPACA_API_SECRET")
+            live_key  = ev("ALPACA_LIVE_API_SECRET")
             results = []
             async with _aiohttp.ClientSession() as s:
                 for label, key, url in [
@@ -1793,6 +2183,340 @@ async def test_broker_connection(broker: str):
         return {"ok": False, "message": f"Connection error: {str(e)[:100]}"}
 
 
+@app.get("/api/broker/tradier/accounts")
+async def get_tradier_accounts(token: str = ""):
+    """Fetch all Tradier accounts from both sandbox and production."""
+    check_token(token)
+    import aiohttp as _aiohttp
+    env         = _read_env_file()
+    sandbox_key = env.get("TRADIER_SANDBOX_API_KEY") or os.getenv("TRADIER_SANDBOX_API_KEY", "")
+    prod_key    = env.get("TRADIER_PRODUCTION_API_KEY") or os.getenv("TRADIER_PRODUCTION_API_KEY", "")
+
+    results = []
+    async with _aiohttp.ClientSession() as s:
+        for env_name, label, key, url in [
+            ("TRADIER_SANDBOX_API_KEY",    "sandbox",    sandbox_key, "https://sandbox.tradier.com/v1/user/profile"),
+            ("TRADIER_PRODUCTION_API_KEY", "production", prod_key,    "https://api.tradier.com/v1/user/profile"),
+        ]:
+            if not key or _is_placeholder(key):
+                continue
+            try:
+                async with s.get(
+                    url,
+                    headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+                    timeout=_aiohttp.ClientTimeout(total=10),
+                ) as r:
+                    if r.status != 200:
+                        results.append({"env": env_name, "label": label, "error": f"HTTP {r.status}"})
+                        continue
+                    data    = await r.json(content_type=None)
+                    profile = data.get("profile", {})
+                    name    = profile.get("name", "")
+                    raw     = profile.get("account", [])
+                    # Tradier returns a dict for single account, list for multiple
+                    accounts = raw if isinstance(raw, list) else ([raw] if raw else [])
+                    results.append({
+                        "env":      env_name,
+                        "label":    label,
+                        "name":     name,
+                        "accounts": [
+                            {
+                                "account_number": a.get("account_number", ""),
+                                "classification": a.get("classification", ""),
+                                "type":           a.get("type", ""),
+                                "status":         a.get("status", ""),
+                                "option_level":   a.get("option_level", ""),
+                            }
+                            for a in accounts
+                        ],
+                    })
+            except Exception as e:
+                results.append({"env": env_name, "label": label, "error": str(e)[:100]})
+
+    if not results:
+        raise HTTPException(status_code=400, detail="No Tradier API keys configured")
+    return {"environments": results}
+
+
+@app.get("/api/broker/alpaca/accounts")
+async def get_alpaca_accounts(token: str = ""):
+    """Fetch Alpaca paper and live account details."""
+    check_token(token)
+    import aiohttp as _aiohttp
+    env        = _read_env_file()
+    paper_key  = env.get("ALPACA_API_KEY")        or os.getenv("ALPACA_API_KEY", "")
+    paper_sec  = env.get("ALPACA_API_SECRET")      or os.getenv("ALPACA_API_SECRET", "")
+    live_key   = env.get("ALPACA_LIVE_API_KEY")    or os.getenv("ALPACA_LIVE_API_KEY", "")
+    live_sec   = env.get("ALPACA_LIVE_API_SECRET") or os.getenv("ALPACA_LIVE_API_SECRET", "")
+
+    results = []
+    async with _aiohttp.ClientSession() as s:
+        for label, key, sec, url in [
+            ("paper", paper_key, paper_sec, "https://paper-api.alpaca.markets/v2/account"),
+            ("live",  live_key,  live_sec,  "https://api.alpaca.markets/v2/account"),
+        ]:
+            if not key or _is_placeholder(key) or not sec or _is_placeholder(sec):
+                continue
+            try:
+                async with s.get(
+                    url,
+                    headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": sec},
+                    timeout=_aiohttp.ClientTimeout(total=10),
+                ) as r:
+                    if r.status != 200:
+                        results.append({"label": label, "error": f"HTTP {r.status}"})
+                        continue
+                    a = await r.json(content_type=None)
+                    results.append({
+                        "label":          label,
+                        "account_number": a.get("account_number", ""),
+                        "id":             a.get("id", ""),
+                        "status":         a.get("status", ""),
+                        "equity":         a.get("equity", ""),
+                        "buying_power":   a.get("buying_power", ""),
+                        "cash":           a.get("cash", ""),
+                        "currency":       a.get("currency", "USD"),
+                        "options_level":  a.get("options_trading_level", ""),
+                    })
+            except Exception as e:
+                results.append({"label": label, "error": str(e)[:100]})
+
+    if not results:
+        raise HTTPException(status_code=400, detail="No Alpaca API keys configured")
+    return {"accounts": results}
+
+
+@app.get("/api/ovtlyr/market-signals")
+async def get_ovtlyr_market_signals(token: str = ""):
+    """
+    Return latest OVTLYR signals for SPY and QQQ, enriched with daily price change.
+    Price change (close vs prev_close) comes from the sentiment scraper's Redis cache.
+    """
+    check_token(token)
+    import json as _json
+    _redis = await get_redis()
+
+    # Fetch OVTLYR intel
+    result = {}
+    for ticker in ("SPY", "QQQ"):
+        raw = await _redis.hget("ovtlyr:position_intel", ticker)
+        if raw:
+            try:
+                result[ticker] = _json.loads(raw)
+            except Exception:
+                pass
+
+    # Enrich with daily price change from sentiment scraper cache (no yfinance needed)
+    for ticker in ("SPY", "QQQ"):
+        raw = await _redis.hget("sentiment:latest", ticker)
+        if not raw:
+            continue
+        try:
+            s = _json.loads(raw)
+            close      = s.get("close")
+            prev_close = s.get("prev_close")
+            if close is not None and prev_close:
+                change     = round(float(close) - float(prev_close), 2)
+                change_pct = round(change / float(prev_close) * 100, 2)
+                pdata = {
+                    "close":      round(float(close), 2),
+                    "prev_close": round(float(prev_close), 2),
+                    "change":     change,
+                    "change_pct": change_pct,
+                }
+                if ticker in result:
+                    result[ticker].update(pdata)
+                else:
+                    result[ticker] = pdata
+        except Exception as e:
+            log.warning("market_signals.price_enrich_error", ticker=ticker, error=str(e))
+
+    return result
+
+
+@app.get("/api/ovtlyr/signals")
+async def get_ovtlyr_signals(list_type: str = "bull", limit: int = 100, token: str = ""):
+    """Return latest OVTLYR list signals from Redis cache (falls back to DB)."""
+    check_token(token)
+    import json as _json
+    valid = {"bull", "bear", "market_leaders", "alpha_picks"}
+    if list_type not in valid:
+        raise HTTPException(status_code=400, detail=f"list_type must be one of {valid}")
+    _redis = await get_redis()
+    raw = await _redis.get(f"ovtlyr:list:{list_type}")
+    if raw:
+        try:
+            entries = _json.loads(raw)
+            return {"list_type": list_type, "entries": entries[:limit], "count": len(entries), "source": "cache"}
+        except Exception:
+            pass
+    # Fallback: query DB for latest snapshot
+    if DB_URL:
+        try:
+            conn = await asyncpg.connect(**_db_connect_kwargs())
+            try:
+                rows = await conn.fetch(
+                    """
+                    SELECT DISTINCT ON (ticker) ticker, name, sector, signal, signal_date, last_price, avg_vol_30d, ts
+                    FROM ovtlyr_lists
+                    WHERE list_type = $1
+                    ORDER BY ticker, ts DESC
+                    LIMIT $2
+                    """,
+                    list_type, limit,
+                )
+                entries = [dict(r) for r in rows]
+                # Convert date/datetime to string for JSON serialization
+                for e in entries:
+                    for k, v in e.items():
+                        if hasattr(v, 'isoformat'):
+                            e[k] = v.isoformat()
+                return {"list_type": list_type, "entries": entries, "count": len(entries), "source": "db"}
+            finally:
+                await conn.close()
+        except Exception as ex:
+            log.error("ovtlyr_signals.db_error", error=str(ex))
+    return {"list_type": list_type, "entries": [], "count": 0, "source": "empty"}
+
+
+@app.get("/api/sentiment")
+async def get_sentiment(token: str = ""):
+    """
+    Return latest per-ticker F&G sentiment scores + 30-day trend.
+    Scores are computed daily at 16:20 ET by scraper-yahoo-sentiment.
+    Response: { "AAPL": { score, label, rsi, ma_score, momentum, vol_score, close, date, trend } }
+    """
+    check_token(token)
+    import json as _json
+    _redis = await get_redis()
+
+    # Latest scores from Redis (written by scraper after each daily run)
+    raw_scores = await _redis.hgetall("sentiment:latest")
+    scores: dict = {}
+    for ticker, raw in raw_scores.items():
+        try:
+            scores[ticker] = _json.loads(raw)
+        except Exception:
+            pass
+
+    if not scores:
+        return {}
+
+    # Attach 30-day trend from Redis cache (written by scraper after scoring)
+    pipe = _redis.pipeline()
+    ticker_list = list(scores.keys())
+    for t in ticker_list:
+        pipe.get(f"sentiment:trend:{t}")
+    trend_raws = await pipe.execute()
+    for ticker, trend_raw in zip(ticker_list, trend_raws):
+        if trend_raw:
+            try:
+                scores[ticker]["trend"] = _json.loads(trend_raw)
+            except Exception:
+                scores[ticker]["trend"] = []
+        else:
+            scores[ticker]["trend"] = []
+
+    # Fallback: query DB directly if trend cache is empty
+    if DB_URL and any(not scores[t].get("trend") for t in scores):
+        try:
+            conn = await asyncpg.connect(**_db_connect_kwargs())
+            try:
+                rows = await conn.fetch(
+                    """
+                    SELECT ticker, date, score
+                    FROM ticker_sentiment
+                    WHERE ticker = ANY($1)
+                      AND date >= CURRENT_DATE - INTERVAL '30 days'
+                    ORDER BY ticker, date ASC
+                    """,
+                    ticker_list,
+                )
+                trend_map: dict = {}
+                for row in rows:
+                    t = row["ticker"]
+                    if t not in trend_map:
+                        trend_map[t] = []
+                    trend_map[t].append({
+                        "date":  row["date"].isoformat(),
+                        "score": float(row["score"]),
+                    })
+                for ticker in scores:
+                    if not scores[ticker].get("trend"):
+                        scores[ticker]["trend"] = trend_map.get(ticker, [])
+            finally:
+                await conn.close()
+        except Exception as ex:
+            log.warning("sentiment.db_trend_error", error=str(ex))
+
+    return scores
+
+
+@app.get("/api/broker/webull/subscriptions")
+async def get_webull_subscriptions(token: str = ""):
+    """Fetch all Webull account subscriptions from the developer API."""
+    check_token(token)
+    import aiohttp as _aiohttp
+    import base64 as _b64, hashlib as _hl, hmac as _hmac, uuid as _uuid
+    from datetime import datetime as _dt, timezone as _tz
+    from urllib.parse import quote as _quote
+
+    env     = _read_env_file()
+    api_key = env.get("WEBULL_API_KEY") or os.getenv("WEBULL_API_KEY", "")
+    secret  = env.get("WEBULL_SECRET_KEY") or os.getenv("WEBULL_SECRET_KEY", "")
+
+    if not api_key or _is_placeholder(api_key):
+        raise HTTPException(status_code=400, detail="WEBULL_API_KEY not configured")
+    if not secret or _is_placeholder(secret):
+        raise HTTPException(status_code=400, detail="WEBULL_SECRET_KEY not configured")
+
+    path  = "/app/subscriptions/list"
+    host  = "api.webull.com"
+    nonce = str(_uuid.uuid4())
+    ts    = _dt.now(_tz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    sign_params = {
+        "x-app-key":             api_key,
+        "x-timestamp":           ts,
+        "x-signature-version":   "1.0",
+        "x-signature-algorithm": "HMAC-SHA1",
+        "x-signature-nonce":     nonce,
+        "host":                  host,
+    }
+    sts = path + "&" + "&".join(f"{k}={v}" for k, v in sorted(sign_params.items()))
+    sig = _b64.b64encode(
+        _hmac.new((secret + "&").encode(), _quote(sts, safe="").encode(), _hl.sha1).digest()
+    ).decode()
+
+    headers = {
+        "x-app-key":             api_key,
+        "x-signature":           sig,
+        "x-signature-algorithm": "HMAC-SHA1",
+        "x-signature-version":   "1.0",
+        "x-signature-nonce":     nonce,
+        "x-timestamp":           ts,
+        "Accept":                "application/json",
+    }
+
+    try:
+        async with _aiohttp.ClientSession() as s:
+            async with s.get(
+                f"https://{host}{path}",
+                headers=headers,
+                timeout=_aiohttp.ClientTimeout(total=10),
+            ) as r:
+                data = await r.json(content_type=None)
+                if r.status != 200:
+                    msg = data.get("msg") or data.get("message") or f"HTTP {r.status}" if isinstance(data, dict) else f"HTTP {r.status}"
+                    raise HTTPException(status_code=r.status, detail=str(msg))
+                accounts = data if isinstance(data, list) else data.get("items", data.get("data", []))
+                return {"accounts": accounts, "count": len(accounts)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ── Strategy Engineer — AI chat ──────────────────────────────────────────────
 
 class StrategyMessage(BaseModel):
@@ -1828,6 +2552,29 @@ async def strategy_engineer_chat(body: StrategyMessage, token: str = ""):
         except Exception:
             pass  # MCP not available in this container — skip TV data
 
+    # Load user exclusions from Redis
+    exclusion_prompt = ""
+    try:
+        excl_raw = await redis.get("user:exclusions")
+        if excl_raw:
+            excl = json.loads(excl_raw)
+            excl_sectors = excl.get("sectors", [])
+            excl_tickers = excl.get("tickers", [])
+            parts = []
+            if excl_sectors:
+                parts.append(f"Excluded sectors: {', '.join(excl_sectors)}")
+            if excl_tickers:
+                parts.append(f"Excluded tickers: {', '.join(excl_tickers)}")
+            if parts:
+                exclusion_prompt = (
+                    "\n\nUSER EXCLUSIONS — MANDATORY: The user has configured the following "
+                    "exclusions that MUST be respected in ALL strategies. Never recommend, "
+                    "include, or analyze any excluded sector or ticker:\n"
+                    + "\n".join(parts)
+                )
+    except Exception:
+        pass
+
     system_prompt = """You are an expert quantitative strategy engineer for the OpenTrader platform.
 Your job is to help design, refine, and document algorithmic trading strategies.
 
@@ -1857,7 +2604,7 @@ Guidelines:
 - Reference TradingView indicators where relevant
 - Keep rules concise and implementable
 - Always include stop loss and take profit
-- If live market data is provided, incorporate it into your analysis""" + (
+- If live market data is provided, incorporate it into your analysis""" + exclusion_prompt + (
     f"\n\nLive market context:{tv_context}" if tv_context else ""
 )
     if body.strategy_text.strip():
@@ -1946,6 +2693,29 @@ async def strategy_engineer_chat_stream(body: StrategyMessage, token: str = ""):
         except Exception:
             pass
 
+    # Load user exclusions from Redis
+    exclusion_prompt = ""
+    try:
+        excl_raw = await redis.get("user:exclusions")
+        if excl_raw:
+            excl = json.loads(excl_raw)
+            excl_sectors = excl.get("sectors", [])
+            excl_tickers = excl.get("tickers", [])
+            parts = []
+            if excl_sectors:
+                parts.append(f"Excluded sectors: {', '.join(excl_sectors)}")
+            if excl_tickers:
+                parts.append(f"Excluded tickers: {', '.join(excl_tickers)}")
+            if parts:
+                exclusion_prompt = (
+                    "\n\nUSER EXCLUSIONS — MANDATORY: The user has configured the following "
+                    "exclusions that MUST be respected in ALL strategies. Never recommend, "
+                    "include, or analyze any excluded sector or ticker:\n"
+                    + "\n".join(parts)
+                )
+    except Exception:
+        pass
+
     system_prompt = """You are an expert quantitative strategy engineer for the OpenTrader platform.
 Your job is to help design, refine, and document algorithmic trading strategies.
 
@@ -1975,7 +2745,7 @@ Guidelines:
 - Reference TradingView indicators where relevant
 - Keep rules concise and implementable
 - Always include stop loss and take profit
-- If live market data is provided, incorporate it into your analysis""" + (
+- If live market data is provided, incorporate it into your analysis""" + exclusion_prompt + (
         f"\n\nLive market context:{tv_context}" if tv_context else ""
     )
     if body.strategy_text.strip():
@@ -2045,6 +2815,131 @@ Guidelines:
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+# ── Mentor AI chat ───────────────────────────────────────────────────────────
+
+class MentorMessage(BaseModel):
+    message:      str
+    history:      list = []
+    account_label: str = ""
+    positions:    list = []   # enriched position dicts from frontend
+
+@app.post("/api/mentor/chat/stream")
+async def mentor_chat_stream(body: MentorMessage, token: str = ""):
+    check_token(token)
+
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not openrouter_key or openrouter_key.startswith("your_"):
+        raise HTTPException(status_code=503, detail="OPENROUTER_API_KEY not configured")
+
+    # Build positions context block
+    pos_lines = []
+    for p in body.positions[:30]:
+        sym  = p.get("symbol", "?")
+        qty  = p.get("qty") or p.get("quantity") or "?"
+        mv   = p.get("market_value")
+        pl   = p.get("unrealized_pl") or p.get("unrealized_profit_loss")
+        cost = p.get("avg_entry_price") or p.get("cost_price")
+        cur  = p.get("current_price") or p.get("last_price")
+        sec  = p.get("sector", "")
+        parts = [f"{sym} qty={qty}"]
+        if cost:  parts.append(f"entry=${float(cost):.2f}")
+        if cur:   parts.append(f"last=${float(cur):.2f}")
+        if mv:    parts.append(f"mv=${float(mv):,.0f}")
+        if pl is not None: parts.append(f"uPnL=${float(pl):+,.2f}")
+        if sec:   parts.append(f"sector={sec}")
+        pos_lines.append("  " + "  ".join(parts))
+    pos_context = "\n".join(pos_lines) if pos_lines else "  (no open positions)"
+
+    # Load user exclusions
+    exclusion_prompt = ""
+    try:
+        excl_raw = await redis.get("user:exclusions")
+        if excl_raw:
+            excl = json.loads(excl_raw)
+            excl_sectors = excl.get("sectors", [])
+            excl_tickers = excl.get("tickers", [])
+            parts = []
+            if excl_sectors: parts.append(f"Excluded sectors: {', '.join(excl_sectors)}")
+            if excl_tickers: parts.append(f"Excluded tickers: {', '.join(excl_tickers)}")
+            if parts:
+                exclusion_prompt = (
+                    "\n\nUSER EXCLUSIONS — MANDATORY: Never recommend any excluded sector or ticker:\n"
+                    + "\n".join(parts)
+                )
+    except Exception:
+        pass
+
+    acct_name = body.account_label or "this account"
+    system_prompt = f"""You are a trading mentor and portfolio coach for the OpenTrader platform.
+You are reviewing the portfolio for account: {acct_name}
+
+Current open positions:
+{pos_context}
+
+Your role is to:
+- Provide clear, actionable mentorship on open positions
+- Identify risk concentrations, sector exposure, and P&L patterns
+- Suggest entry/exit timing, position sizing adjustments, and risk management
+- Explain trading concepts when asked
+- Flag positions showing significant unrealized loss or unusual behavior
+- Give honest, direct feedback — do not sugarcoat risks
+
+Communication style:
+- Be concise and specific — reference actual positions and numbers
+- Use plain language, avoid jargon unless the user seems experienced
+- When recommending an action, explain the reasoning briefly
+- Always note when a recommendation depends on information you don't have (e.g., user's time horizon, risk tolerance)
+
+Do NOT produce strategy documents or code. Focus on mentoring the trader on their current book.""" + exclusion_prompt
+
+    messages = [{"role": "system", "content": system_prompt}]
+    for h in body.history[-12:]:
+        messages.append({"role": h["role"], "content": h["content"]})
+    messages.append({"role": "user", "content": body.message})
+
+    async def event_stream():
+        import aiohttp as _aiohttp
+        try:
+            async with _aiohttp.ClientSession() as session:
+                async with session.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {openrouter_key}",
+                        "Content-Type":  "application/json",
+                    },
+                    json={
+                        "model":       os.getenv("LLM_PREDICTOR_MODEL", "anthropic/claude-sonnet-4-5"),
+                        "messages":    messages,
+                        "max_tokens":  1200,
+                        "temperature": 0.4,
+                        "stream":      True,
+                    },
+                    timeout=_aiohttp.ClientTimeout(total=60),
+                ) as resp:
+                    if resp.status != 200:
+                        body_txt = await resp.text()
+                        yield f"data: {json.dumps({'type': 'error', 'message': body_txt[:200]})}\n\n"
+                        return
+                    async for raw_line in resp.content:
+                        line = raw_line.decode("utf-8").strip()
+                        if not line.startswith("data: "): continue
+                        payload = line[6:]
+                        if payload == "[DONE]": break
+                        try:
+                            chunk   = json.loads(payload)
+                            content = chunk["choices"][0]["delta"].get("content", "")
+                            if content:
+                                yield f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"
+                        except Exception:
+                            pass
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)[:120]})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 # ── Strategy Library persistence ─────────────────────────────────────────────
 
 def _read_strategies() -> list:
@@ -2073,6 +2968,54 @@ class SessionBody(BaseModel):
     saved_at: str = ""
     history: list = []
     strategy_text: str = ""
+
+MENTOR_SESSIONS_DIR = "/app/config/mentor_sessions"
+
+class MentorSessionBody(BaseModel):
+    account_label: str
+    history:       list = []
+    positions:     list = []
+
+@app.post("/api/mentor/save-session")
+async def save_mentor_session(body: MentorSessionBody, token: str = ""):
+    check_token(token)
+    os.makedirs(MENTOR_SESSIONS_DIR, exist_ok=True)
+    safe = re.sub(r'[^a-zA-Z0-9_-]', '_', body.account_label)[:40] or "account"
+    ts   = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(MENTOR_SESSIONS_DIR, f"mentor_{safe}_{ts}.json")
+    tmp  = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({
+            "account_label": body.account_label,
+            "saved_at":      datetime.utcnow().isoformat(),
+            "history":       body.history,
+            "positions":     body.positions,
+        }, f, indent=2)
+    os.replace(tmp, path)
+    return {"ok": True, "path": path}
+
+@app.get("/api/mentor/sessions")
+async def list_mentor_sessions(account_label: str = "", token: str = ""):
+    check_token(token)
+    os.makedirs(MENTOR_SESSIONS_DIR, exist_ok=True)
+    files = sorted(os.listdir(MENTOR_SESSIONS_DIR), reverse=True)
+    sessions = []
+    for fn in files:
+        if not fn.endswith(".json"): continue
+        try:
+            with open(os.path.join(MENTOR_SESSIONS_DIR, fn)) as f:
+                d = json.load(f)
+            if account_label and d.get("account_label") != account_label:
+                continue
+            sessions.append({
+                "filename":      fn,
+                "account_label": d.get("account_label",""),
+                "saved_at":      d.get("saved_at",""),
+                "message_count": len(d.get("history",[])),
+            })
+        except Exception:
+            pass
+    return sessions
 
 @app.post("/api/strategies")
 async def save_strategies_list(body: StrategiesBody, token: str = ""):
@@ -2210,6 +3153,154 @@ async def save_version_backtest(
     target["backtest_run_at"]  = body.run_at or datetime.now(timezone.utc).isoformat()
     _write_versions(family_id, versions)
     return {"ok": True}
+
+
+# ── Stock Search ──────────────────────────────────────────────────────────────
+
+@app.get("/api/search/stocks")
+async def search_stocks(q: str = "", token: str = ""):
+    check_token(token)
+    if not q.strip():
+        return []
+    import urllib.request as _req
+    import urllib.parse   as _parse
+    import asyncio        as _asyncio
+
+    # ── Industry keyword → major tickers map ──────────────────────────────────
+    _INDUSTRY_MAP = {
+        "automotive":     ["F","GM","TSLA","TM","STLA","HMC","RIVN","LCID","NIO","LI","XPEV","RACE"],
+        "auto":           ["F","GM","TSLA","TM","STLA","HMC","RIVN","LCID"],
+        "car":            ["F","GM","TSLA","TM","STLA","HMC","RIVN"],
+        "truck":          ["F","GM","PCAR","CMI","NAV","WKHS"],
+        "electric vehicle":["TSLA","RIVN","LCID","NIO","LI","XPEV","FSR"],
+        "ev":             ["TSLA","RIVN","LCID","NIO","LI","XPEV","FSR"],
+        "airline":        ["AAL","UAL","DAL","LUV","ALK","JBLU","SAVE","HA","ULCC"],
+        "airlines":       ["AAL","UAL","DAL","LUV","ALK","JBLU","SAVE","HA"],
+        "bank":           ["JPM","BAC","WFC","C","GS","MS","USB","PNC","TFC","COF"],
+        "banks":          ["JPM","BAC","WFC","C","GS","MS","USB","PNC","TFC","COF"],
+        "semiconductor":  ["NVDA","AMD","INTC","QCOM","AVGO","MU","AMAT","LRCX","KLAC","TSM","MRVL","ON"],
+        "chip":           ["NVDA","AMD","INTC","QCOM","AVGO","MU","AMAT","LRCX"],
+        "tech":           ["AAPL","MSFT","GOOGL","AMZN","META","NVDA","TSLA","ORCL","CRM","ADBE"],
+        "technology":     ["AAPL","MSFT","GOOGL","AMZN","META","NVDA","ORCL","CRM","ADBE","IBM"],
+        "oil":            ["XOM","CVX","COP","OXY","EOG","PSX","VLO","SLB","MPC","HES"],
+        "energy":         ["XOM","CVX","COP","OXY","EOG","NEE","D","SO","DUK","AEP"],
+        "pharma":         ["JNJ","PFE","MRK","ABBV","BMY","LLY","AMGN","GILD","BIIB","REGN"],
+        "pharmaceutical": ["JNJ","PFE","MRK","ABBV","BMY","LLY","AMGN","GILD","BIIB","REGN"],
+        "biotech":        ["AMGN","GILD","BIIB","REGN","VRTX","MRNA","BNTX","ILMN","SGEN"],
+        "retail":         ["WMT","AMZN","COST","TGT","HD","LOW","TJX","ROST","KR","DG"],
+        "insurance":      ["BRK-B","MET","PRU","AFL","AIG","CB","ALL","HIG","TRV","PGR"],
+        "defense":        ["LMT","RTX","NOC","GD","BA","HII","L3H","LDOS","SAIC","KTOS"],
+        "aerospace":      ["BA","LMT","RTX","NOC","GD","HII","TDG","SPR","AXON"],
+        "media":          ["DIS","NFLX","PARA","WBD","FOX","CMCSA","NYT","AMC"],
+        "streaming":      ["NFLX","DIS","PARA","WBD","ROKU","SPOT","FUBO"],
+        "mining":         ["BHP","RIO","NEM","FCX","GOLD","AA","CLF","MP","VALE"],
+        "real estate":    ["AMT","PLD","CCI","EQIX","SPG","O","WELL","DLR","PSA","AVB"],
+        "reit":           ["AMT","PLD","CCI","EQIX","SPG","O","WELL","DLR","PSA","AVB"],
+        "telecom":        ["VZ","T","TMUS","LUMN","DISH","SHEN"],
+        "cloud":          ["AMZN","MSFT","GOOGL","CRM","SNOW","MDB","DDOG","NET","ZS"],
+        "cybersecurity":  ["CRWD","PANW","ZS","FTNT","NET","S","OKTA","SAIL","TPVG"],
+        "crypto":         ["COIN","MSTR","MARA","RIOT","HUT","CLSK","BTBT"],
+        "restaurant":     ["MCD","SBUX","CMG","YUM","QSR","DPZ","WEN","JACK","DENN"],
+        "food":           ["KO","PEP","MDLZ","GIS","K","HSY","SJM","CAG","MKC","CPB"],
+        "healthcare":     ["UNH","JNJ","ABBV","MRK","LLY","CVS","CI","HUM","CNC","ELV"],
+        "hospital":       ["HCA","UHS","THC","CYH","ENSG","AMED","SGRY"],
+        "shipping":       ["ZIM","DAC","MATX","GSL","SFL","EGLE","SBLK","NMM"],
+        "railroad":       ["UNP","CSX","NSC","CP","CNI","WAB","KSU"],
+        "logistics":      ["UPS","FDX","XPO","SAIA","ODFL","JBHT","KNX","CHRW"],
+    }
+
+    def _yf_search(query: str, count: int = 30) -> list:
+        url = (
+            "https://query2.finance.yahoo.com/v1/finance/search"
+            f"?q={_parse.quote(query)}&quotesCount={count}&newsCount=0&enableFuzzyQuery=false"
+        )
+        try:
+            r = _req.urlopen(_req.Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=8)
+            return json.loads(r.read()).get("quotes", [])
+        except Exception:
+            return []
+
+    def _filter_quote(qt: dict) -> dict | None:
+        sym = qt.get("symbol", "")
+        if qt.get("quoteType") not in ("EQUITY", "ETF"):
+            return None
+        if any(c in sym for c in ("^", "=", ".")):
+            return None
+        return {
+            "symbol":   sym,
+            "name":     qt.get("shortname") or qt.get("longname") or sym,
+            "exchange": qt.get("exchDisp", ""),
+            "type":     qt.get("quoteType", ""),
+        }
+
+    # Primary text search
+    seen:    set[str] = set()
+    results: list     = []
+
+    for qt in _yf_search(q):
+        r = _filter_quote(qt)
+        if r and r["symbol"] not in seen:
+            seen.add(r["symbol"])
+            results.append(r)
+
+    # Industry keyword expansion
+    q_lower = q.strip().lower()
+    extra_tickers = []
+    for kw, tickers in _INDUSTRY_MAP.items():
+        if kw in q_lower or q_lower in kw:
+            extra_tickers.extend(tickers)
+
+    # Fetch info for any extra tickers not already in results
+    missing = [t for t in dict.fromkeys(extra_tickers) if t not in seen]
+    for ticker in missing:
+        for qt in _yf_search(ticker, count=3):
+            if qt.get("symbol") == ticker:
+                r = _filter_quote(qt)
+                if r and r["symbol"] not in seen:
+                    seen.add(r["symbol"])
+                    results.append(r)
+                break
+
+    return results
+
+
+# ── User Exclusions ───────────────────────────────────────────────────────────
+
+USER_EXCLUSIONS_KEY = "user:exclusions"
+
+@app.get("/api/user/exclusions")
+async def get_user_exclusions(token: str = ""):
+    check_token(token)
+    redis = await get_redis()
+    raw = await redis.get(USER_EXCLUSIONS_KEY)
+    if raw:
+        return json.loads(raw)
+    return {"sectors": [], "tickers": [], "ticker_meta": {}}
+
+
+async def _merge_exclusions(redis, patch: dict) -> dict:
+    raw = await redis.get(USER_EXCLUSIONS_KEY)
+    current = json.loads(raw) if raw else {"sectors": [], "tickers": [], "ticker_meta": {}}
+    current.update(patch)
+    await redis.set(USER_EXCLUSIONS_KEY, json.dumps(current))
+    return current
+
+
+@app.post("/api/user/exclusions/sectors")
+async def save_exclusion_sectors(body: dict, token: str = ""):
+    check_token(token)
+    redis = await get_redis()
+    sectors = [s.strip() for s in body.get("sectors", []) if s.strip()]
+    return await _merge_exclusions(redis, {"sectors": sectors})
+
+
+@app.post("/api/user/exclusions/tickers")
+async def save_exclusion_tickers(body: dict, token: str = ""):
+    check_token(token)
+    redis = await get_redis()
+    tickers     = [t.strip().upper() for t in body.get("tickers", []) if t.strip()]
+    ticker_meta = {k.upper(): v for k, v in (body.get("ticker_meta") or {}).items()}
+    return await _merge_exclusions(redis, {"tickers": tickers, "ticker_meta": ticker_meta})
 
 
 # ── WebSocket — live push ─────────────────────────────────────────────────────

@@ -45,6 +45,7 @@ class AlpacaPositions:
                 "unrealized_pl":   float(p.get("unrealized_pl", 0)),
                 "unrealized_plpc": float(p.get("unrealized_plpc", 0)),
                 "side":            p.get("side", "long"),
+                "date_acquired":   p.get("date_acquired"),
                 "raw":             p,
             }
             for p in result

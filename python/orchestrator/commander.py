@@ -6,8 +6,11 @@ Listens on system.commands stream for directives from:
 - Review agent (apply config patches)
 """
 import asyncio
+import http.client
 import logging
 import os
+import socket
+import time
 
 import redis.asyncio as aioredis
 import structlog
@@ -17,6 +20,55 @@ from shared.redis_client import STREAMS, GROUPS, get_redis
 log = structlog.get_logger("commander")
 
 SERVICE_NAME = os.getenv("SERVICE_NAME", "orchestrator")
+PODMAN_SOCK  = os.getenv("PODMAN_SOCK", "/var/run/podman.sock")
+
+# Prevent restarting the same container more than once per cooldown window
+RESTART_COOLDOWN_SEC = 60
+
+CONTAINER_MAP = {
+    "orchestrator":     "ot-orchestrator",
+    "scheduler":        "ot-scheduler",
+    "predictor":        "ot-predictor",
+    "trader-equity":    "ot-trader-equity",
+    "trader-options":   "ot-trader-options",
+    "scraper-ovtlyr":   "ot-scraper-ovtlyr",
+    "scraper-wsb":      "ot-scraper-wsb",
+    "scraper-seekalpha":"ot-scraper-seekalpha",
+    "scraper-yahoo":    "ot-scraper-yahoo",
+    "aggregator":       "ot-aggregator",
+    "review-agent":     "ot-review-agent",
+    "broker-gateway":   "ot-broker-gateway",
+    "mcp-yahoo":        "ot-mcp-yahoo",
+    "mcp-alpaca":       "ot-mcp-alpaca",
+    "mcp-tradingview":  "ot-mcp-tradingview",
+    "chat-agent":       "ot-chat-agent",
+}
+
+
+class _UnixSocketHTTPConnection(http.client.HTTPConnection):
+    """HTTPConnection that connects via a Unix domain socket."""
+    def __init__(self, sock_path: str):
+        super().__init__("localhost")
+        self._sock_path = sock_path
+
+    def connect(self):
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.connect(self._sock_path)
+        self.sock = s
+
+
+def _podman_restart(container_name: str, timeout: int = 10) -> bool:
+    """Call podman restart via the Unix socket. Returns True on success."""
+    try:
+        conn = _UnixSocketHTTPConnection(PODMAN_SOCK)
+        conn.timeout = timeout
+        conn.request("POST", f"/v4.0.0/libpod/containers/{container_name}/restart")
+        resp = conn.getresponse()
+        resp.read()
+        return resp.status in (200, 204)
+    except Exception as e:
+        log.error("commander.podman_restart.failed", container=container_name, error=str(e))
+        return False
 
 
 class Commander:
@@ -25,6 +77,7 @@ class Commander:
         self.redis  = None
         self.stream = STREAMS["commands"]
         self.group  = GROUPS["orchestrator"]
+        self._last_restart: dict[str, float] = {}
 
     async def run(self):
         # Own dedicated connection — avoids contention with other blocking loops
@@ -80,11 +133,33 @@ class Commander:
     async def _handle_restart(self, data: dict):
         target  = data.get("target", "")
         attempt = data.get("attempt", "1")
-        backoff = int(data.get("backoff_sec", "10"))
-        log.info("commander.restart", target=target, attempt=attempt)
-        # Write restart request — podman-compose watches this key
-        await self.redis.set(f"system:restart:{target}", attempt, ex=300)
-        await asyncio.sleep(backoff)
+
+        if not target:
+            log.warning("commander.restart.no_target")
+            return
+
+        # Cooldown guard — drop duplicate restart commands within the window
+        now = time.monotonic()
+        last = self._last_restart.get(target, 0.0)
+        if now - last < RESTART_COOLDOWN_SEC:
+            log.warning(
+                "commander.restart.cooldown",
+                target=target,
+                seconds_since_last=round(now - last),
+            )
+            return
+
+        self._last_restart[target] = now
+        cname = CONTAINER_MAP.get(target, f"ot-{target}")
+        log.info("commander.restart", target=target, container=cname, attempt=attempt)
+
+        ok = await asyncio.get_event_loop().run_in_executor(
+            None, _podman_restart, cname
+        )
+        if ok:
+            log.info("commander.restart.ok", target=target, container=cname)
+        else:
+            log.error("commander.restart.failed", target=target, container=cname)
 
     async def _handle_circuit_break(self, data: dict):
         reason = data.get("reason", "unknown")
@@ -102,5 +177,4 @@ class Commander:
 
     async def _handle_status(self, data: dict):
         log.info("commander.status_requested")
-        # Status is written to Redis for the requestor to read
         await self.redis.set("system:status_requested", "1", ex=30)

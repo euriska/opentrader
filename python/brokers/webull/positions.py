@@ -65,6 +65,7 @@ class WebullPositions:
                 "current_price":   float(p.get("last_price", 0) or 0),
                 "market_value":    float(p.get("market_value", 0) or 0),
                 "unrealized_pl":   float(p.get("unrealized_profit_loss", 0) or 0),
+                "date_acquired":   p.get("open_date") or p.get("date_acquired"),
                 "raw":             p,
             }
             for p in items

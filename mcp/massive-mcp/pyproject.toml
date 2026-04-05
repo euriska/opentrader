@@ -1,0 +1,12 @@
+[project]
+name = "massive-mcp"
+version = "0.1.0"
+description = "Massive.com (Polygon.io) market data MCP server"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]>=1.0.0",
+    "polygon-api-client>=1.16.0",
+]
+
+[tool.setuptools]
+py-modules = ["server", "run_http"]

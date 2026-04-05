@@ -106,6 +106,7 @@ services:
       - ./logs/python:/app/logs
       - ./config:/app/config:ro
       - ./secrets:/app/secrets:ro
+      - /run/user/1003/podman/podman.sock:/var/run/podman.sock:ro
     networks: [trading-net]
     depends_on:
       redis:
@@ -129,6 +130,7 @@ services:
     volumes:
       - ./logs/python:/app/logs
       - ./config:/app/config:ro
+      - ./python/scheduler:/app/scheduler  # live-reload scheduler without rebuild
     networks: [trading-net]
     depends_on:
       redis:
@@ -230,6 +232,7 @@ services:
     command: python -m scrapers.ovtlyr.main
     environment:
       REDIS_URL: redis://ot-redis:6379
+      DB_URL: postgresql://trading:${DB_PASSWORD:-trading_secret}@ot-timescaledb/trading
       SERVICE_NAME: scraper-ovtlyr
       MAX_OVTLYR_TICKERS: "30"
     env_file: [.env]
@@ -239,6 +242,8 @@ services:
     networks: [trading-net]
     depends_on:
       redis:
+        condition: service_healthy
+      timescaledb:
         condition: service_healthy
 
   scraper-wsb:
@@ -299,6 +304,18 @@ services:
       FASTMCP_PORT: "8000"
     networks: [trading-net]
 
+  mcp-massive:
+    build:
+      context: ./mcp/massive-mcp
+      dockerfile: Dockerfile
+    container_name: ot-mcp-massive
+    restart: unless-stopped
+    environment:
+      FASTMCP_HOST: "0.0.0.0"
+      FASTMCP_PORT: "8000"
+      MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
+    networks: [trading-net]
+
   scraper-yahoo:
     build:
       context: ./python
@@ -316,6 +333,30 @@ services:
     networks: [trading-net]
     depends_on:
       redis:
+        condition: service_healthy
+      mcp-yahoo:
+        condition: service_started
+
+  scraper-yahoo-sentiment:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ot-scraper-yahoo-sentiment
+    restart: unless-stopped
+    command: python -m scrapers.yahoo_sentiment.main
+    environment:
+      REDIS_URL: redis://ot-redis:6379
+      DB_URL: postgresql://trading:${DB_PASSWORD:-trading_secret}@ot-timescaledb/trading
+      SERVICE_NAME: scraper-yahoo-sentiment
+      YAHOO_MCP_URL: "http://ot-mcp-yahoo:8000/mcp"
+    env_file: [.env]
+    volumes:
+      - ./logs/python:/app/logs
+    networks: [trading-net]
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
         condition: service_healthy
       mcp-yahoo:
         condition: service_started
@@ -394,13 +435,10 @@ services:
       ALPACA_LIVE_ACCOUNT_ID: ${ALPACA_LIVE_ACCOUNT_ID:-}
       ALPACA_LIVE_ACCOUNT_IRA: ${ALPACA_LIVE_ACCOUNT_IRA:-false}
       ALPACA_DATA_FEED: ${ALPACA_DATA_FEED:-iex}
-      # Webull
-      WEBULL_ACCESS_TOKEN: ${WEBULL_ACCESS_TOKEN:-}
-      WEBULL_REFRESH_TOKEN: ${WEBULL_REFRESH_TOKEN:-}
-      WEBULL_DID: ${WEBULL_DID:-}
-      WEBULL_TRADE_TOKEN: ${WEBULL_TRADE_TOKEN:-}
-      WEBULL_PAPER_ACCOUNT_ID: ${WEBULL_PAPER_ACCOUNT_ID:-}
-      WEBULL_LIVE_ACCOUNT_ID: ${WEBULL_LIVE_ACCOUNT_ID:-}
+      # Webull — account IDs come from env_file (.env); do not override here
+      # or they will be blanked when the host shell lacks the variable
+      WEBULL_API_KEY: ${WEBULL_API_KEY:-}
+      WEBULL_SECRET_KEY: ${WEBULL_SECRET_KEY:-}
     env_file: [.env]
     volumes:
       - ./logs/python:/app/logs
@@ -431,7 +469,7 @@ services:
     environment:
       SERVICE_NAME: chat-agent
       # MCP servers — comma-separated name=url pairs
-      MCP_SERVERS: "yahoo=http://ot-mcp-yahoo:8000/mcp,alpaca=http://ot-mcp-alpaca:8000/mcp,tradingview=http://ot-mcp-tradingview:8000/mcp"
+      MCP_SERVERS: "yahoo=http://ot-mcp-yahoo:8000/mcp,alpaca=http://ot-mcp-alpaca:8000/mcp,tradingview=http://ot-mcp-tradingview:8000/mcp,massive=http://ot-mcp-massive:8000/mcp"
       # AI agent model (OpenRouter model ID)
       CHAT_AGENT_MODEL: ${CHAT_AGENT_MODEL:-anthropic/claude-3-5-haiku}
     env_file: [.env]
@@ -444,6 +482,8 @@ services:
       mcp-alpaca:
         condition: service_started
       mcp-tradingview:
+        condition: service_started
+      mcp-massive:
         condition: service_started
 
   # ── Command Center WebUI ────────────────────────────────────────────────────
