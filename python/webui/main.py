@@ -3739,6 +3739,220 @@ async def ws_endpoint(websocket: WebSocket):
         log.error("ws.error", error=str(e))
 
 
+# ── Library ──────────────────────────────────────────────────────────────────
+
+class LibraryBookBody(BaseModel):
+    isbn:           str | None = None
+    title:          str
+    author:         str | None = None
+    description:    str | None = None
+    category:       str | None = None
+    publisher:      str | None = None
+    published_date: str | None = None
+    pages:          int | None = None
+    cover_url:      str | None = None
+    price:          float | None = None
+    rating:         int | None = None
+    status:         str = "purchased"
+    notes:          str | None = None
+
+class LibraryBookPatch(BaseModel):
+    title:          str | None = None
+    author:         str | None = None
+    description:    str | None = None
+    category:       str | None = None
+    publisher:      str | None = None
+    published_date: str | None = None
+    pages:          int | None = None
+    cover_url:      str | None = None
+    price:          float | None = None
+    rating:         int | None = None
+    status:         str | None = None
+    notes:          str | None = None
+
+@app.get("/api/library/isbn/{isbn}")
+async def lookup_isbn(isbn: str):
+    """Fetch book metadata from Open Library (jscmd=data, then search API fallback)."""
+    clean = isbn.replace("-", "").replace(" ", "")
+    result = {}
+
+    async def _ol_data():
+        """Open Library /api/books with full data."""
+        import aiohttp as aiohttp_
+        url = f"https://openlibrary.org/api/books?bibkeys=ISBN:{clean}&format=json&jscmd=data"
+        async with aiohttp_.ClientSession() as s:
+            async with s.get(url, timeout=aiohttp_.ClientTimeout(total=12)) as r:
+                data = await r.json(content_type=None)
+                entry = data.get(f"ISBN:{clean}", {})
+                if not entry:
+                    return {}
+                authors  = [a.get("name","") for a in entry.get("authors",[])]
+                subjects = entry.get("subjects", [])
+                category = ""
+                if subjects:
+                    category = subjects[0].get("name","") if isinstance(subjects[0], dict) else subjects[0]
+                publishers = entry.get("publishers", [])
+                pub = publishers[0].get("name","") if publishers and isinstance(publishers[0], dict) else (publishers[0] if publishers else "")
+                cover = (entry.get("cover",{}) or {})
+                return {
+                    "isbn":           clean,
+                    "title":          entry.get("title",""),
+                    "author":         ", ".join(authors),
+                    "description":    entry.get("notes","") if isinstance(entry.get("notes"), str) else "",
+                    "category":       category,
+                    "publisher":      pub,
+                    "published_date": entry.get("publish_date",""),
+                    "pages":          entry.get("number_of_pages"),
+                    "cover_url":      cover.get("large") or cover.get("medium") or
+                                      f"https://covers.openlibrary.org/b/isbn/{clean}-L.jpg",
+                }
+
+    async def _ol_search():
+        """Open Library search API — broader coverage."""
+        import aiohttp as aiohttp_
+        url = f"https://openlibrary.org/search.json?isbn={clean}&limit=1"
+        async with aiohttp_.ClientSession() as s:
+            async with s.get(url, timeout=aiohttp_.ClientTimeout(total=12)) as r:
+                data = await r.json(content_type=None)
+                docs = data.get("docs", [])
+                if not docs:
+                    return {}
+                d = docs[0]
+                authors = d.get("author_name") or []
+                subjects = d.get("subject") or []
+                cover_id = d.get("cover_i")
+                cover_url = (f"https://covers.openlibrary.org/b/id/{cover_id}-L.jpg"
+                             if cover_id else
+                             f"https://covers.openlibrary.org/b/isbn/{clean}-L.jpg")
+                return {
+                    "isbn":           clean,
+                    "title":          d.get("title",""),
+                    "author":         ", ".join(authors),
+                    "description":    "",
+                    "category":       subjects[0] if subjects else "",
+                    "publisher":      (d.get("publisher") or [""])[0],
+                    "published_date": str(d.get("first_publish_year","")) if d.get("first_publish_year") else "",
+                    "pages":          d.get("number_of_pages_median"),
+                    "cover_url":      cover_url,
+                }
+
+    # 1. Open Library full data
+    try:
+        result = await _ol_data()
+    except Exception as e:
+        log.warning("library.isbn_ol_data_error", isbn=clean, error=str(e))
+
+    # 2. Open Library search fallback
+    if not result.get("title"):
+        try:
+            result = await _ol_search()
+        except Exception as e:
+            log.warning("library.isbn_ol_search_error", isbn=clean, error=str(e))
+
+    if not result.get("title"):
+        raise HTTPException(status_code=404, detail="Book not found for this ISBN")
+    return result
+
+@app.get("/api/library/books")
+async def list_library_books(sort: str = "title", status: str = "", category: str = ""):
+    if not DB_URL:
+        return []
+    pool = await _get_db_pool()
+    where_clauses = []
+    args = []
+    if status:
+        args.append(status); where_clauses.append(f"status = ${len(args)}")
+    if category:
+        args.append(category); where_clauses.append(f"category = ${len(args)}")
+    where = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+    order_col = {"title": "title", "author": "author", "category": "category"}.get(sort, "title")
+    rows = await pool.fetch(
+        f"SELECT * FROM library_books {where} ORDER BY {order_col} ASC NULLS LAST, title ASC",
+        *args
+    )
+    return [dict(r) for r in rows]
+
+@app.get("/api/library/stats")
+async def library_stats():
+    if not DB_URL:
+        return {"total": 0, "reading": 0, "purchased": 0, "reference": 0, "categories": []}
+    pool = await _get_db_pool()
+    rows = await pool.fetch("SELECT status, COUNT(*) as cnt FROM library_books GROUP BY status")
+    counts = {r["status"]: r["cnt"] for r in rows}
+    cats   = await pool.fetch("SELECT DISTINCT category FROM library_books WHERE category IS NOT NULL ORDER BY category")
+    return {
+        "total":     sum(counts.values()),
+        "reading":   counts.get("reading", 0),
+        "purchased": counts.get("purchased", 0),
+        "reference": counts.get("reference", 0),
+        "categories": [r["category"] for r in cats if r["category"]],
+    }
+
+@app.post("/api/library/books")
+async def add_library_book(body: LibraryBookBody, token: str = ""):
+    check_token(token)
+    if not DB_URL:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    pool = await _get_db_pool()
+    row = await pool.fetchrow(
+        """INSERT INTO library_books
+            (isbn, title, author, description, category, publisher, published_date,
+             pages, cover_url, price, rating, status, notes)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+           RETURNING *""",
+        body.isbn, body.title, body.author, body.description, body.category,
+        body.publisher, body.published_date, body.pages, body.cover_url,
+        body.price, body.rating, body.status, body.notes
+    )
+    return dict(row)
+
+@app.patch("/api/library/books/{book_id}")
+async def update_library_book(book_id: str, body: LibraryBookPatch, token: str = ""):
+    check_token(token)
+    if not DB_URL:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    pool = await _get_db_pool()
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    fields["updated_at"] = datetime.utcnow()
+    set_clause = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(fields))
+    row = await pool.fetchrow(
+        f"UPDATE library_books SET {set_clause} WHERE id = $1 RETURNING *",
+        book_id, *fields.values()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Book not found")
+    return dict(row)
+
+@app.delete("/api/library/books/{book_id}")
+async def delete_library_book(book_id: str, token: str = ""):
+    check_token(token)
+    if not DB_URL:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    pool = await _get_db_pool()
+    r = await pool.execute("DELETE FROM library_books WHERE id = $1", book_id)
+    if r == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Book not found")
+    return {"ok": True}
+
+_db_pool = None
+async def _get_db_pool():
+    global _db_pool
+    if _db_pool:
+        return _db_pool
+    from urllib.parse import urlparse, unquote
+    p = urlparse(DB_URL)
+    _db_pool = await asyncpg.create_pool(
+        host=p.hostname, port=p.port or 5432,
+        user=p.username,
+        password=unquote(p.password) if p.password else None,
+        database=p.path.lstrip("/"),
+        min_size=1, max_size=5,
+    )
+    return _db_pool
+
+
 # ── Serve frontend ────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)

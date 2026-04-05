@@ -144,3 +144,26 @@ CREATE TABLE IF NOT EXISTS ticker_sentiment (
     UNIQUE (ticker, date)
 );
 CREATE INDEX IF NOT EXISTS ticker_sentiment_ticker_date ON ticker_sentiment (ticker, date DESC);
+
+-- Trading book library
+CREATE TABLE IF NOT EXISTS library_books (
+    id           UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+    isbn         VARCHAR(20) UNIQUE,
+    title        TEXT        NOT NULL,
+    author       TEXT,
+    description  TEXT,
+    category     TEXT,
+    publisher    TEXT,
+    published_date TEXT,
+    pages        INTEGER,
+    cover_url    TEXT,
+    price        NUMERIC(10,2),
+    rating       SMALLINT    CHECK (rating BETWEEN 1 AND 5),
+    status       VARCHAR(20) NOT NULL DEFAULT 'purchased' CHECK (status IN ('reading','purchased','reference')),
+    notes        TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS library_books_author   ON library_books (author);
+CREATE INDEX IF NOT EXISTS library_books_category ON library_books (category);
+CREATE INDEX IF NOT EXISTS library_books_status   ON library_books (status);

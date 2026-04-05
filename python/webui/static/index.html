@@ -290,6 +290,13 @@ select option{background:var(--surface2)}
       </div>
     </div>
     <div class="nav-group">
+      <div class="nav-label">Resources</div>
+      <div class="nav-item" onclick="navigate('page-resources-library')" data-page="page-resources-library">
+        <span class="nav-dot" style="background:#a78bfa"></span>
+        Library
+      </div>
+    </div>
+    <div class="nav-group">
       <div class="nav-label">Platform</div>
       <div class="nav-item active" onclick="navigate('page-platform-dashboard')" data-page="page-platform-dashboard">
         <span class="nav-dot" style="background:var(--blue)"></span>
@@ -1546,8 +1553,191 @@ select option{background:var(--surface2)}
       </div>
     </div>
 
+    <!-- ════════════════════════════════════════
+         PAGE: Library
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-resources-library">
+
+      <!-- Stats bar -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+        <div class="card" style="padding:14px 18px">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Total Books</div>
+          <div id="lib-stat-total" style="font-size:28px;font-weight:700;color:var(--fg)">—</div>
+        </div>
+        <div class="card" style="padding:14px 18px">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Reading</div>
+          <div id="lib-stat-reading" style="font-size:28px;font-weight:700;color:#4ade80">—</div>
+        </div>
+        <div class="card" style="padding:14px 18px">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Purchased</div>
+          <div id="lib-stat-purchased" style="font-size:28px;font-weight:700;color:#60a5fa">—</div>
+        </div>
+        <div class="card" style="padding:14px 18px">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Reference</div>
+          <div id="lib-stat-reference" style="font-size:28px;font-weight:700;color:#a78bfa">—</div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-sm lib-sort-btn active" data-sort="title" onclick="_libSetSort('title')" style="font-size:11px">Title</button>
+          <button class="btn btn-sm lib-sort-btn" data-sort="author" onclick="_libSetSort('author')" style="font-size:11px">Author</button>
+          <button class="btn btn-sm lib-sort-btn" data-sort="category" onclick="_libSetSort('category')" style="font-size:11px">Category</button>
+        </div>
+        <div style="width:1px;height:20px;background:var(--border)"></div>
+        <select id="lib-filter-status" class="select-input" style="font-size:12px;padding:4px 8px" onchange="_libLoad()">
+          <option value="">All statuses</option>
+          <option value="reading">Reading</option>
+          <option value="purchased">Purchased</option>
+          <option value="reference">Reference</option>
+        </select>
+        <select id="lib-filter-category" class="select-input" style="font-size:12px;padding:4px 8px" onchange="_libLoad()">
+          <option value="">All categories</option>
+        </select>
+        <div style="flex:1"></div>
+        <!-- View toggle -->
+        <div style="display:flex;gap:2px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px">
+          <button id="lib-view-tile" onclick="_libSetView('tile')"
+            style="padding:4px 10px;font-size:11px;border:none;border-radius:4px;cursor:pointer;background:rgba(59,130,246,.2);color:#60a5fa">⊞ Tiles</button>
+          <button id="lib-view-table" onclick="_libSetView('table')"
+            style="padding:4px 10px;font-size:11px;border:none;border-radius:4px;cursor:pointer;background:transparent;color:var(--muted)">☰ Table</button>
+        </div>
+        <button class="btn btn-sm" onclick="_libOpenAdd()"
+          style="background:rgba(167,139,250,.2);color:#a78bfa;border:1px solid rgba(167,139,250,.3)">+ Add Book</button>
+      </div>
+
+      <!-- Tile view -->
+      <div id="lib-tile-view" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px">
+        <div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:40px">Loading…</div>
+      </div>
+
+      <!-- Table view -->
+      <div id="lib-table-view" style="display:none">
+        <div class="card">
+          <div class="card-body" style="padding:0">
+            <table class="agents-table" style="width:100%">
+              <thead>
+                <tr>
+                  <th style="width:52px"></th>
+                  <th>Title</th>
+                  <th>Author</th>
+                  <th>Category</th>
+                  <th>Status</th>
+                  <th>Rating</th>
+                  <th>Price</th>
+                  <th style="text-align:right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="lib-table-tbody">
+                <tr><td colspan="8" class="empty-state">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
   </div><!-- end .content -->
 </div><!-- end .main -->
+
+<!-- ── Library Add/Edit Modal ── -->
+<div id="lib-modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:2000" onclick="_libCloseModal()"></div>
+<div id="lib-modal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:560px;max-width:95vw;max-height:90vh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;z-index:2001;padding:24px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <span id="lib-modal-title" style="font-size:15px;font-weight:700;color:var(--fg)">Add Book</span>
+    <button onclick="_libCloseModal()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button>
+  </div>
+  <!-- ISBN lookup -->
+  <div style="display:flex;gap:8px;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+    <input id="lib-isbn-input" type="text" placeholder="Enter ISBN-10 or ISBN-13…"
+      class="select-input" style="flex:1;padding:7px 10px;font-size:13px">
+    <button class="btn btn-sm" onclick="_libLookupISBN()"
+      style="background:rgba(167,139,250,.2);color:#a78bfa;border:1px solid rgba(167,139,250,.3);white-space:nowrap">
+      Lookup ISBN
+    </button>
+  </div>
+  <div id="lib-lookup-status" style="font-size:12px;color:var(--muted);margin-bottom:10px;min-height:16px"></div>
+
+  <!-- Form fields -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div style="grid-column:1/-1">
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Title *</label>
+      <input id="lib-f-title" class="select-input" style="width:100%;padding:7px 10px;font-size:13px" placeholder="Book title">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Author</label>
+      <input id="lib-f-author" class="select-input" style="width:100%;padding:7px 10px;font-size:13px" placeholder="Author name">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Category</label>
+      <input id="lib-f-category" class="select-input" style="width:100%;padding:7px 10px;font-size:13px" placeholder="e.g. Technical Analysis">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Publisher</label>
+      <input id="lib-f-publisher" class="select-input" style="width:100%;padding:7px 10px;font-size:13px" placeholder="Publisher">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Published</label>
+      <input id="lib-f-published_date" class="select-input" style="width:100%;padding:7px 10px;font-size:13px" placeholder="e.g. 2020">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Pages</label>
+      <input id="lib-f-pages" type="number" class="select-input" style="width:100%;padding:7px 10px;font-size:13px" placeholder="Page count">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Price ($)</label>
+      <input id="lib-f-price" type="number" step="0.01" class="select-input" style="width:100%;padding:7px 10px;font-size:13px" placeholder="0.00">
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Status</label>
+      <select id="lib-f-status" class="select-input" style="width:100%;padding:7px 10px;font-size:13px">
+        <option value="purchased">Purchased</option>
+        <option value="reading">Reading</option>
+        <option value="reference">Reference</option>
+      </select>
+    </div>
+    <div style="grid-column:1/-1">
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">Rating</label>
+      <div id="lib-f-rating-stars" style="display:flex;gap:6px">
+        <span class="lib-star" data-val="1" onclick="_libSetRating(1)" style="font-size:22px;cursor:pointer;color:var(--border)">★</span>
+        <span class="lib-star" data-val="2" onclick="_libSetRating(2)" style="font-size:22px;cursor:pointer;color:var(--border)">★</span>
+        <span class="lib-star" data-val="3" onclick="_libSetRating(3)" style="font-size:22px;cursor:pointer;color:var(--border)">★</span>
+        <span class="lib-star" data-val="4" onclick="_libSetRating(4)" style="font-size:22px;cursor:pointer;color:var(--border)">★</span>
+        <span class="lib-star" data-val="5" onclick="_libSetRating(5)" style="font-size:22px;cursor:pointer;color:var(--border)">★</span>
+      </div>
+    </div>
+    <div style="grid-column:1/-1">
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Cover URL</label>
+      <input id="lib-f-cover_url" class="select-input" style="width:100%;padding:7px 10px;font-size:13px" placeholder="Auto-filled from ISBN lookup">
+    </div>
+    <div style="grid-column:1/-1">
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Description</label>
+      <textarea id="lib-f-description" rows="3" class="select-input"
+        style="width:100%;padding:7px 10px;font-size:13px;resize:vertical;font-family:inherit;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg)"
+        placeholder="Book description"></textarea>
+    </div>
+    <div style="grid-column:1/-1">
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Notes</label>
+      <textarea id="lib-f-notes" rows="2" class="select-input"
+        style="width:100%;padding:7px 10px;font-size:13px;resize:vertical;font-family:inherit;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--fg)"
+        placeholder="Personal notes"></textarea>
+    </div>
+  </div>
+
+  <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+    <button class="btn btn-ghost btn-sm" onclick="_libCloseModal()">Cancel</button>
+    <button class="btn btn-sm" onclick="_libSaveBook()"
+      style="background:rgba(167,139,250,.2);color:#a78bfa;border:1px solid rgba(167,139,250,.3)">Save Book</button>
+  </div>
+</div>
+
+<!-- ── Library Detail Drawer ── -->
+<div id="lib-drawer-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2200" onclick="_libCloseDrawer()"></div>
+<div id="lib-drawer" style="display:none;position:fixed;top:0;right:0;width:400px;height:100vh;background:var(--surface);border-left:1px solid var(--border);z-index:2201;overflow-y:auto;padding:0">
+  <div id="lib-drawer-body" style="height:100%"></div>
+</div>
 
 <!-- ── Strategy Assignment Modal ── -->
 <div id="assign-modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000" onclick="_closeAssignModal()"></div>
@@ -1677,6 +1867,7 @@ const PAGE_TITLES = {
   'page-plan-engineer':      'Strategy Engineer',
   'page-plan-library':       'Strategy Library',
   'page-plan-assignment':    'Strategy Assignment',
+  'page-resources-library':  'Library',
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1794,6 +1985,7 @@ function navigate(pageId) {
     case 'page-plan-engineer':      loadEngineerPage();     break;
     case 'page-plan-library':       loadLibraryPage();      break;
     case 'page-plan-assignment':    loadAssignmentPage();   break;
+    case 'page-resources-library':  loadLibraryResourcePage(); break;
   }
 }
 
@@ -7596,6 +7788,313 @@ setInterval(loadOvtlyrMarketSignals, 5 * 60 * 1000); // refresh every 5 min
     popup.style.display = 'none';
   });
 })();
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Library
+// ══════════════════════════════════════════════════════════════════════════════
+
+let _libBooks      = [];
+let _libSort       = 'title';
+let _libView       = 'tile';
+let _libEditId     = null;
+let _libRating     = 0;
+
+async function loadLibraryResourcePage() {
+  await Promise.all([_libLoadStats(), _libLoad()]);
+}
+
+async function _libLoadStats() {
+  try {
+    const r = await fetch('/api/library/stats');
+    const d = await r.json();
+    document.getElementById('lib-stat-total').textContent     = d.total     ?? 0;
+    document.getElementById('lib-stat-reading').textContent   = d.reading   ?? 0;
+    document.getElementById('lib-stat-purchased').textContent = d.purchased ?? 0;
+    document.getElementById('lib-stat-reference').textContent = d.reference ?? 0;
+    // Populate category filter
+    const sel = document.getElementById('lib-filter-category');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">All categories</option>' +
+      (d.categories || []).map(c => `<option value="${c}" ${c===cur?'selected':''}>${c}</option>`).join('');
+  } catch(_) {}
+}
+
+async function _libLoad() {
+  const status   = document.getElementById('lib-filter-status')?.value   || '';
+  const category = document.getElementById('lib-filter-category')?.value || '';
+  try {
+    const r = await fetch(`/api/library/books?sort=${_libSort}&status=${encodeURIComponent(status)}&category=${encodeURIComponent(category)}`);
+    _libBooks = await r.json();
+  } catch(_) { _libBooks = []; }
+  _libRender();
+}
+
+function _libSetSort(sort) {
+  _libSort = sort;
+  document.querySelectorAll('.lib-sort-btn').forEach(b => {
+    const on = b.dataset.sort === sort;
+    b.style.background  = on ? 'rgba(59,130,246,.2)' : '';
+    b.style.color       = on ? '#60a5fa' : '';
+    b.style.borderColor = on ? 'rgba(59,130,246,.4)' : '';
+  });
+  _libLoad();
+}
+
+function _libSetView(view) {
+  _libView = view;
+  document.getElementById('lib-tile-view').style.display  = view === 'tile'  ? 'grid' : 'none';
+  document.getElementById('lib-table-view').style.display = view === 'table' ? 'block' : 'none';
+  const tileBtn  = document.getElementById('lib-view-tile');
+  const tableBtn = document.getElementById('lib-view-table');
+  tileBtn.style.background  = view === 'tile'  ? 'rgba(59,130,246,.2)' : 'transparent';
+  tileBtn.style.color       = view === 'tile'  ? '#60a5fa' : 'var(--muted)';
+  tableBtn.style.background = view === 'table' ? 'rgba(59,130,246,.2)' : 'transparent';
+  tableBtn.style.color      = view === 'table' ? '#60a5fa' : 'var(--muted)';
+}
+
+function _libStars(rating, size = 14) {
+  const r = rating || 0;
+  return [1,2,3,4,5].map(i =>
+    `<span style="color:${i<=r?'#f59e0b':'var(--border)'};font-size:${size}px">★</span>`
+  ).join('');
+}
+
+function _libStatusBadge(status) {
+  const map = {
+    reading:   ['#4ade80','rgba(74,222,128,.15)'],
+    purchased: ['#60a5fa','rgba(96,165,250,.15)'],
+    reference: ['#a78bfa','rgba(167,139,250,.15)'],
+  };
+  const [color, bg] = map[status] || ['var(--muted)','transparent'];
+  return `<span style="color:${color};background:${bg};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;text-transform:capitalize">${status}</span>`;
+}
+
+function _libRender() {
+  if (_libView === 'tile') _libRenderTiles();
+  else _libRenderTable();
+}
+
+function _libRenderTiles() {
+  const el = document.getElementById('lib-tile-view');
+  if (!_libBooks.length) {
+    el.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:60px">No books in your library yet — add one with "+ Add Book"</div>';
+    return;
+  }
+  el.innerHTML = _libBooks.map(b => {
+    const cover = b.cover_url
+      ? `<img src="${b.cover_url}" alt="" style="width:100%;height:200px;object-fit:cover;border-radius:6px 6px 0 0;display:block" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+      : '';
+    const placeholder = `<div style="width:100%;height:200px;background:var(--bg);border-radius:6px 6px 0 0;display:${b.cover_url?'none':'flex'};align-items:center;justify-content:center;color:var(--muted);font-size:40px">📚</div>`;
+    return `
+      <div class="card" style="cursor:pointer;overflow:hidden;transition:transform .15s" onclick="_libOpenDrawer('${b.id}')"
+        onmouseenter="this.style.transform='translateY(-2px)'" onmouseleave="this.style.transform=''">
+        ${cover}${placeholder}
+        <div style="padding:10px">
+          <div style="font-size:12px;font-weight:600;color:var(--fg);line-height:1.3;margin-bottom:4px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${b.title}</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${b.author || '—'}</div>
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            ${_libStatusBadge(b.status)}
+            <span style="font-size:12px">${_libStars(b.rating, 12)}</span>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function _libRenderTable() {
+  const tbody = document.getElementById('lib-table-tbody');
+  if (!_libBooks.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No books found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = _libBooks.map(b => {
+    const thumb = b.cover_url
+      ? `<img src="${b.cover_url}" style="width:36px;height:48px;object-fit:cover;border-radius:3px" onerror="this.style.display='none'">`
+      : `<div style="width:36px;height:48px;background:var(--bg);border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:16px">📚</div>`;
+    return `<tr>
+      <td>${thumb}</td>
+      <td style="font-weight:600;cursor:pointer;color:var(--fg)" onclick="_libOpenDrawer('${b.id}')">${b.title}</td>
+      <td style="color:var(--muted)">${b.author || '—'}</td>
+      <td style="color:var(--muted)">${b.category || '—'}</td>
+      <td>${_libStatusBadge(b.status)}</td>
+      <td>${_libStars(b.rating)}</td>
+      <td style="color:var(--muted)">${b.price != null ? '$' + Number(b.price).toFixed(2) : '—'}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" onclick="_libOpenEdit('${b.id}')" style="font-size:11px">Edit</button>
+        <button class="btn btn-ghost btn-sm" onclick="_libDelete('${b.id}')" style="font-size:11px;color:#f87171">Delete</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Add / Edit modal ──────────────────────────────────────────────────────────
+
+function _libOpenAdd() {
+  _libEditId = null;
+  _libRating = 0;
+  document.getElementById('lib-modal-title').textContent = 'Add Book';
+  ['title','author','category','publisher','published_date','pages','price','cover_url','description','notes']
+    .forEach(f => { const el = document.getElementById('lib-f-'+f); if(el) el.value = ''; });
+  document.getElementById('lib-f-status').value = 'purchased';
+  document.getElementById('lib-isbn-input').value = '';
+  document.getElementById('lib-lookup-status').textContent = '';
+  _libRenderStars(0);
+  document.getElementById('lib-modal-overlay').style.display = 'block';
+  document.getElementById('lib-modal').style.display = 'block';
+}
+
+function _libOpenEdit(id) {
+  const b = _libBooks.find(x => x.id === id);
+  if (!b) return;
+  _libEditId = id;
+  _libRating = b.rating || 0;
+  document.getElementById('lib-modal-title').textContent = 'Edit Book';
+  document.getElementById('lib-isbn-input').value        = b.isbn || '';
+  document.getElementById('lib-lookup-status').textContent = '';
+  const fields = { title: b.title, author: b.author, category: b.category,
+    publisher: b.publisher, published_date: b.published_date, pages: b.pages,
+    price: b.price, cover_url: b.cover_url, description: b.description, notes: b.notes };
+  for (const [k, v] of Object.entries(fields)) {
+    const el = document.getElementById('lib-f-'+k);
+    if (el) el.value = v ?? '';
+  }
+  document.getElementById('lib-f-status').value = b.status || 'purchased';
+  _libRenderStars(b.rating || 0);
+  document.getElementById('lib-modal-overlay').style.display = 'block';
+  document.getElementById('lib-modal').style.display = 'block';
+}
+
+function _libCloseModal() {
+  document.getElementById('lib-modal-overlay').style.display = 'none';
+  document.getElementById('lib-modal').style.display = 'none';
+}
+
+function _libSetRating(val) {
+  _libRating = val;
+  _libRenderStars(val);
+}
+
+function _libRenderStars(val) {
+  document.querySelectorAll('.lib-star').forEach(s => {
+    s.style.color = parseInt(s.dataset.val) <= val ? '#f59e0b' : 'var(--border)';
+  });
+}
+
+async function _libLookupISBN() {
+  const isbn = document.getElementById('lib-isbn-input').value.trim();
+  if (!isbn) return;
+  const status = document.getElementById('lib-lookup-status');
+  status.textContent = 'Looking up…';
+  status.style.color = 'var(--muted)';
+  try {
+    const r = await fetch(`/api/library/isbn/${encodeURIComponent(isbn)}`);
+    if (!r.ok) throw new Error('Not found');
+    const d = await r.json();
+    const fields = { title: d.title, author: d.author, category: d.category,
+      publisher: d.publisher, published_date: d.published_date, pages: d.pages,
+      cover_url: d.cover_url, description: d.description };
+    for (const [k, v] of Object.entries(fields)) {
+      const el = document.getElementById('lib-f-'+k);
+      if (el && v) el.value = v;
+    }
+    status.textContent = '✓ Book found — fields auto-filled';
+    status.style.color = '#4ade80';
+  } catch(e) {
+    status.textContent = '✗ Book not found for this ISBN';
+    status.style.color = '#f87171';
+  }
+}
+
+async function _libSaveBook() {
+  const title = document.getElementById('lib-f-title').value.trim();
+  if (!title) { showToast('Title is required', 'error'); return; }
+  const tok = localStorage.getItem('ot_token') || '';
+  const payload = {
+    isbn:           document.getElementById('lib-isbn-input').value.trim() || null,
+    title,
+    author:         document.getElementById('lib-f-author').value.trim()       || null,
+    description:    document.getElementById('lib-f-description').value.trim()  || null,
+    category:       document.getElementById('lib-f-category').value.trim()     || null,
+    publisher:      document.getElementById('lib-f-publisher').value.trim()    || null,
+    published_date: document.getElementById('lib-f-published_date').value.trim() || null,
+    pages:          parseInt(document.getElementById('lib-f-pages').value)     || null,
+    cover_url:      document.getElementById('lib-f-cover_url').value.trim()    || null,
+    price:          parseFloat(document.getElementById('lib-f-price').value)   || null,
+    rating:         _libRating || null,
+    status:         document.getElementById('lib-f-status').value,
+    notes:          document.getElementById('lib-f-notes').value.trim()        || null,
+  };
+  try {
+    const url    = _libEditId ? `/api/library/books/${_libEditId}` : '/api/library/books';
+    const method = _libEditId ? 'PATCH' : 'POST';
+    const r = await fetch(`${url}?token=${encodeURIComponent(tok)}`, {
+      method, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    showToast(_libEditId ? 'Book updated' : 'Book added', 'success');
+    _libCloseModal();
+    await Promise.all([_libLoad(), _libLoadStats()]);
+  } catch(e) {
+    showToast('Save failed: ' + e.message, 'error');
+  }
+}
+
+async function _libDelete(id) {
+  if (!confirm('Remove this book from your library?')) return;
+  const tok = localStorage.getItem('ot_token') || '';
+  try {
+    await fetch(`/api/library/books/${id}?token=${encodeURIComponent(tok)}`, { method: 'DELETE' });
+    showToast('Book removed', 'success');
+    await Promise.all([_libLoad(), _libLoadStats()]);
+  } catch(e) { showToast('Delete failed', 'error'); }
+}
+
+// ── Detail Drawer ─────────────────────────────────────────────────────────────
+
+function _libOpenDrawer(id) {
+  const b = _libBooks.find(x => x.id === id);
+  if (!b) return;
+  const cover = b.cover_url
+    ? `<img src="${b.cover_url}" alt="" style="width:100%;height:260px;object-fit:cover;display:block" onerror="this.style.display='none'">`
+    : `<div style="height:160px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:60px">📚</div>`;
+  document.getElementById('lib-drawer-body').innerHTML = `
+    ${cover}
+    <div style="padding:20px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+        <div style="font-size:16px;font-weight:700;color:var(--fg);line-height:1.3;flex:1">${b.title}</div>
+        <button onclick="_libCloseDrawer()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;margin-left:8px">✕</button>
+      </div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:10px">${b.author || ''}</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        ${_libStatusBadge(b.status)}
+        <span>${_libStars(b.rating, 16)}</span>
+        ${b.price != null ? `<span style="font-size:12px;color:var(--muted)">$${Number(b.price).toFixed(2)}</span>` : ''}
+      </div>
+      ${b.category ? `<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Category: <strong style="color:var(--fg)">${b.category}</strong></div>` : ''}
+      ${b.description ? `<div style="font-size:12px;color:var(--fg);line-height:1.6;margin-bottom:14px">${b.description}</div>` : ''}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;margin-bottom:14px">
+        ${b.publisher ? `<div><span style="color:var(--muted)">Publisher</span><br>${b.publisher}</div>` : ''}
+        ${b.published_date ? `<div><span style="color:var(--muted)">Published</span><br>${b.published_date}</div>` : ''}
+        ${b.pages ? `<div><span style="color:var(--muted)">Pages</span><br>${b.pages}</div>` : ''}
+        ${b.isbn ? `<div><span style="color:var(--muted)">ISBN</span><br>${b.isbn}</div>` : ''}
+      </div>
+      ${b.notes ? `<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px;color:var(--fg);line-height:1.5"><strong style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.06em">Notes</strong><br>${b.notes}</div>` : ''}
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn btn-sm" onclick="_libCloseDrawer();_libOpenEdit('${b.id}')"
+          style="background:rgba(167,139,250,.2);color:#a78bfa;border:1px solid rgba(167,139,250,.3)">Edit</button>
+        <button class="btn btn-ghost btn-sm" onclick="_libCloseDrawer();_libDelete('${b.id}')"
+          style="color:#f87171">Delete</button>
+      </div>
+    </div>`;
+  document.getElementById('lib-drawer-overlay').style.display = 'block';
+  document.getElementById('lib-drawer').style.display = 'block';
+}
+
+function _libCloseDrawer() {
+  document.getElementById('lib-drawer-overlay').style.display = 'none';
+  document.getElementById('lib-drawer').style.display = 'none';
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Strategy Assignment
