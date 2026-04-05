@@ -1608,7 +1608,7 @@ select option{background:var(--surface2)}
       </div>
 
       <!-- Tile view -->
-      <div id="lib-tile-view" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px">
+      <div id="lib-tile-view" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px">
         <div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:40px">Loading…</div>
       </div>
 
@@ -7895,9 +7895,9 @@ function _libRenderTiles() {
   }
   el.innerHTML = _libBooks.map(b => {
     const cover = b.cover_url
-      ? `<img src="${b.cover_url}" alt="" style="width:100%;height:200px;object-fit:cover;border-radius:6px 6px 0 0;display:block" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+      ? `<img src="${b.cover_url}" alt="" style="width:100%;height:260px;object-fit:contain;background:var(--bg);border-radius:6px 6px 0 0;display:block;padding:6px;box-sizing:border-box" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
       : '';
-    const placeholder = `<div style="width:100%;height:200px;background:var(--bg);border-radius:6px 6px 0 0;display:${b.cover_url?'none':'flex'};align-items:center;justify-content:center;color:var(--muted);font-size:40px">📚</div>`;
+    const placeholder = `<div style="width:100%;height:260px;background:var(--bg);border-radius:6px 6px 0 0;display:${b.cover_url?'none':'flex'};align-items:center;justify-content:center;color:var(--muted);font-size:40px">📚</div>`;
     return `
       <div class="card" style="cursor:pointer;overflow:hidden;transition:transform .15s" onclick="_libOpenDrawer('${b.id}')"
         onmouseenter="this.style.transform='translateY(-2px)'" onmouseleave="this.style.transform=''">

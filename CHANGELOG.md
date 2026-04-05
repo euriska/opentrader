@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.7] - 2026-04-05
+
+### Fixed
+- Library tile view: cover art now uses `object-fit:contain` (no cropping) with padding, height increased to 260px for proper book cover proportions
+
+---
+
 ## [3.5.6] - 2026-04-05
 
 ### Fixed
