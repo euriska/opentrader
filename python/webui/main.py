@@ -568,6 +568,24 @@ async def _load_jobs_from_db_to_redis(redis):
 async def on_startup():
     redis = await get_redis()
     await _load_jobs_from_db_to_redis(redis)
+    if DB_URL:
+        try:
+            pool = await _get_db_pool()
+            await pool.execute("""
+                CREATE TABLE IF NOT EXISTS library_categories (
+                    id         UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+                    name       TEXT        NOT NULL UNIQUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            # Migrate any categories already stored in books
+            await pool.execute("""
+                INSERT INTO library_categories (name)
+                    SELECT DISTINCT category FROM library_books WHERE category IS NOT NULL
+                    ON CONFLICT (name) DO NOTHING
+            """)
+        except Exception:
+            pass
 
 
 async def save_job(redis, job: dict):
