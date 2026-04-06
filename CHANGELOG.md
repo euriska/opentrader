@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.15] - 2026-04-06
+
+### Changed
+- Strategy Engineer now accepts entry-only, exit-only, or full strategies via a `Type: entry | exit | full` field
+- System prompt updated to explain which fields are required per type; entry strategies omit Stop Loss/Take Profit, exit strategies omit Asset Class/Direction/Confidence/Entry Signals
+- Strategy parser updated to set inapplicable fields to `null` instead of applying hard fallbacks (e.g. entry strategies no longer silently inherit `stop_pct=1.5`)
+- Strategy document placeholder updated to reflect the new format
+
+---
+
 ## [3.5.14] - 2026-04-06
 
 ### Added
