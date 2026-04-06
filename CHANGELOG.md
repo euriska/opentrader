@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.13] - 2026-04-06
+
+### Added
+- Broker panel account rows now show a blue indicator dot when a strategy is actively assigned to that account; hovering the dot shows a tooltip with the strategy name
+
+---
+
 ## [3.5.12] - 2026-04-06
 
 ### Changed
