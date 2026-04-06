@@ -3693,19 +3693,36 @@ async def search_stocks(q: str = "", token: str = ""):
 
 USER_EXCLUSIONS_KEY = "user:exclusions"
 
+# Map legacy S&P/MSCI names → Yahoo Finance GICS names
+_SECTOR_LEGACY_MAP = {
+    "Health Care":            "Healthcare",
+    "Consumer Discretionary": "Consumer Cyclical",
+    "Consumer Staples":       "Consumer Defensive",
+    "Information Technology": "Technology",
+    "Financials":             "Financial Services",
+    "Materials":              "Basic Materials",
+}
+
+def _normalize_sectors(sectors: list) -> list:
+    return [_SECTOR_LEGACY_MAP.get(s, s) for s in sectors]
+
 @app.get("/api/user/exclusions")
 async def get_user_exclusions(token: str = ""):
     check_token(token)
     redis = await get_redis()
     raw = await redis.get(USER_EXCLUSIONS_KEY)
     if raw:
-        return json.loads(raw)
+        data = json.loads(raw)
+        data["sectors"] = _normalize_sectors(data.get("sectors", []))
+        return data
     return {"sectors": [], "industries": [], "tickers": [], "ticker_meta": {}}
 
 
 async def _merge_exclusions(redis, patch: dict) -> dict:
     raw = await redis.get(USER_EXCLUSIONS_KEY)
     current = json.loads(raw) if raw else {"sectors": [], "industries": [], "tickers": [], "ticker_meta": {}}
+    if "sectors" in patch:
+        patch["sectors"] = _normalize_sectors(patch["sectors"])
     current.update(patch)
     await redis.set(USER_EXCLUSIONS_KEY, json.dumps(current))
     return current

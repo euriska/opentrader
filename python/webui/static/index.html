@@ -678,7 +678,7 @@ select option{background:var(--surface2)}
                 <!-- Available -->
                 <div style="flex:1;display:flex;flex-direction:column;gap:4px">
                   <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">All Sectors</div>
-                  <select id="sectors-available" multiple style="width:100%;height:160px;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:12px;padding:4px;outline:none">
+                  <select id="sectors-available" multiple ondblclick="_sectorMove('right')" style="width:100%;height:160px;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:12px;padding:4px;outline:none">
                     <option>Basic Materials</option>
                     <option>Communication Services</option>
                     <option>Consumer Cyclical</option>
@@ -694,15 +694,15 @@ select option{background:var(--surface2)}
                 </div>
                 <!-- Transfer buttons -->
                 <div style="display:flex;flex-direction:column;gap:6px;align-items:center">
-                  <button class="btn btn-ghost btn-xs" onclick="_sectorMove('right')" title="Move selected to Excluded">&gt;</button>
-                  <button class="btn btn-ghost btn-xs" onclick="_sectorMove('left')"  title="Move selected to Available">&lt;</button>
-                  <button class="btn btn-ghost btn-xs" onclick="_sectorMove('allRight')" title="Exclude all" style="font-size:9px">ALL&nbsp;&gt;</button>
-                  <button class="btn btn-ghost btn-xs" onclick="_sectorMove('allLeft')"  title="Restore all" style="font-size:9px">&lt;&nbsp;ALL</button>
+                  <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_sectorMove('right')" title="Move selected to Excluded (or double-click)">&gt;</button>
+                  <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_sectorMove('left')"  title="Restore selected (or double-click)">&lt;</button>
+                  <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_sectorMove('allRight')" title="Exclude all" style="font-size:9px">ALL&nbsp;&gt;</button>
+                  <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_sectorMove('allLeft')"  title="Restore all" style="font-size:9px">&lt;&nbsp;ALL</button>
                 </div>
                 <!-- Excluded -->
                 <div style="flex:1;display:flex;flex-direction:column;gap:4px">
                   <div style="font-size:10px;color:var(--red);text-transform:uppercase;letter-spacing:.06em">Excluded Sectors</div>
-                  <select id="sectors-excluded" multiple style="width:100%;height:160px;background:var(--bg);border:1px solid var(--red);border-radius:7px;color:var(--text);font-size:12px;padding:4px;outline:none"></select>
+                  <select id="sectors-excluded" multiple ondblclick="_sectorMove('left')" style="width:100%;height:160px;background:var(--bg);border:1px solid var(--red);border-radius:7px;color:var(--text);font-size:12px;padding:4px;outline:none"></select>
                 </div>
               </div>
             </div>
@@ -722,18 +722,18 @@ select option{background:var(--surface2)}
                 <div style="flex:1;display:flex;flex-direction:column;gap:4px">
                   <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">All Industries</div>
                   <input id="industry-filter" type="text" placeholder="Filter…" class="select-input" style="margin-bottom:4px;font-size:11px" oninput="_filterIndustries(this.value)">
-                  <select id="industries-available" multiple style="width:100%;height:140px;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:11px;padding:4px;outline:none"></select>
+                  <select id="industries-available" multiple ondblclick="_industryMove('right')" style="width:100%;height:140px;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:11px;padding:4px;outline:none"></select>
                 </div>
                 <!-- Transfer buttons -->
                 <div style="display:flex;flex-direction:column;gap:6px;align-items:center;margin-top:42px">
-                  <button class="btn btn-ghost btn-xs" onclick="_industryMove('right')" title="Exclude selected">&gt;</button>
-                  <button class="btn btn-ghost btn-xs" onclick="_industryMove('left')"  title="Restore selected">&lt;</button>
+                  <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_industryMove('right')" title="Exclude selected (or double-click)">&gt;</button>
+                  <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_industryMove('left')"  title="Restore selected (or double-click)">&lt;</button>
                 </div>
                 <!-- Excluded -->
                 <div style="flex:1;display:flex;flex-direction:column;gap:4px">
                   <div style="font-size:10px;color:var(--red);text-transform:uppercase;letter-spacing:.06em">Excluded Industries</div>
                   <div style="height:24px"></div>
-                  <select id="industries-excluded" multiple style="width:100%;height:140px;background:var(--bg);border:1px solid var(--red);border-radius:7px;color:var(--text);font-size:11px;padding:4px;outline:none"></select>
+                  <select id="industries-excluded" multiple ondblclick="_industryMove('left')" style="width:100%;height:140px;background:var(--bg);border:1px solid var(--red);border-radius:7px;color:var(--text);font-size:11px;padding:4px;outline:none"></select>
                 </div>
               </div>
             </div>
