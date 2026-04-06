@@ -2781,6 +2781,48 @@ class StrategyMessage(BaseModel):
     history: list = []
     strategy_text: str = ""
 
+_STRATEGY_ENGINEER_SYSTEM = """\
+You are an expert quantitative strategy engineer for the OpenTrader platform.
+Your job is to help design, refine, and document algorithmic trading strategies.
+
+A strategy document can describe a pure entry, a pure exit, or a complete strategy.
+Produce a strategy document in the right panel using this exact format:
+
+---STRATEGY---
+Name: <strategy name>
+Type: entry | exit | full
+Asset Class: equity | etf | options        (entry and full only — omit for exit)
+Direction: long | short | both             (entry and full only — omit for exit)
+Min Confidence: <0.50–1.00>               (entry and full only — omit for exit)
+Max Position USD: <dollar amount>          (entry and full only — omit for exit)
+Stop Loss %: <value>                       (exit and full only — omit for entry)
+Take Profit %: <value>                     (exit and full only — omit for entry)
+Entry Signals: <comma-separated sources>   (entry and full only — omit for exit)
+Indicators: <TradingView indicators used>
+Hypothesis: <1-3 sentences describing the edge>
+Rules:
+  - <rule 1>
+  - <rule 2>
+Notes: <any additional context>
+---END---
+
+Type guidance:
+- entry  — Defines when to open a position. Include Asset Class, Direction, Min Confidence,
+           Max Position USD, and Entry Signals. Omit Stop Loss and Take Profit.
+- exit   — Defines when to close a position. Include Stop Loss, Take Profit, and exit rules.
+           Omit Asset Class, Direction, Min Confidence, Max Position USD, and Entry Signals.
+- full   — A complete self-contained strategy with both entry and exit logic. Include all fields.
+
+Guidelines:
+- Use OpenTrader's available signal sources: ovtlyr, wsb_sentiment, seekalpha, yahoo_finance
+- Entry signals must be quantifiable and testable
+- Reference TradingView indicators where relevant
+- Keep rules concise and implementable
+- For full and exit strategies, always define a stop loss and a take profit
+- For entry and full strategies, always specify the asset class and direction
+- If live market data is provided, incorporate it into your analysis\
+"""
+
 @app.post("/api/strategy-engineer/chat")
 async def strategy_engineer_chat(body: StrategyMessage, token: str = ""):
     check_token(token)
@@ -2832,45 +2874,16 @@ async def strategy_engineer_chat(body: StrategyMessage, token: str = ""):
     except Exception:
         pass
 
-    system_prompt = """You are an expert quantitative strategy engineer for the OpenTrader platform.
-Your job is to help design, refine, and document algorithmic trading strategies.
-
-When you have enough information, produce a complete strategy document in the right panel using this exact format:
-
----STRATEGY---
-Name: <strategy name>
-Asset Class: equity | etf | options
-Direction: long | short | both
-Min Confidence: <0.50–1.00>
-Max Position USD: <amount>
-Stop Loss %: <value>
-Take Profit %: <value>
-Entry Signals: <comma-separated signal sources>
-Indicators: <TradingView indicators used>
-Hypothesis: <1-3 sentences describing the edge>
-Rules:
-  - <entry rule 1>
-  - <entry rule 2>
-  - <exit rule>
-Notes: <any additional context>
----END---
-
-Guidelines:
-- Use OpenTrader's available signal sources: ovtlyr, wsb_sentiment, seekalpha, yahoo_finance
-- Entry signals must be quantifiable and testable
-- Reference TradingView indicators where relevant
-- Keep rules concise and implementable
-- Always include stop loss and take profit
-- If live market data is provided, incorporate it into your analysis""" + exclusion_prompt + (
-    f"\n\nLive market context:{tv_context}" if tv_context else ""
-)
+    system_prompt = _STRATEGY_ENGINEER_SYSTEM + exclusion_prompt + (
+        f"\n\nLive market context:{tv_context}" if tv_context else ""
+    )
     if body.strategy_text.strip():
         system_prompt += (
             "\n\nThe user currently has this strategy document open in their editor:\n"
             f"{body.strategy_text}\n\n"
             "CRITICAL: Whenever the user asks to add, modify, or refine ANY element of this "
             "strategy, you MUST respond by emitting the COMPLETE updated strategy document in "
-            "the ---STRATEGY---...---END--- format with every field filled in. "
+            "the ---STRATEGY---...---END--- format with every field appropriate to its Type. "
             "Never describe a change without also emitting the full updated document."
         )
 
@@ -2973,36 +2986,7 @@ async def strategy_engineer_chat_stream(body: StrategyMessage, token: str = ""):
     except Exception:
         pass
 
-    system_prompt = """You are an expert quantitative strategy engineer for the OpenTrader platform.
-Your job is to help design, refine, and document algorithmic trading strategies.
-
-When you have enough information, produce a complete strategy document in the right panel using this exact format:
-
----STRATEGY---
-Name: <strategy name>
-Asset Class: equity | etf | options
-Direction: long | short | both
-Min Confidence: <0.50–1.00>
-Max Position USD: <amount>
-Stop Loss %: <value>
-Take Profit %: <value>
-Entry Signals: <comma-separated signal sources>
-Indicators: <TradingView indicators used>
-Hypothesis: <1-3 sentences describing the edge>
-Rules:
-  - <entry rule 1>
-  - <entry rule 2>
-  - <exit rule>
-Notes: <any additional context>
----END---
-
-Guidelines:
-- Use OpenTrader's available signal sources: ovtlyr, wsb_sentiment, seekalpha, yahoo_finance
-- Entry signals must be quantifiable and testable
-- Reference TradingView indicators where relevant
-- Keep rules concise and implementable
-- Always include stop loss and take profit
-- If live market data is provided, incorporate it into your analysis""" + exclusion_prompt + (
+    system_prompt = _STRATEGY_ENGINEER_SYSTEM + exclusion_prompt + (
         f"\n\nLive market context:{tv_context}" if tv_context else ""
     )
     if body.strategy_text.strip():
@@ -3011,7 +2995,7 @@ Guidelines:
             f"{body.strategy_text}\n\n"
             "CRITICAL: Whenever the user asks to add, modify, or refine ANY element of this "
             "strategy, you MUST respond by emitting the COMPLETE updated strategy document in "
-            "the ---STRATEGY---...---END--- format with every field filled in. "
+            "the ---STRATEGY---...---END--- format with every field appropriate to its Type. "
             "Never describe a change without also emitting the full updated document."
         )
 

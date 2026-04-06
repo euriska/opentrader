@@ -1427,7 +1427,7 @@ select option{background:var(--surface2)}
               </div>
               <textarea id="ai-strategy-doc" class="select-input"
                 style="flex:1;resize:none;font-family:'Courier New',monospace;font-size:12px;line-height:1.6;white-space:pre"
-                placeholder="---STRATEGY---&#10;Name: &#10;Asset Class: &#10;Direction: &#10;...&#10;---END---"
+                placeholder="---STRATEGY---&#10;Name: &#10;Type: entry | exit | full&#10;Asset Class: equity | etf | options  (entry/full)&#10;Direction: long | short | both       (entry/full)&#10;Min Confidence:                      (entry/full)&#10;Max Position USD:                    (entry/full)&#10;Stop Loss %:                         (exit/full)&#10;Take Profit %:                       (exit/full)&#10;Entry Signals:                       (entry/full)&#10;Indicators:&#10;Hypothesis:&#10;Rules:&#10;  - &#10;Notes:&#10;---END---"
                 oninput="onAiStrategyEdit()"></textarea>
             </div>
             <div id="ai-backtest-results" style="display:none;flex-shrink:0;border-top:1px solid var(--border);padding:12px">
@@ -7038,21 +7038,25 @@ function _parseAiStrategyDoc() {
     }
     return '';
   };
-  // Extract a numeric percentage from a field value — handles "2%", "2.5", "2.5%"
-  const numPct = (val, fallback) => {
-    if (!val) return fallback;
+  // Extract a numeric percentage — handles "2%", "2.5 ATR", "2.5%"
+  const numPct = (val) => {
+    if (!val) return null;
     const m = val.match(/[\d.]+/);
-    return m ? parseFloat(m[0]) : fallback;
+    return m ? parseFloat(m[0]) : null;
   };
+  const type = (field('Type') || 'full').toLowerCase();
+  const isEntry = type === 'entry' || type === 'full';
+  const isExit  = type === 'exit'  || type === 'full';
   return {
     name:       field('Name') || 'AI Strategy ' + new Date().toLocaleDateString(),
-    asset:      field('Asset Class', 'Asset') || 'equity',
-    direction:  field('Direction') || 'long',
-    confidence: parseFloat(field('Min Confidence', 'Confidence', 'Min\\.? Confidence') || '0.70'),
-    max_pos:    parseFloat(field('Max Position', 'Max Position USD', 'Position Size') || '1000'),
-    stop_pct:   numPct(field('Stop Loss', 'Stop-Loss', 'Stop Loss %', 'Stop Loss Pct', 'Stop'), 1.5),
-    tp_pct:     numPct(field('Take Profit', 'Take-Profit', 'Take Profit %', 'Take Profit Pct', 'Target'), 3.0),
-    signals:    (field('Signals', 'Signal Sources', 'Signal') || '').split(',').map(s => s.trim()).filter(Boolean),
+    type,
+    asset:      isEntry ? (field('Asset Class', 'Asset') || 'equity') : null,
+    direction:  isEntry ? (field('Direction') || 'long') : null,
+    confidence: isEntry ? parseFloat(field('Min Confidence', 'Confidence', 'Min\\.? Confidence') || '0.70') : null,
+    max_pos:    isEntry ? parseFloat(field('Max Position', 'Max Position USD', 'Position Size') || '1000') : null,
+    stop_pct:   isExit  ? numPct(field('Stop Loss', 'Stop-Loss', 'Stop Loss %', 'Stop Loss Pct', 'Stop')) : null,
+    tp_pct:     isExit  ? numPct(field('Take Profit', 'Take-Profit', 'Take Profit %', 'Take Profit Pct', 'Target')) : null,
+    signals:    isEntry ? (field('Entry Signals', 'Signals', 'Signal Sources', 'Signal') || '').split(',').map(s => s.trim()).filter(Boolean) : [],
     notes:      text,
   };
 }
