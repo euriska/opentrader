@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.11] - 2026-04-06
+
+### Added
+- Google Books connector card in Configuration panel now shows the Google Books avatar logo
+
+---
+
 ## [3.5.10] - 2026-04-06
 
 ### Added
