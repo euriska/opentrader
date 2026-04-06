@@ -843,15 +843,27 @@ select option{background:var(--surface2)}
             against live market conditions every 5 minutes during trading hours and execute
             when conditions are met. Directives remain active until executed or cancelled.
           </div>
-          <div style="display:flex;gap:10px;align-items:flex-start">
-            <textarea id="directive-input" rows="3"
-              style="flex:1;resize:vertical;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--fg);font-family:inherit;line-height:1.5;min-height:70px"
-              placeholder="e.g. Buy 50 shares of AAPL if it pulls back below $182 today&#10;e.g. Sell short TSLA if TradingView shows STRONG_SELL&#10;e.g. Buy $500 of SPY on any 1% intraday dip"></textarea>
-            <button class="btn btn-primary" onclick="_submitDirective()" style="flex-shrink:0;height:38px;margin-top:2px">
-              Submit
-            </button>
+          <!-- Step 1: Input -->
+          <div id="directive-step-input">
+            <div style="display:flex;gap:10px;align-items:flex-start">
+              <textarea id="directive-input" rows="3"
+                style="flex:1;resize:vertical;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--fg);font-family:inherit;line-height:1.5;min-height:70px"
+                placeholder="e.g. Buy 50 shares of AAPL if it pulls back below $182 today&#10;e.g. Sell short TSLA if TradingView shows STRONG_SELL&#10;e.g. Buy $500 of SPY on any 1% intraday dip"
+                onkeydown="if(event.key==='Enter'&&event.ctrlKey)_analyzeDirective()"></textarea>
+              <button id="directive-analyze-btn" class="btn btn-primary" onclick="_analyzeDirective()" style="flex-shrink:0;height:38px;margin-top:2px">
+                Analyze
+              </button>
+            </div>
+            <div id="directive-input-status" style="font-size:11px;margin-top:6px;display:none"></div>
           </div>
-          <div id="directive-submit-status" style="font-size:11px;margin-top:6px;display:none"></div>
+          <!-- Step 2: Preview (shown after LLM parse) -->
+          <div id="directive-step-preview" style="display:none;margin-top:12px">
+            <div id="directive-preview-card" style="border-radius:8px;padding:14px 16px;border:1px solid var(--border)"></div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button id="directive-confirm-btn" class="btn btn-primary btn-sm" onclick="_confirmDirective()">Confirm &amp; Save</button>
+              <button class="btn btn-ghost btn-sm" onclick="_editDirective()">Edit</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -9397,18 +9409,24 @@ function _renderDirectives() {
   el.innerHTML = sorted.map(d => {
     const statusColor = d.status === 'executed' ? 'var(--green)' : d.status === 'cancelled' ? 'var(--muted)' : 'var(--amber)';
     const statusLabel = d.status.charAt(0).toUpperCase() + d.status.slice(1);
-    const created = d.created_at ? new Date(d.created_at).toLocaleString() : '';
+    const created  = d.created_at  ? new Date(d.created_at).toLocaleString()  : '';
     const executed = d.executed_at ? new Date(d.executed_at).toLocaleString() : null;
     const canCancel = d.status === 'active';
-    const canDelete = d.status !== 'active';
+    const tickerHtml = (d.tickers || []).map(t =>
+      `<span style="font-size:10px;font-weight:600;background:rgba(99,102,241,0.12);color:var(--accent);padding:1px 6px;border-radius:3px">${_escHtml(t)}</span>`
+    ).join(' ');
     return `
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:10px">
       <div style="display:flex;align-items:flex-start;gap:10px">
         <div style="flex:1;min-width:0">
           <div style="font-size:13px;color:var(--text);line-height:1.5;word-break:break-word">${_escHtml(d.text)}</div>
-          <div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap">
+          ${d.interpretation && d.interpretation !== d.text
+            ? `<div style="font-size:11px;color:var(--muted);margin-top:5px;font-style:italic;line-height:1.5">${_escHtml(d.interpretation)}</div>`
+            : ''}
+          <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center">
             <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:${statusColor}">${statusLabel}</span>
-            ${created ? `<span style="font-size:10px;color:var(--dim)">Created ${created}</span>` : ''}
+            ${tickerHtml}
+            ${created  ? `<span style="font-size:10px;color:var(--dim)">Created ${created}</span>`  : ''}
             ${executed ? `<span style="font-size:10px;color:var(--green)">Executed ${executed}</span>` : ''}
           </div>
           ${d.result ? `<div style="font-size:11px;color:var(--muted);margin-top:6px;padding:8px;background:var(--bg);border-radius:6px;border:1px solid var(--border)">${_escHtml(d.result)}</div>` : ''}
@@ -9422,34 +9440,153 @@ function _renderDirectives() {
   }).join('');
 }
 
-async function _submitDirective() {
+// Stores the last preview result while the user decides
+let _directivePreview = null;
+
+async function _analyzeDirective() {
   const token = getToken();
   const input = document.getElementById('directive-input');
-  const st    = document.getElementById('directive-submit-status');
+  const st    = document.getElementById('directive-input-status');
+  const btn   = document.getElementById('directive-analyze-btn');
   const text  = (input.value || '').trim();
+
   if (!text) {
-    st.textContent = 'Please enter a directive.';
+    st.textContent = 'Please enter a directive first.';
     st.style.color = 'var(--coral)';
     st.style.display = 'block';
     return;
   }
-  st.textContent = 'Submitting…';
+
+  // Show spinner
+  btn.disabled = true;
+  btn.textContent = 'Analyzing…';
+  st.textContent = 'Parsing your directive with AI…';
   st.style.color = 'var(--muted)';
   st.style.display = 'block';
+  document.getElementById('directive-step-preview').style.display = 'none';
+
   try {
-    await apiFetch(`/api/directives?token=${encodeURIComponent(token)}`, {
+    const preview = await apiFetch(`/api/directives/preview?token=${encodeURIComponent(token)}`, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ text }),
     });
-    input.value = '';
-    st.textContent = 'Directive submitted. It will be evaluated every 5 minutes during market hours.';
-    st.style.color = 'var(--green)';
+    _directivePreview = { text, ...preview };
+    _renderDirectivePreview(preview);
+    st.style.display = 'none';
+  } catch(e) {
+    st.textContent = 'Analysis failed: ' + e.message;
+    st.style.color = 'var(--coral)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Analyze';
+  }
+}
+
+function _renderDirectivePreview(p) {
+  const card = document.getElementById('directive-preview-card');
+  const confirmBtn = document.getElementById('directive-confirm-btn');
+  const step = document.getElementById('directive-step-preview');
+
+  const understood = p.understood !== false;
+  const borderColor = understood ? (p.issues?.length ? 'var(--amber)' : 'var(--green)') : 'var(--coral)';
+  const headerColor = understood ? (p.issues?.length ? 'var(--amber)' : 'var(--green)') : 'var(--coral)';
+  const icon        = understood ? (p.issues?.length ? '⚠' : '✓') : '✗';
+  const headerLabel = understood ? (p.issues?.length ? 'Review Required' : 'Directive Understood') : 'Cannot Process';
+
+  // Build tickers chips
+  const tickerHtml = (p.tickers || []).length
+    ? (p.tickers).map(t => `<span style="font-size:11px;font-weight:600;background:rgba(99,102,241,0.15);color:var(--accent);padding:2px 7px;border-radius:4px">${_escHtml(t)}</span>`).join(' ')
+    : '';
+
+  // Build action summary
+  const a = p.action || {};
+  const actionParts = [];
+  if (a.direction)   actionParts.push(`<strong>${a.direction.toUpperCase()}</strong>`);
+  if (a.quantity)    actionParts.push(`${a.quantity} shares`);
+  if (a.dollars)     actionParts.push(`$${a.dollars}`);
+  if (a.order_type)  actionParts.push(a.order_type + ' order');
+  if (a.limit_price) actionParts.push(`@ $${a.limit_price}`);
+  if (a.duration)    actionParts.push(`(${a.duration.toUpperCase()})`);
+  if (a.condition)   actionParts.push(`— ${_escHtml(a.condition)}`);
+  const actionHtml = actionParts.length
+    ? `<div style="font-size:12px;color:var(--muted);margin-top:6px">${actionParts.join(' ')}</div>`
+    : '';
+
+  // Issues
+  const issuesHtml = (p.issues || []).length
+    ? `<div style="margin-top:10px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--coral);margin-bottom:4px">Issues</div>
+        ${p.issues.map(i => `<div style="font-size:11px;color:var(--fg);padding:4px 0;border-bottom:1px solid var(--border);line-height:1.5">${_escHtml(i)}</div>`).join('')}
+      </div>`
+    : '';
+
+  // Warnings
+  const warningsHtml = (p.warnings || []).length
+    ? `<div style="margin-top:10px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--amber);margin-bottom:4px">Notes</div>
+        ${p.warnings.map(w => `<div style="font-size:11px;color:var(--muted);padding:3px 0;line-height:1.5">${_escHtml(w)}</div>`).join('')}
+      </div>`
+    : '';
+
+  card.style.borderColor = borderColor;
+  card.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <span style="font-size:16px;color:${headerColor};font-weight:700">${icon}</span>
+      <span style="font-size:12px;font-weight:700;color:${headerColor};text-transform:uppercase;letter-spacing:.05em">${headerLabel}</span>
+      ${tickerHtml ? `<div style="display:flex;gap:4px;margin-left:4px">${tickerHtml}</div>` : ''}
+    </div>
+    <div style="font-size:13px;color:var(--fg);line-height:1.5">${_escHtml(p.interpretation || '')}</div>
+    ${actionHtml}
+    ${issuesHtml}
+    ${warningsHtml}
+  `;
+
+  // Disable confirm for directives that cannot be processed (but allow "save anyway")
+  if (!understood) {
+    confirmBtn.textContent = 'Save Anyway';
+    confirmBtn.style.background = 'var(--amber)';
+  } else {
+    confirmBtn.textContent = 'Confirm & Save';
+    confirmBtn.style.background = '';
+  }
+
+  step.style.display = 'block';
+}
+
+async function _confirmDirective() {
+  if (!_directivePreview) return;
+  const token = getToken();
+  const st    = document.getElementById('directive-input-status');
+
+  try {
+    await apiFetch(`/api/directives?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        text:           _directivePreview.text,
+        interpretation: _directivePreview.interpretation || '',
+        tickers:        _directivePreview.tickers || [],
+        parsed_action:  _directivePreview.action || {},
+      }),
+    });
+    // Reset
+    document.getElementById('directive-input').value = '';
+    document.getElementById('directive-step-preview').style.display = 'none';
+    _directivePreview = null;
+    st.style.display = 'none';
     await loadDirectivesPage();
   } catch(e) {
-    st.textContent = 'Failed: ' + e.message;
+    st.textContent = 'Save failed: ' + e.message;
     st.style.color = 'var(--coral)';
+    st.style.display = 'block';
   }
+}
+
+function _editDirective() {
+  document.getElementById('directive-step-preview').style.display = 'none';
+  _directivePreview = null;
+  document.getElementById('directive-input').focus();
 }
 
 async function _cancelDirective(id) {

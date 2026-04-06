@@ -3801,6 +3801,104 @@ async def save_risk_controls_api(body: dict, token: str = ""):
 _DIRECTIVES_KEY = "trade:directives"
 
 
+@app.post("/api/directives/preview")
+async def preview_directive(body: dict, token: str = ""):
+    """
+    Pre-process a directive text through an LLM to confirm it is understood,
+    extract structured fields, and surface any ambiguities before saving.
+    Returns a preview dict the UI shows for user confirmation.
+    """
+    check_token(token)
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+    use_llm = bool(openrouter_key) and not openrouter_key.startswith("your_")
+
+    if not use_llm:
+        # No LLM — return a minimal parse so the UI can still proceed
+        return {
+            "understood":      True,
+            "interpretation":  text,
+            "tickers":         [],
+            "action":          {},
+            "issues":          [],
+            "warnings":        ["LLM not configured — directive will be saved as-is and evaluated at runtime."],
+            "llm_available":   False,
+        }
+
+    prompt = f"""You are a trade directive parser for an algorithmic trading platform.
+
+Parse the following natural-language trade directive and return ONLY valid JSON.
+
+Directive: "{text}"
+
+Extract and return:
+{{
+  "understood": true | false,
+  "interpretation": "one sentence plain-English summary of exactly what will happen and when",
+  "tickers": ["LIST", "OF", "TICKERS"],
+  "action": {{
+    "direction": "long" | "short" | null,
+    "quantity": <integer shares or null>,
+    "dollars": <dollar amount or null>,
+    "condition": "plain-English description of the trigger condition",
+    "order_type": "market" | "limit" | null,
+    "limit_price": <number or null>,
+    "duration": "gtc" | "today" | "gtc"
+  }},
+  "issues": ["list any ambiguities, missing details, or reasons the directive cannot execute"],
+  "warnings": ["list any non-blocking observations, e.g. risk notes, unclear price levels"]
+}}
+
+Rules:
+- Set understood=false if: ticker is not identifiable, action is contradictory, directive is too vague to execute safely
+- Do not invent tickers — only include clearly named ones
+- issues are blockers; warnings are informational
+- Keep interpretation concise and specific (under 25 words)
+- Return raw JSON only, no markdown
+"""
+    system = "You are a precise trade directive parser. Return only valid JSON."
+
+    import aiohttp as _aiohttp
+    try:
+        async with _aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {openrouter_key}", "Content-Type": "application/json"},
+                json={
+                    "model":       os.getenv("LLM_PREDICTOR_MODEL", "anthropic/claude-sonnet-4-5"),
+                    "messages":    [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+                    "max_tokens":  400,
+                    "temperature": 0.1,
+                },
+                timeout=_aiohttp.ClientTimeout(total=20),
+            ) as resp:
+                data = await resp.json()
+        reply = data["choices"][0]["message"]["content"].strip()
+        # Strip markdown fences if present
+        if reply.startswith("```"):
+            reply = reply.split("```")[1]
+            if reply.startswith("json"):
+                reply = reply[4:]
+            reply = reply.strip()
+        result = json.loads(reply)
+        result["llm_available"] = True
+        return result
+    except Exception as e:
+        # LLM call failed — return a safe fallback so the UI can still proceed
+        return {
+            "understood":     True,
+            "interpretation": text,
+            "tickers":        [],
+            "action":         {},
+            "issues":         [],
+            "warnings":       [f"LLM parse failed ({str(e)[:80]}) — directive will be evaluated at runtime."],
+            "llm_available":  True,
+        }
+
+
 @app.get("/api/directives")
 async def get_directives(token: str = ""):
     check_token(token)
@@ -3826,12 +3924,15 @@ async def create_directive(body: dict, token: str = ""):
         directives = []
     from datetime import datetime, timezone
     directive = {
-        "id":          str(uuid.uuid4()),
-        "text":        text,
-        "status":      "active",
-        "created_at":  datetime.now(timezone.utc).isoformat(),
-        "executed_at": None,
-        "result":      None,
+        "id":             str(uuid.uuid4()),
+        "text":           text,
+        "interpretation": (body.get("interpretation") or "").strip() or None,
+        "tickers":        body.get("tickers") or [],
+        "parsed_action":  body.get("parsed_action") or {},
+        "status":         "active",
+        "created_at":     datetime.now(timezone.utc).isoformat(),
+        "executed_at":    None,
+        "result":         None,
     }
     directives.append(directive)
     await redis.set(_DIRECTIVES_KEY, json.dumps(directives))
