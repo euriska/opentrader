@@ -21,7 +21,7 @@ import structlog
 from shared.base_agent import BaseAgent
 from shared.redis_client import STREAMS, GROUPS, REDIS_URL
 from shared.envelope import OrderEventPayload
-from shared.mcp_client import get_tv_indicators, tv_confirms_direction
+from shared.mcp_client import get_tv_indicators, tv_confirms_direction, get_sector
 from shared.assignments import load_active_assignments
 from scheduler.calendar import is_market_open, is_trading_day
 
@@ -367,7 +367,13 @@ class EquityTrader(BaseAgent):
                 return True
 
             if excluded_sectors:
+                # Fast path: Redis sector cache (populated by webui sector-map)
                 sector = await self.redis.hget("ticker:sectors", ticker.upper())
+                # Fallback: live lookup via Massive MCP
+                if not sector:
+                    sector = await get_sector(ticker)
+                    if sector:
+                        await self.redis.hset("ticker:sectors", ticker.upper(), sector)
                 if sector and sector.lower().replace(" ", "") in excluded_sectors:
                     log.info("trader-equity.excluded_sector",
                              ticker=ticker, sector=sector)

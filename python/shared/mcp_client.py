@@ -2,6 +2,7 @@
 Lightweight MCP HTTP client for use inside trader agents.
 Calls a single tool on a streamable-HTTP MCP server and returns the text result.
 """
+import json
 import os
 import structlog
 from mcp.client.streamable_http import streamablehttp_client
@@ -11,6 +12,9 @@ log = structlog.get_logger("shared.mcp_client")
 
 TRADINGVIEW_MCP_URL = os.getenv(
     "TRADINGVIEW_MCP_URL", "http://ot-mcp-tradingview:8000/mcp"
+)
+MASSIVE_MCP_URL = os.getenv(
+    "MASSIVE_MCP_URL", "http://ot-mcp-massive:8000/mcp"
 )
 
 
@@ -41,7 +45,6 @@ async def get_tv_indicators(ticker: str, interval: str = "1d") -> dict | None:
     if not raw:
         return None
     try:
-        import json
         data = json.loads(raw)
         # Normalise — server returns {summary: {RECOMMENDATION, BUY, SELL, NEUTRAL}}
         summary = data.get("summary") or data
@@ -53,6 +56,26 @@ async def get_tv_indicators(ticker: str, interval: str = "1d") -> dict | None:
         }
     except Exception as e:
         log.warning("mcp_client.parse_failed", ticker=ticker, error=str(e), raw=raw[:200])
+        return None
+
+
+async def get_sector(ticker: str) -> str | None:
+    """
+    Fetch the GICS-style sector for a ticker via the Massive MCP.
+    Returns sector string (e.g. "Healthcare") or None if unavailable.
+    """
+    raw = await call_mcp_tool(
+        MASSIVE_MCP_URL,
+        "get_ticker_details",
+        {"ticker": ticker},
+    )
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        return data.get("sector") or None
+    except Exception as e:
+        log.warning("mcp_client.sector_parse_failed", ticker=ticker, error=str(e))
         return None
 
 
