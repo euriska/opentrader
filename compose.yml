@@ -511,6 +511,7 @@ services:
       - ./config:/app/config                   # writable — scheduler_jobs.json persisted here
       - ./python/webui/static:/app/webui/static # live-reload static files without rebuild
       - ./python/webui/main.py:/app/webui/main.py # live-reload backend without rebuild
+      - ./VERSION:/app/VERSION:ro               # expose version file for sidebar display
     networks: [trading-net]
     depends_on:
       redis:
