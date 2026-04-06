@@ -97,6 +97,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Copy VERSION into python build context
+        run: cp VERSION python/VERSION
+
       - name: Build and push ${{ matrix.name }}
         uses: docker/build-push-action@v5
         with:

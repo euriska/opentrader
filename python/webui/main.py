@@ -34,7 +34,23 @@ app = FastAPI(title="OpenTrader Command Center", version="2.0.0")
 app.mount("/static", StaticFiles(directory="/app/webui/static"), name="static")
 
 WEBUI_TOKEN    = os.getenv("WEBUI_TOKEN", "opentrader")
-APP_VERSION    = os.getenv("APP_VERSION", "dev")
+
+def _read_app_version() -> str:
+    """Read version from VERSION file (local dev + Docker) or APP_VERSION env var (CI fallback)."""
+    for path in (
+        "/app/VERSION",                                                  # Docker container
+        os.path.join(os.path.dirname(__file__), "..", "..", "VERSION"),  # local dev
+    ):
+        try:
+            with open(path) as f:
+                v = f.read().strip()
+            if v:
+                return v
+        except OSError:
+            pass
+    return os.getenv("APP_VERSION", "dev")
+
+APP_VERSION = _read_app_version()
 JOB_KEY_PREFIX = "scheduler:job:"
 JOB_INDEX_KEY  = "scheduler:jobs"
 ENV_PATH        = os.getenv("ENV_FILE_PATH", "/app/.env")
