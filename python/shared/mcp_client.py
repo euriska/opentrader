@@ -16,6 +16,9 @@ TRADINGVIEW_MCP_URL = os.getenv(
 MASSIVE_MCP_URL = os.getenv(
     "MASSIVE_MCP_URL", "http://ot-mcp-massive:8000/mcp"
 )
+YAHOO_MCP_URL = os.getenv(
+    "YAHOO_MCP_URL", "http://ot-mcp-yahoo:8000/mcp"
+)
 
 
 async def call_mcp_tool(url: str, tool_name: str, arguments: dict) -> str | None:
@@ -57,6 +60,29 @@ async def get_tv_indicators(ticker: str, interval: str = "1d") -> dict | None:
     except Exception as e:
         log.warning("mcp_client.parse_failed", ticker=ticker, error=str(e), raw=raw[:200])
         return None
+
+
+async def get_classification(ticker: str) -> dict:
+    """
+    Returns {"sector": str, "industry": str} using Yahoo Finance as primary
+    source and Massive MCP (SIC mapping) as sector-only fallback.
+    """
+    # Primary: Yahoo Finance MCP
+    raw = await call_mcp_tool(YAHOO_MCP_URL, "get_classification", {"ticker": ticker})
+    if raw:
+        try:
+            data = json.loads(raw)
+            if data.get("sector") or data.get("industry"):
+                return {
+                    "sector":   data.get("sector") or "",
+                    "industry": data.get("industry") or "",
+                }
+        except Exception:
+            pass
+
+    # Fallback: Massive MCP (sector via SIC mapping, no industry)
+    sector = await get_sector(ticker)
+    return {"sector": sector or "", "industry": ""}
 
 
 async def get_sector(ticker: str) -> str | None:

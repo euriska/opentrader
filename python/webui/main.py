@@ -2873,18 +2873,18 @@ async def strategy_engineer_chat(body: StrategyMessage, token: str = ""):
         excl_raw = await redis.get("user:exclusions")
         if excl_raw:
             excl = json.loads(excl_raw)
-            excl_sectors = excl.get("sectors", [])
-            excl_tickers = excl.get("tickers", [])
+            excl_sectors    = excl.get("sectors",    [])
+            excl_industries = excl.get("industries", [])
+            excl_tickers    = excl.get("tickers",    [])
             parts = []
-            if excl_sectors:
-                parts.append(f"Excluded sectors: {', '.join(excl_sectors)}")
-            if excl_tickers:
-                parts.append(f"Excluded tickers: {', '.join(excl_tickers)}")
+            if excl_sectors:    parts.append(f"Excluded sectors: {', '.join(excl_sectors)}")
+            if excl_industries: parts.append(f"Excluded industries: {', '.join(excl_industries)}")
+            if excl_tickers:    parts.append(f"Excluded tickers: {', '.join(excl_tickers)}")
             if parts:
                 exclusion_prompt = (
                     "\n\nUSER EXCLUSIONS — MANDATORY: The user has configured the following "
                     "exclusions that MUST be respected in ALL strategies. Never recommend, "
-                    "include, or analyze any excluded sector or ticker:\n"
+                    "include, or analyze any excluded sector, industry, or ticker:\n"
                     + "\n".join(parts)
                 )
     except Exception:
@@ -2985,18 +2985,18 @@ async def strategy_engineer_chat_stream(body: StrategyMessage, token: str = ""):
         excl_raw = await redis.get("user:exclusions")
         if excl_raw:
             excl = json.loads(excl_raw)
-            excl_sectors = excl.get("sectors", [])
-            excl_tickers = excl.get("tickers", [])
+            excl_sectors    = excl.get("sectors",    [])
+            excl_industries = excl.get("industries", [])
+            excl_tickers    = excl.get("tickers",    [])
             parts = []
-            if excl_sectors:
-                parts.append(f"Excluded sectors: {', '.join(excl_sectors)}")
-            if excl_tickers:
-                parts.append(f"Excluded tickers: {', '.join(excl_tickers)}")
+            if excl_sectors:    parts.append(f"Excluded sectors: {', '.join(excl_sectors)}")
+            if excl_industries: parts.append(f"Excluded industries: {', '.join(excl_industries)}")
+            if excl_tickers:    parts.append(f"Excluded tickers: {', '.join(excl_tickers)}")
             if parts:
                 exclusion_prompt = (
                     "\n\nUSER EXCLUSIONS — MANDATORY: The user has configured the following "
                     "exclusions that MUST be respected in ALL strategies. Never recommend, "
-                    "include, or analyze any excluded sector or ticker:\n"
+                    "include, or analyze any excluded sector, industry, or ticker:\n"
                     + "\n".join(parts)
                 )
     except Exception:
@@ -3116,11 +3116,12 @@ async def mentor_chat_stream(body: MentorMessage, token: str = ""):
             excl_sectors = excl.get("sectors", [])
             excl_tickers = excl.get("tickers", [])
             parts = []
-            if excl_sectors: parts.append(f"Excluded sectors: {', '.join(excl_sectors)}")
-            if excl_tickers: parts.append(f"Excluded tickers: {', '.join(excl_tickers)}")
+            if excl_sectors:    parts.append(f"Excluded sectors: {', '.join(excl_sectors)}")
+            if excl_industries: parts.append(f"Excluded industries: {', '.join(excl_industries)}")
+            if excl_tickers:    parts.append(f"Excluded tickers: {', '.join(excl_tickers)}")
             if parts:
                 exclusion_prompt = (
-                    "\n\nUSER EXCLUSIONS — MANDATORY: Never recommend any excluded sector or ticker:\n"
+                    "\n\nUSER EXCLUSIONS — MANDATORY: Never recommend any excluded sector, industry, or ticker:\n"
                     + "\n".join(parts)
                 )
     except Exception:
@@ -3699,12 +3700,12 @@ async def get_user_exclusions(token: str = ""):
     raw = await redis.get(USER_EXCLUSIONS_KEY)
     if raw:
         return json.loads(raw)
-    return {"sectors": [], "tickers": [], "ticker_meta": {}}
+    return {"sectors": [], "industries": [], "tickers": [], "ticker_meta": {}}
 
 
 async def _merge_exclusions(redis, patch: dict) -> dict:
     raw = await redis.get(USER_EXCLUSIONS_KEY)
-    current = json.loads(raw) if raw else {"sectors": [], "tickers": [], "ticker_meta": {}}
+    current = json.loads(raw) if raw else {"sectors": [], "industries": [], "tickers": [], "ticker_meta": {}}
     current.update(patch)
     await redis.set(USER_EXCLUSIONS_KEY, json.dumps(current))
     return current
@@ -3716,6 +3717,14 @@ async def save_exclusion_sectors(body: dict, token: str = ""):
     redis = await get_redis()
     sectors = [s.strip() for s in body.get("sectors", []) if s.strip()]
     return await _merge_exclusions(redis, {"sectors": sectors})
+
+
+@app.post("/api/user/exclusions/industries")
+async def save_exclusion_industries(body: dict, token: str = ""):
+    check_token(token)
+    redis = await get_redis()
+    industries = [i.strip() for i in body.get("industries", []) if i.strip()]
+    return await _merge_exclusions(redis, {"industries": industries})
 
 
 @app.post("/api/user/exclusions/tickers")

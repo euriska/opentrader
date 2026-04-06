@@ -21,7 +21,8 @@ import structlog
 from shared.base_agent import BaseAgent
 from shared.redis_client import STREAMS, GROUPS, REDIS_URL
 from shared.envelope import OrderEventPayload
-from shared.mcp_client import get_tv_indicators, tv_confirms_direction, get_sector
+from shared.mcp_client import get_tv_indicators, tv_confirms_direction
+from shared.exclusions import is_excluded
 from shared.assignments import load_active_assignments
 from scheduler.calendar import is_market_open, is_trading_day
 
@@ -157,8 +158,8 @@ class EquityTrader(BaseAgent):
                     log.debug("trader-equity.market_closed", ticker=ticker)
                     return
 
-            # Sector / ticker exclusion check
-            if await self._is_excluded(ticker):
+            # Sector / ticker / industry exclusion check
+            if await is_excluded(self.redis, ticker):
                 return
 
             # TradingView confirmation — veto if indicators contradict signal
@@ -346,42 +347,6 @@ class EquityTrader(BaseAgent):
             log.info("trader-equity.order_event",
                      ticker=ticker, account=acct, broker=broker,
                      strategy=strategy_name, evt=event_type, order_id=order_id)
-
-    async def _is_excluded(self, ticker: str) -> bool:
-        """
-        Returns True (and logs) if ticker or its sector is in user:exclusions.
-        Fails open (returns False) if Redis is unavailable or exclusions unset.
-        """
-        try:
-            raw = await self.redis.get("user:exclusions")
-            if not raw:
-                return False
-            excl = json.loads(raw)
-
-            excluded_tickers = {t.upper() for t in excl.get("tickers", [])}
-            # Normalize sector names: "Health Care" == "Healthcare" == "health care"
-            excluded_sectors = {s.lower().replace(" ", "") for s in excl.get("sectors", [])}
-
-            if ticker.upper() in excluded_tickers:
-                log.info("trader-equity.excluded_ticker", ticker=ticker)
-                return True
-
-            if excluded_sectors:
-                # Fast path: Redis sector cache (populated by webui sector-map)
-                sector = await self.redis.hget("ticker:sectors", ticker.upper())
-                # Fallback: live lookup via Massive MCP
-                if not sector:
-                    sector = await get_sector(ticker)
-                    if sector:
-                        await self.redis.hset("ticker:sectors", ticker.upper(), sector)
-                if sector and sector.lower().replace(" ", "") in excluded_sectors:
-                    log.info("trader-equity.excluded_sector",
-                             ticker=ticker, sector=sector)
-                    return True
-
-        except Exception as e:
-            log.warning("trader-equity.exclusion_check_failed", ticker=ticker, error=str(e))
-        return False
 
     async def _get_price(self, ticker: str, trade_mode: str) -> Optional[float]:
         """Fetch latest quote via broker gateway. Returns None on failure."""

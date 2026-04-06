@@ -26,6 +26,7 @@ from shared.redis_client import STREAMS, GROUPS, REDIS_URL
 from shared.envelope import OrderEventPayload
 from shared.mcp_client import get_tv_indicators, tv_confirms_direction
 from shared.assignments import load_active_assignments
+from shared.exclusions import is_excluded
 from scheduler.calendar import is_market_open, is_trading_day
 
 log = structlog.get_logger("trader-options")
@@ -155,10 +156,17 @@ class OptionsTrader(BaseAgent):
 
             trade_mode = await self._trade_mode()
             in_sandbox = trade_mode == "sandbox"
+            if not is_trading_day():
+                log.debug("trader-options.not_trading_day", ticker=ticker)
+                return
             if not (in_sandbox and SANDBOX_IGNORE_HOURS):
-                if not is_trading_day() or not is_market_open():
+                if not is_market_open():
                     log.debug("trader-options.market_closed", ticker=ticker)
                     return
+
+            # Sector / ticker / industry exclusion check
+            if await is_excluded(self.redis, ticker):
+                return
 
             # TradingView confirmation — veto if indicators contradict signal
             tv = await get_tv_indicators(ticker)

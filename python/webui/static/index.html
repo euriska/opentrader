@@ -679,16 +679,16 @@ select option{background:var(--surface2)}
                 <div style="flex:1;display:flex;flex-direction:column;gap:4px">
                   <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">All Sectors</div>
                   <select id="sectors-available" multiple style="width:100%;height:160px;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:12px;padding:4px;outline:none">
+                    <option>Basic Materials</option>
                     <option>Communication Services</option>
-                    <option>Consumer Discretionary</option>
-                    <option>Consumer Staples</option>
+                    <option>Consumer Cyclical</option>
+                    <option>Consumer Defensive</option>
                     <option>Energy</option>
-                    <option>Financials</option>
-                    <option>Health Care</option>
+                    <option>Financial Services</option>
+                    <option>Healthcare</option>
                     <option>Industrials</option>
-                    <option>Information Technology</option>
-                    <option>Materials</option>
                     <option>Real Estate</option>
+                    <option>Technology</option>
                     <option>Utilities</option>
                   </select>
                 </div>
@@ -703,6 +703,37 @@ select option{background:var(--surface2)}
                 <div style="flex:1;display:flex;flex-direction:column;gap:4px">
                   <div style="font-size:10px;color:var(--red);text-transform:uppercase;letter-spacing:.06em">Excluded Sectors</div>
                   <select id="sectors-excluded" multiple style="width:100%;height:160px;background:var(--bg);border:1px solid var(--red);border-radius:7px;color:var(--text);font-size:12px;padding:4px;outline:none"></select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Industry Sub-Sector Exclusion -->
+            <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--yellow);border-radius:8px;padding:14px 16px;margin-bottom:14px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <div style="font-size:12px;font-weight:600;color:var(--text)">Industry Exclusion</div>
+                <div style="display:flex;gap:6px">
+                  <button class="btn btn-ghost btn-xs" onclick="_resetIndustries()">Reset</button>
+                  <button class="btn btn-primary btn-xs" onclick="_saveIndustries()">Save</button>
+                </div>
+              </div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Exclude specific industries (sub-sectors). Filter by typing below.</div>
+              <div style="display:flex;align-items:flex-start;gap:10px">
+                <!-- Available -->
+                <div style="flex:1;display:flex;flex-direction:column;gap:4px">
+                  <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">All Industries</div>
+                  <input id="industry-filter" type="text" placeholder="Filter…" class="select-input" style="margin-bottom:4px;font-size:11px" oninput="_filterIndustries(this.value)">
+                  <select id="industries-available" multiple style="width:100%;height:140px;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:11px;padding:4px;outline:none"></select>
+                </div>
+                <!-- Transfer buttons -->
+                <div style="display:flex;flex-direction:column;gap:6px;align-items:center;margin-top:42px">
+                  <button class="btn btn-ghost btn-xs" onclick="_industryMove('right')" title="Exclude selected">&gt;</button>
+                  <button class="btn btn-ghost btn-xs" onclick="_industryMove('left')"  title="Restore selected">&lt;</button>
+                </div>
+                <!-- Excluded -->
+                <div style="flex:1;display:flex;flex-direction:column;gap:4px">
+                  <div style="font-size:10px;color:var(--red);text-transform:uppercase;letter-spacing:.06em">Excluded Industries</div>
+                  <div style="height:24px"></div>
+                  <select id="industries-excluded" multiple style="width:100%;height:140px;background:var(--bg);border:1px solid var(--red);border-radius:7px;color:var(--text);font-size:11px;padding:4px;outline:none"></select>
                 </div>
               </div>
             </div>
@@ -5054,30 +5085,163 @@ async function loadConfigPage() {
 
 // ── User Exclusions ────────────────────────────────────────────────────────────
 
+// Yahoo Finance GICS sector names
 const _ALL_SECTORS = [
-  'Communication Services','Consumer Discretionary','Consumer Staples',
-  'Energy','Financials','Health Care','Industrials','Information Technology',
-  'Materials','Real Estate','Utilities'
+  'Basic Materials','Communication Services','Consumer Cyclical',
+  'Consumer Defensive','Energy','Financial Services','Healthcare',
+  'Industrials','Real Estate','Technology','Utilities'
 ];
+
+// Yahoo Finance industry taxonomy (grouped by sector)
+const _ALL_INDUSTRIES = [
+  // Basic Materials
+  'Aluminum','Building Materials','Chemicals','Coal','Copper','Gold',
+  'Lumber & Wood Production','Other Industrial Metals & Mining',
+  'Other Precious Metals & Mining','Paper & Paper Products','Silver',
+  'Specialty Chemicals','Steel',
+  // Communication Services
+  'Advertising Agencies','Broadcasting','Electronic Gaming & Multimedia',
+  'Entertainment','Internet Content & Information','Publishing',
+  'Telecom Services','Wireless Communications',
+  // Consumer Cyclical
+  'Apparel Manufacturing','Apparel Retail','Auto & Truck Dealerships',
+  'Auto Manufacturers','Auto Parts','Footwear & Accessories',
+  'Furnishings, Fixtures & Appliances','Gambling','Home Improvement Retail',
+  'Internet Retail','Leisure','Lodging','Luxury Goods',
+  'Package & Freight Delivery','Personal Services','Recreational Vehicles',
+  'Residential Construction','Restaurants','Specialty Retail',
+  'Textile Manufacturing','Travel Services',
+  // Consumer Defensive
+  'Agricultural Farm Products','Beverages—Brewers','Beverages—Non-Alcoholic',
+  'Beverages—Wineries & Distilleries','Confectioners','Discount Stores',
+  'Education & Training Services','Farm Products','Food Distribution',
+  'Grocery Stores','Household & Personal Products','Packaged Foods','Tobacco',
+  // Energy
+  'Oil & Gas Drilling','Oil & Gas E&P','Oil & Gas Equipment & Services',
+  'Oil & Gas Integrated','Oil & Gas Midstream','Oil & Gas Refining & Marketing',
+  'Thermal Coal','Uranium',
+  // Financial Services
+  'Asset Management','Banks—Diversified','Banks—Regional','Capital Markets',
+  'Credit Services','Financial Data & Stock Exchanges','Insurance—Diversified',
+  'Insurance—Life','Insurance—Property & Casualty','Insurance—Reinsurance',
+  'Insurance—Specialty','Mortgage Finance','Shell Companies',
+  // Healthcare
+  'Biotechnology','Diagnostics & Research','Drug Manufacturers—General',
+  'Drug Manufacturers—Specialty & Generic','Health Information Services',
+  'Medical Care Facilities','Medical Devices','Medical Distribution',
+  'Medical Instruments & Supplies','Pharmaceutical Retailers',
+  // Industrials
+  'Aerospace & Defense','Airlines','Airports & Air Services',
+  'Building Products & Equipment','Business Equipment & Supplies',
+  'Conglomerates','Consulting Services','Electrical Equipment & Parts',
+  'Engineering & Construction','Farm & Heavy Construction Machinery',
+  'Industrial Distribution','Infrastructure Operations',
+  'Integrated Freight & Logistics','Marine Shipping','Metal Fabrication',
+  'Pollution & Treatment Controls','Railroads','Rental & Leasing Services',
+  'Repair & Maintenance','Security & Protection Services',
+  'Specialty Business Services','Staffing & Employment Services',
+  'Tools & Accessories','Trucking','Waste Management',
+  // Real Estate
+  'REIT—Diversified','REIT—Healthcare Facilities','REIT—Hotel & Motel',
+  'REIT—Industrial','REIT—Mortgage','REIT—Office','REIT—Residential',
+  'REIT—Retail','REIT—Specialty','Real Estate—Development',
+  'Real Estate—Diversified','Real Estate Services',
+  // Technology
+  'Communication Equipment','Computer Hardware','Consumer Electronics',
+  'Electronic Components','Electronics & Computer Distribution',
+  'Information Technology Services','Scientific & Technical Instruments',
+  'Semiconductor Equipment & Materials','Semiconductors',
+  'Software—Application','Software—Infrastructure',
+  // Utilities
+  'Utilities—Diversified','Utilities—Independent Power Producers',
+  'Utilities—Regulated Electric','Utilities—Regulated Gas',
+  'Utilities—Regulated Water','Utilities—Renewable',
+].sort();
 
 async function _loadUserExclusions() {
   const token = getToken();
-  let data = { sectors: [], tickers: [] };
+  let data = { sectors: [], industries: [], tickers: [] };
   try { data = await apiFetch(`/api/user/exclusions?token=${encodeURIComponent(token)}`); } catch(_) {}
 
-  const avail   = document.getElementById('sectors-available');
-  const excl    = document.getElementById('sectors-excluded');
-  if (!avail || !excl) return;
+  // Sectors
+  const sAvail = document.getElementById('sectors-available');
+  const sExcl  = document.getElementById('sectors-excluded');
+  if (sAvail && sExcl) {
+    const exclSet = new Set(data.sectors || []);
+    sAvail.innerHTML = _ALL_SECTORS.filter(s => !exclSet.has(s))
+      .map(s => `<option value="${s}">${s}</option>`).join('');
+    sExcl.innerHTML  = (data.sectors || [])
+      .map(s => `<option value="${s}">${s}</option>`).join('');
+  }
 
-  const exclSet = new Set(data.sectors || []);
-  avail.innerHTML = _ALL_SECTORS.filter(s => !exclSet.has(s))
-    .map(s => `<option value="${s}">${s}</option>`).join('');
-  excl.innerHTML  = (data.sectors || [])
-    .map(s => `<option value="${s}">${s}</option>`).join('');
+  // Industries
+  _industryExcludedSet = new Set(data.industries || []);
+  _renderIndustryLists('');
+  const iExcl = document.getElementById('industries-excluded');
+  if (iExcl) {
+    iExcl.innerHTML = [..._industryExcludedSet].sort()
+      .map(i => `<option value="${i}">${i}</option>`).join('');
+  }
 
-  // Restore ticker metadata for tooltip display
+  // Tickers
   Object.assign(_tickerMeta, data.ticker_meta || {});
   _renderTickerTags(data.tickers || []);
+}
+
+let _industryExcludedSet = new Set();
+
+function _renderIndustryLists(filter) {
+  const avail = document.getElementById('industries-available');
+  if (!avail) return;
+  const q = (filter || '').toLowerCase();
+  avail.innerHTML = _ALL_INDUSTRIES
+    .filter(i => !_industryExcludedSet.has(i) && (!q || i.toLowerCase().includes(q)))
+    .map(i => `<option value="${i}">${i}</option>`).join('');
+}
+
+function _filterIndustries(val) { _renderIndustryLists(val); }
+
+function _industryMove(dir) {
+  const avail = document.getElementById('industries-available');
+  const excl  = document.getElementById('industries-excluded');
+  if (!avail || !excl) return;
+  if (dir === 'right') {
+    Array.from(avail.selectedOptions).forEach(o => {
+      _industryExcludedSet.add(o.value);
+      avail.removeChild(o);
+      o.selected = false;
+      excl.appendChild(o);
+    });
+  } else {
+    Array.from(excl.selectedOptions).forEach(o => {
+      _industryExcludedSet.delete(o.value);
+      excl.removeChild(o);
+      o.selected = false;
+    });
+    _renderIndustryLists(document.getElementById('industry-filter')?.value || '');
+  }
+  // Re-sort excluded
+  const opts = Array.from(excl.options).sort((a,b) => a.value.localeCompare(b.value));
+  excl.innerHTML = '';
+  opts.forEach(o => excl.appendChild(o));
+}
+
+async function _saveIndustries() {
+  const token = getToken();
+  const industries = [..._industryExcludedSet].sort();
+  try {
+    await apiFetch(`/api/user/exclusions/industries?token=${encodeURIComponent(token)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ industries }),
+    });
+    toast('success', 'Industries Saved', `${industries.length} industr${industries.length !== 1 ? 'ies' : 'y'} excluded`);
+  } catch(e) { toast('error', 'Save Failed', e.message); }
+}
+
+function _resetIndustries() {
+  _industryExcludedSet.clear();
+  document.getElementById('industries-excluded').innerHTML = '';
+  _renderIndustryLists(document.getElementById('industry-filter')?.value || '');
 }
 
 function _sectorMove(dir) {
