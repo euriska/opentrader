@@ -1404,6 +1404,57 @@ select option{background:var(--surface2)}
               </div>
 
             </div>
+
+            <!-- Risk Controls row -->
+            <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
+              <div style="font-size:11px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Risk Controls</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+
+                <!-- Max Slippage -->
+                <div>
+                  <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                    <code style="font-size:11px;color:var(--amber);background:rgba(245,158,11,0.1);padding:2px 7px;border-radius:4px">Max Slippage %</code>
+                  </div>
+                  <div style="font-size:11px;color:var(--muted);line-height:1.65">
+                    Blocks trades where the bid-ask spread exceeds a percentage of the mid price.<br>
+                    <strong style="color:var(--fg)">Formula:</strong> <code style="font-size:10px">(ask − bid) / mid × 100</code><br>
+                    <strong style="color:var(--fg)">Typical values:</strong>
+                    <span style="display:block;margin-top:3px">0.1–0.5% — large-cap equities</span>
+                    <span style="display:block">0.5–2% — mid/small-cap</span>
+                    <span style="display:block">0 — disabled (no filter)</span>
+                  </div>
+                </div>
+
+                <!-- Min Volume K -->
+                <div>
+                  <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                    <code style="font-size:11px;color:var(--amber);background:rgba(245,158,11,0.1);padding:2px 7px;border-radius:4px">Min Volume K</code>
+                  </div>
+                  <div style="font-size:11px;color:var(--muted);line-height:1.65">
+                    Blocks trades in stocks with insufficient average daily volume. Measured in thousands of shares (K).<br>
+                    <strong style="color:var(--fg)">Typical values:</strong>
+                    <span style="display:block;margin-top:3px">500K+ — highly liquid large-caps</span>
+                    <span style="display:block">100–500K — standard equity strategies</span>
+                    <span style="display:block">50–100K — small-cap strategies</span>
+                    <span style="display:block">0 — disabled (no filter)</span>
+                  </div>
+                </div>
+
+                <!-- How they interact + where to configure -->
+                <div>
+                  <div style="font-size:11px;font-weight:600;color:var(--fg);margin-bottom:6px">How it works</div>
+                  <div style="font-size:11px;color:var(--muted);line-height:1.65;margin-bottom:8px">
+                    Both controls are enforced <strong style="color:var(--fg)">before every order</strong> in the equity and options traders, immediately after the TradingView confirmation step. A blocked trade is logged but <em>not</em> counted as a rejection.
+                  </div>
+                  <div style="font-size:11px;color:var(--muted);line-height:1.65;margin-bottom:8px">
+                    The strategy document supports per-strategy overrides via the <code style="font-size:10px">Risk Controls</code> block — the Strategy Engineer will suggest appropriate values for the target universe.
+                  </div>
+                  <div style="font-size:10px;color:var(--dim)">Configure in <strong>Configuration → User Settings → Risk Controls</strong></div>
+                </div>
+
+              </div>
+            </div>
+
           </div>
         </div>
       </div>
