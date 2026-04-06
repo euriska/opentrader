@@ -36,7 +36,7 @@ async def get_tv_indicators(ticker: str, interval: str = "1d") -> dict | None:
     raw = await call_mcp_tool(
         TRADINGVIEW_MCP_URL,
         "get_indicators",
-        {"symbol": ticker, "interval": interval},
+        {"symbol": ticker, "timeframe": interval},
     )
     if not raw:
         return None

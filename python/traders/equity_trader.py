@@ -147,8 +147,13 @@ class EquityTrader(BaseAgent):
 
             trade_mode = await self._trade_mode()
             in_sandbox = trade_mode == "sandbox"
+            # Always enforce trading day (Alpaca paper rejects on weekends/holidays)
+            if not is_trading_day():
+                log.debug("trader-equity.not_trading_day", ticker=ticker)
+                return
+            # Sandbox mode can optionally bypass intraday hours check
             if not (in_sandbox and SANDBOX_IGNORE_HOURS):
-                if not is_trading_day() or not is_market_open():
+                if not is_market_open():
                     log.debug("trader-equity.market_closed", ticker=ticker)
                     return
 
