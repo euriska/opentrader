@@ -5092,6 +5092,27 @@ const _ALL_SECTORS = [
   'Industrials','Real Estate','Technology','Utilities'
 ];
 
+// Sector → industries mapping (Yahoo Finance GICS)
+const _SECTOR_INDUSTRIES = {
+  'Basic Materials':        ['Aluminum','Building Materials','Chemicals','Coal','Copper','Gold','Lumber & Wood Production','Other Industrial Metals & Mining','Other Precious Metals & Mining','Paper & Paper Products','Silver','Specialty Chemicals','Steel'],
+  'Communication Services': ['Advertising Agencies','Broadcasting','Electronic Gaming & Multimedia','Entertainment','Internet Content & Information','Publishing','Telecom Services','Wireless Communications'],
+  'Consumer Cyclical':      ['Apparel Manufacturing','Apparel Retail','Auto & Truck Dealerships','Auto Manufacturers','Auto Parts','Footwear & Accessories','Furnishings, Fixtures & Appliances','Gambling','Home Improvement Retail','Internet Retail','Leisure','Lodging','Luxury Goods','Package & Freight Delivery','Personal Services','Recreational Vehicles','Residential Construction','Restaurants','Specialty Retail','Textile Manufacturing','Travel Services'],
+  'Consumer Defensive':     ['Agricultural Farm Products','Beverages—Brewers','Beverages—Non-Alcoholic','Beverages—Wineries & Distilleries','Confectioners','Discount Stores','Education & Training Services','Farm Products','Food Distribution','Grocery Stores','Household & Personal Products','Packaged Foods','Tobacco'],
+  'Energy':                 ['Oil & Gas Drilling','Oil & Gas E&P','Oil & Gas Equipment & Services','Oil & Gas Integrated','Oil & Gas Midstream','Oil & Gas Refining & Marketing','Thermal Coal','Uranium'],
+  'Financial Services':     ['Asset Management','Banks—Diversified','Banks—Regional','Capital Markets','Credit Services','Financial Data & Stock Exchanges','Insurance—Diversified','Insurance—Life','Insurance—Property & Casualty','Insurance—Reinsurance','Insurance—Specialty','Mortgage Finance','Shell Companies'],
+  'Healthcare':             ['Biotechnology','Diagnostics & Research','Drug Manufacturers—General','Drug Manufacturers—Specialty & Generic','Health Information Services','Medical Care Facilities','Medical Devices','Medical Distribution','Medical Instruments & Supplies','Pharmaceutical Retailers'],
+  'Industrials':            ['Aerospace & Defense','Airlines','Airports & Air Services','Building Products & Equipment','Business Equipment & Supplies','Conglomerates','Consulting Services','Electrical Equipment & Parts','Engineering & Construction','Farm & Heavy Construction Machinery','Industrial Distribution','Infrastructure Operations','Integrated Freight & Logistics','Marine Shipping','Metal Fabrication','Pollution & Treatment Controls','Railroads','Rental & Leasing Services','Repair & Maintenance','Security & Protection Services','Specialty Business Services','Staffing & Employment Services','Tools & Accessories','Trucking','Waste Management'],
+  'Real Estate':            ['REIT—Diversified','REIT—Healthcare Facilities','REIT—Hotel & Motel','REIT—Industrial','REIT—Mortgage','REIT—Office','REIT—Residential','REIT—Retail','REIT—Specialty','Real Estate—Development','Real Estate—Diversified','Real Estate Services'],
+  'Technology':             ['Communication Equipment','Computer Hardware','Consumer Electronics','Electronic Components','Electronics & Computer Distribution','Information Technology Services','Scientific & Technical Instruments','Semiconductor Equipment & Materials','Semiconductors','Software—Application','Software—Infrastructure'],
+  'Utilities':              ['Utilities—Diversified','Utilities—Independent Power Producers','Utilities—Regulated Electric','Utilities—Regulated Gas','Utilities—Regulated Water','Utilities—Renewable'],
+};
+
+// Reverse map: industry → sector
+const _INDUSTRY_SECTOR = {};
+Object.entries(_SECTOR_INDUSTRIES).forEach(([sec, inds]) =>
+  inds.forEach(i => { _INDUSTRY_SECTOR[i] = sec; })
+);
+
 // Yahoo Finance industry taxonomy (grouped by sector)
 const _ALL_INDUSTRIES = [
   // Basic Materials
@@ -5174,14 +5195,19 @@ async function _loadUserExclusions() {
       .map(s => `<option value="${s}">${s}</option>`).join('');
   }
 
-  // Industries
+  // Industries — load excluded set, then sync against current sector exclusions
   _industryExcludedSet = new Set(data.industries || []);
-  _renderIndustryLists('');
   const iExcl = document.getElementById('industries-excluded');
+  const exclSectors = new Set(data.sectors || []);
   if (iExcl) {
-    iExcl.innerHTML = [..._industryExcludedSet].sort()
-      .map(i => `<option value="${i}">${i}</option>`).join('');
+    // Only keep industries whose sector is not already excluded
+    const filtered = [..._industryExcludedSet]
+      .filter(i => !exclSectors.has(_INDUSTRY_SECTOR[i]))
+      .sort();
+    _industryExcludedSet = new Set(filtered);
+    iExcl.innerHTML = filtered.map(i => `<option value="${i}">${i}</option>`).join('');
   }
+  _renderIndustryLists('');
 
   // Tickers
   Object.assign(_tickerMeta, data.ticker_meta || {});
@@ -5190,12 +5216,22 @@ async function _loadUserExclusions() {
 
 let _industryExcludedSet = new Set();
 
+function _getExcludedSectors() {
+  const excl = document.getElementById('sectors-excluded');
+  return excl ? new Set(Array.from(excl.options).map(o => o.value)) : new Set();
+}
+
 function _renderIndustryLists(filter) {
   const avail = document.getElementById('industries-available');
   if (!avail) return;
-  const q = (filter || '').toLowerCase();
+  const q           = (filter || '').toLowerCase();
+  const exclSectors = _getExcludedSectors();
   avail.innerHTML = _ALL_INDUSTRIES
-    .filter(i => !_industryExcludedSet.has(i) && (!q || i.toLowerCase().includes(q)))
+    .filter(i =>
+      !_industryExcludedSet.has(i) &&
+      !exclSectors.has(_INDUSTRY_SECTOR[i]) &&   // hide if sector already excluded
+      (!q || i.toLowerCase().includes(q))
+    )
     .map(i => `<option value="${i}">${i}</option>`).join('');
 }
 
@@ -5267,12 +5303,33 @@ function _sectorMove(dir) {
     Array.from(excl.options).forEach(o => { avail.appendChild(o); });
   }
 
-  // Re-sort both lists to maintain alphabetical order
+  // Re-sort both sector lists
   [avail, excl].forEach(sel => {
     const opts = Array.from(sel.options).sort((a, b) => a.value.localeCompare(b.value));
     sel.innerHTML = '';
     opts.forEach(o => sel.appendChild(o));
   });
+
+  // Drop any industry exclusions made redundant by the current sector exclusions,
+  // then re-render the industry panel to reflect the new sector set.
+  _syncIndustriesForSectors();
+}
+
+function _syncIndustriesForSectors() {
+  const exclSectors = _getExcludedSectors();
+  const iExcl = document.getElementById('industries-excluded');
+
+  // Remove from excluded-industries list any that are now covered by a sector exclusion
+  if (iExcl) {
+    Array.from(iExcl.options).forEach(o => {
+      if (exclSectors.has(_INDUSTRY_SECTOR[o.value])) {
+        _industryExcludedSet.delete(o.value);
+        iExcl.removeChild(o);
+      }
+    });
+  }
+
+  _renderIndustryLists(document.getElementById('industry-filter')?.value || '');
 }
 
 function _renderTickerTags(tickers) {
