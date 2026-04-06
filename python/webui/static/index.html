@@ -181,6 +181,9 @@ tr:hover td{background:rgba(255,255,255,.02)}
 .bk-ai-select.ai-mentor{border-left:3px solid var(--amber)}
 .bk-ai-select.ai-enabled{border-left:3px solid var(--green)}
 .bk-empty{color:var(--muted);font-size:12px;text-align:center;padding:18px 0}
+.bk-strategy-dot{display:inline-flex;align-items:center;justify-content:center;width:8px;height:8px;background:#3b82f6;border-radius:50%;flex-shrink:0;cursor:default;position:relative;box-shadow:0 0 0 2px rgba(59,130,246,.25)}
+.bk-strategy-dot::after{content:attr(data-tip);position:absolute;left:50%;bottom:calc(100% + 7px);transform:translateX(-50%);background:var(--surface);border:1px solid rgba(59,130,246,.4);border-radius:7px;padding:5px 10px;font-size:11px;color:var(--fg);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .15s;box-shadow:0 4px 14px rgba(0,0,0,.35);z-index:200}
+.bk-strategy-dot:hover::after{opacity:1}
 .bk-footer{padding:12px 16px;display:flex;gap:8px;border-top:1px solid var(--border);background:var(--surface2)}
 /* Configure modal */
 .bk-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;display:flex;align-items:center;justify-content:center}
@@ -5605,10 +5608,21 @@ async function _confirmTradeMode() {
 async function loadBrokerPage() {
   const grid   = document.getElementById('broker-grid');
   try {
-    const data = await apiFetch('/api/broker/status');
+    const [data, assignments] = await Promise.all([
+      apiFetch('/api/broker/status'),
+      fetch('/api/assignments').then(r => r.ok ? r.json() : []).catch(() => []),
+    ]);
+    // Build map: account_label → strategy names (active assignments only)
+    const assignedAccounts = {};
+    (assignments || []).forEach(a => {
+      if (a.status === 'active') {
+        if (!assignedAccounts[a.account_label]) assignedAccounts[a.account_label] = [];
+        assignedAccounts[a.account_label].push(a.strategy_name || 'Strategy');
+      }
+    });
     _applyTradeModeBanner(data.trade_mode || 'sandbox');
     grid.innerHTML = ['tradier','alpaca','webull']
-      .map(b => _renderBrokerCard(b, data.brokers[b] || {})).join('');
+      .map(b => _renderBrokerCard(b, data.brokers[b] || {}, assignedAccounts)).join('');
     grid.querySelectorAll('.bk-ai-select').forEach(sel => {
       sel.addEventListener('change', function() {
         localStorage.setItem(`ot_ai_${this.dataset.aiLabel}`, this.value);
@@ -5620,7 +5634,7 @@ async function loadBrokerPage() {
   }
 }
 
-function _renderBrokerCard(broker, info) {
+function _renderBrokerCard(broker, info, assignedAccounts = {}) {
   const m = BROKER_META[broker];
   const connected = info.connected;
   const dotColor  = connected ? 'var(--green)' : 'var(--muted)';
@@ -5642,8 +5656,12 @@ function _renderBrokerCard(broker, info) {
         const aiCls = AI_OPTS.find(o => o.val === aiVal)?.cls || 'ai-read';
         const aiOptions = AI_OPTS.map(o =>
           `<option value="${o.val}"${aiVal===o.val?' selected':''}>${o.label}</option>`).join('');
+        const strategies = assignedAccounts[a.label] || [];
+        const dotHtml = strategies.length
+          ? `<span class="bk-strategy-dot" data-tip="${strategies.map(s => `Strategy: ${s}`).join(' · ')}"></span>`
+          : '';
         return `<div class="bk-acct-row">
-          <span class="bk-acct-label" title="${a.display_name || a.label}">${a.display_name || a.label}</span>
+          ${dotHtml}<span class="bk-acct-label" title="${a.display_name || a.label}">${a.display_name || a.label}</span>
           <span class="chip ${mc}" style="font-size:10px;padding:2px 7px">${a.mode}</span>
           <span class="chip ${ec}" style="font-size:10px;padding:2px 7px">${etxt}</span>
           <select class="bk-ai-select ${aiCls}" data-ai-label="${a.label}" title="AI Access">${aiOptions}</select>
