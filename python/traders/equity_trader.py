@@ -270,18 +270,41 @@ class EquityTrader(BaseAgent):
 
         # ── 5. Publish order events ───────────────────────────���───────────────
         for r in results:
+            acct   = r.get("account_label", account_label)
+            broker = r.get("broker", assignment["broker"])
+            mode   = r.get("mode", trade_mode)
+
             if r.get("status") == "error":
+                reject_reason = r.get("error", "gateway error")
                 log.warning("trader-equity.order_rejected",
-                            ticker=ticker, error=r.get("error"))
+                            ticker=ticker, error=reject_reason)
+                await self.redis.xadd(
+                    ORD_STREAM,
+                    {
+                        "event_type":    "reject",
+                        "account_id":    acct,
+                        "broker":        broker,
+                        "mode":          mode,
+                        "ticker":        ticker,
+                        "asset_class":   asset_cls,
+                        "direction":     direction,
+                        "qty":           str(qty),
+                        "price":         str(price or ""),
+                        "order_id":      "",
+                        "strategy":      strategy_name,
+                        "reject_reason": reject_reason,
+                    },
+                    maxlen=10_000,
+                )
                 continue
 
-            acct     = r.get("account_label", account_label)
-            broker   = r.get("broker", assignment["broker"])
-            mode     = r.get("mode", trade_mode)
             data     = r.get("data", {})
             order_id = str(data.get("id", data.get("orderId", "")))
             status   = data.get("status", "ok")
-            event_type = "fill" if status in ("ok", "filled", "open", "accepted") else "reject"
+            event_type = "fill" if status in ("ok", "filled", "open", "accepted", "pending_new", "new") else "reject"
+            reject_reason = "" if event_type == "fill" else (
+                data.get("reject_reason") or data.get("reason") or status
+            )
 
             payload = OrderEventPayload(
                 event_type  = event_type,
@@ -300,17 +323,18 @@ class EquityTrader(BaseAgent):
             await self.redis.xadd(
                 ORD_STREAM,
                 {
-                    "event_type":  payload.event_type,
-                    "account_id":  payload.account_id,
-                    "broker":      payload.broker,
-                    "mode":        payload.mode,
-                    "ticker":      payload.ticker,
-                    "asset_class": payload.asset_class,
-                    "direction":   payload.direction,
-                    "qty":         str(payload.qty),
-                    "price":       str(payload.price or ""),
-                    "order_id":    payload.order_id,
-                    "strategy":    payload.strategy,
+                    "event_type":    payload.event_type,
+                    "account_id":    payload.account_id,
+                    "broker":        payload.broker,
+                    "mode":          payload.mode,
+                    "ticker":        payload.ticker,
+                    "asset_class":   payload.asset_class,
+                    "direction":     payload.direction,
+                    "qty":           str(payload.qty),
+                    "price":         str(payload.price or ""),
+                    "order_id":      payload.order_id,
+                    "strategy":      payload.strategy,
+                    "reject_reason": reject_reason,
                 },
                 maxlen=10_000,
             )

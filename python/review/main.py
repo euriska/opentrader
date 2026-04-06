@@ -163,11 +163,6 @@ class ReviewAgent(BaseAgent):
         raw_dir = (data.get("direction") or "long").lower()
         direction = "short" if raw_dir in ("sell", "sell_short", "short") else "long"
 
-        if event_type == "reject":
-            await self.notifier.trade_reject(data)
-            await self.redis.xack(ORD_STREAM, ORD_GROUP, msg_id)
-            return
-
         # Write to DB — do NOT ACK if this fails; the message will redeliver on restart
         if self._db:
             try:
@@ -186,11 +181,12 @@ class ReviewAgent(BaseAgent):
                     direction,
                     float(data.get("qty", 1)),
                     float(data.get("price") or 0) or None,
-                    "predictor",
+                    data.get("reject_reason", "") if event_type == "reject" else "predictor",
                     data.get("strategy", "momentum_equity"),
                     event_type,
                 )
-                self._trades_since_review += 1
+                if event_type != "reject":
+                    self._trades_since_review += 1
             except Exception as e:
                 log.error("review-agent.record_trade_error",
                           ticker=data.get("ticker"), error=str(e))
@@ -200,7 +196,9 @@ class ReviewAgent(BaseAgent):
         # ACK only after DB write confirmed (or if no DB configured)
         await self.redis.xack(ORD_STREAM, ORD_GROUP, msg_id)
 
-        if event_type in ("fill", "pending"):
+        if event_type == "reject":
+            await self.notifier.trade_reject(data)
+        elif event_type in ("fill", "pending"):
             await self.notifier.trade_fill(data)
 
         if self._trades_since_review >= STRATEGY_REVIEW_THRESHOLD:
@@ -273,7 +271,7 @@ class ReviewAgent(BaseAgent):
         if USE_LLM and (trades or fills):
             report_text = await self._llm_eod_report(date_str, stats, trades, fills)
         else:
-            report_text = self._template_eod_report(date_str, stats)
+            report_text = self._template_eod_report(date_str, stats, trades)
 
         # 5. Save to DB
         await self._save_review_log(report_text, stats)
@@ -299,7 +297,7 @@ class ReviewAgent(BaseAgent):
             rows = await self._db.fetch(
                 """
                 SELECT id, ticker, direction, qty, entry_price,
-                       exit_price, pnl, strategy, status, ts
+                       exit_price, pnl, strategy, status, signal_src, ts
                 FROM trades
                 WHERE ts::date = $1
                 ORDER BY ts DESC
@@ -338,22 +336,25 @@ class ReviewAgent(BaseAgent):
         return fills
 
     def _compute_stats(self, trades: list, fills: list) -> dict:
-        total   = len(trades)
-        longs   = sum(1 for t in trades if t.get("direction") == "long")
-        shorts  = total - longs
-        filled  = len(fills)
+        rejects  = [t for t in trades if t.get("status") == "reject"]
+        active   = [t for t in trades if t.get("status") != "reject"]
+        total    = len(active)
+        longs    = sum(1 for t in active if t.get("direction") == "long")
+        shorts   = total - longs
+        filled   = len(fills)
 
-        closed  = [t for t in trades if t.get("pnl") is not None]
-        wins    = [t for t in closed if (t.get("pnl") or 0) > 0]
-        losses  = [t for t in closed if (t.get("pnl") or 0) < 0]
+        closed    = [t for t in active if t.get("pnl") is not None]
+        wins      = [t for t in closed if (t.get("pnl") or 0) > 0]
+        losses    = [t for t in closed if (t.get("pnl") or 0) < 0]
         total_pnl = sum(float(t.get("pnl") or 0) for t in closed)
 
         return {
-            "date":        now_et().date().isoformat(),
+            "date":         now_et().date().isoformat(),
             "total_trades": total,
             "longs":        longs,
             "shorts":       shorts,
             "filled":       filled,
+            "rejected":     len(rejects),
             "closed":       len(closed),
             "wins":         len(wins),
             "losses":       len(losses),
@@ -367,12 +368,21 @@ class ReviewAgent(BaseAgent):
     ) -> str:
         from llm.connector import LLMConnector
 
+        active_trades  = [t for t in trades if t.get("status") != "reject"]
+        rejected_trades = [t for t in trades if t.get("status") == "reject"]
+
         trade_lines = "\n".join(
             f"  {t.get('ticker')} {t.get('direction')} {t.get('qty')} shares"
             f" entry=${t.get('entry_price') or '?'}"
             f" pnl=${t.get('pnl') or 'open'}"
-            for t in trades[:20]
+            for t in active_trades[:20]
         ) or "  No trades recorded."
+
+        reject_lines = "\n".join(
+            f"  {t.get('ticker')} {t.get('direction')} {t.get('qty')} shares"
+            f" — {t.get('signal_src') or 'reason unknown'}"
+            for t in rejected_trades[:20]
+        ) or "  None."
 
         fill_lines = "\n".join(
             f"  {f.get('ticker')} {f.get('side')} {f.get('qty')} @ ${f.get('avg_fill')}"
@@ -385,11 +395,15 @@ Date: {date_str}
 
 Trading Summary:
   Total signals acted on: {stats['total_trades']}
+  Rejected orders: {stats['rejected']}
   Filled orders (Tradier): {stats['filled']}
   Closed P&L: ${stats['total_pnl']} ({stats['wins']}W / {stats['losses']}L, {stats['win_rate']}% win rate)
 
 Trades entered:
 {trade_lines}
+
+Rejected orders:
+{reject_lines}
 
 Tradier fills:
 {fill_lines}
@@ -397,8 +411,8 @@ Tradier fills:
 Write a concise EOD trading report (3-5 paragraphs) covering:
 1. What happened today — which signals fired and what was acted on
 2. P&L performance and notable winners/losers
-3. Signal quality assessment — were OVTLYR signals accurate?
-4. Risk observations — position sizing, concentration, anything concerning
+3. Rejected orders — what caused them and whether they represent a systemic issue
+4. Signal quality assessment — were OVTLYR signals accurate?
 5. One concrete recommendation for tomorrow
 
 Be direct, analytical, and specific. Use actual tickers from the data.
@@ -414,12 +428,20 @@ Be direct, analytical, and specific. Use actual tickers from the data.
             log.warning("review-agent.llm_failed", error=str(e))
             return self._template_eod_report(date_str, stats)
 
-    def _template_eod_report(self, date_str: str, stats: dict) -> str:
+    def _template_eod_report(self, date_str: str, stats: dict, trades: list = None) -> str:
+        rejected_trades = [t for t in (trades or []) if t.get("status") == "reject"]
+        reject_lines = "\n".join(
+            f"  {t.get('ticker')} {t.get('direction')} {t.get('qty')}sh"
+            f" — {t.get('signal_src') or 'reason unknown'}"
+            for t in rejected_trades[:20]
+        ) or "  None."
+
         return f"""OpenTrader EOD Report — {date_str}
 {'=' * 40}
 
 TRADING SUMMARY
   Total trades:  {stats['total_trades']}
+  Rejected:      {stats.get('rejected', 0)}
   Filled:        {stats['filled']}
   Longs:         {stats['longs']}
   Shorts:        {stats['shorts']}
@@ -430,6 +452,9 @@ PERFORMANCE
   Win rate:      {stats['win_rate']}%
   Total P&L:     ${stats['total_pnl']}
   Avg P&L:       ${stats['avg_pnl']}
+
+REJECTED ORDERS
+{reject_lines}
 
 {'LLM analysis not available (no API key configured).' if not USE_LLM else ''}
 """
