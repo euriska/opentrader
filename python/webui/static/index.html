@@ -250,7 +250,7 @@ select option{background:var(--surface2)}
 <div class="sidebar">
   <div class="brand">
     OpenTrader
-    <span>Command Center v2</span>
+    <span>Command Center <span id="sidebar-version">v2</span></span>
   </div>
   <nav>
     <div class="nav-group">
@@ -8217,6 +8217,13 @@ async function _libSaveCategory() {
 document.addEventListener('DOMContentLoaded', () => {
   const inp = document.getElementById('lib-cat-input');
   if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') _libSaveCategory(); });
+
+  // Update sidebar version from meta tag injected by the server
+  const v = document.querySelector('meta[name="ot-version"]')?.content;
+  if (v) {
+    const el = document.getElementById('sidebar-version');
+    if (el) el.textContent = 'v' + v;
+  }
 });
 
 // ══════════════════════════════════════════════════════════════════════════════

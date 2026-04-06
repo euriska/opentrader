@@ -34,6 +34,7 @@ app = FastAPI(title="OpenTrader Command Center", version="2.0.0")
 app.mount("/static", StaticFiles(directory="/app/webui/static"), name="static")
 
 WEBUI_TOKEN    = os.getenv("WEBUI_TOKEN", "opentrader")
+APP_VERSION    = os.getenv("APP_VERSION", "dev")
 JOB_KEY_PREFIX = "scheduler:job:"
 JOB_INDEX_KEY  = "scheduler:jobs"
 ENV_PATH        = os.getenv("ENV_FILE_PATH", "/app/.env")
@@ -4062,10 +4063,10 @@ async def _get_db_pool():
 async def serve_ui():
     with open("/app/webui/static/index.html") as f:
         html = f.read()
-    # Inject token meta tag so the frontend can seed sessionStorage without prompting
+    # Inject token and version meta tags
     html = html.replace(
         "<head>",
-        f'<head>\n<meta name="ot-token" content="{WEBUI_TOKEN}">',
+        f'<head>\n<meta name="ot-token" content="{WEBUI_TOKEN}">\n<meta name="ot-version" content="{APP_VERSION}">',
         1,
     )
     return html
