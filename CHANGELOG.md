@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — vers
 
 ---
 
+## [3.5.12] - 2026-04-06
+
+### Changed
+- Equity and options traders no longer contain embedded trading strategies
+- Strategy parameters (min confidence, max position size) now come exclusively from the Strategy Assignment workflow via `assignments.json` + `strategies.json`
+- Both traders route orders to specific `account_label` from the assignment instead of using `strategy_tag` filtering
+- Strategy names in order events are now taken from the assignment (`strategy_name`) not hardcoded strings
+- Removed hardcoded `_route_account()` from options trader (was always returning Tradier regardless of assignment)
+- Options trader now waits for gateway reply via `blpop` (consistent with equity trader)
+
+### Added
+- `python/shared/assignments.py` — `load_active_assignments(asset_class)` joins assignments and strategies, returns per-account execution parameters
+
+---
+
 ## [3.5.11] - 2026-04-06
 
 ### Added
