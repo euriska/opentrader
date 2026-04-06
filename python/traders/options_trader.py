@@ -1,8 +1,17 @@
 """
 OpenTrader Options Trader
-Consumes predictor.signals for options-class assets, confirms direction
-with TradingView indicators, sizes contracts, and routes orders through
-the Broker Gateway via broker.commands stream.
+Consumes predictor.signals for options-class assets, looks up active
+strategy assignments, confirms direction with TradingView indicators,
+sizes contracts, and routes orders to assigned accounts through the
+Broker Gateway via broker.commands stream.
+
+Trading strategy parameters (confidence threshold, position sizing,
+etc.) come exclusively from the Strategy Assignment workflow — there
+are no embedded strategy values in this agent.
+
+Options execution parameters (expiry target, OTM offset) are
+operational defaults overridable via env vars; they will move into
+the strategy schema once the library supports options-specific fields.
 """
 import asyncio
 import json
@@ -16,6 +25,7 @@ from shared.base_agent import BaseAgent
 from shared.redis_client import STREAMS, GROUPS, REDIS_URL
 from shared.envelope import OrderEventPayload
 from shared.mcp_client import get_tv_indicators, tv_confirms_direction
+from shared.assignments import load_active_assignments
 from scheduler.calendar import is_market_open, is_trading_day
 
 log = structlog.get_logger("trader-options")
@@ -25,13 +35,13 @@ ORD_STREAM     = STREAMS["orders"]
 CONSUMER_GROUP = GROUPS["options"]
 CONSUMER_NAME  = os.getenv("HOSTNAME", "trader-options-0")
 
+# Operational defaults — not strategy parameters
 TRADE_MODE_DEFAULT   = os.getenv("TRADE_MODE", "sandbox")
 MAX_CONTRACTS        = int(os.getenv("MAX_CONTRACTS", "1"))
-MIN_CONFIDENCE       = float(os.getenv("MIN_CONFIDENCE_TRADE", "0.75"))
 SANDBOX_IGNORE_HOURS = os.getenv("SANDBOX_IGNORE_HOURS", "true").lower() == "true"
 GATEWAY_TIMEOUT      = int(os.getenv("BROKER_GATEWAY_TIMEOUT_SEC", "15"))
 
-# Options strategy defaults
+# Options execution defaults — will move to strategy schema when supported
 DEFAULT_EXPIRY_DAYS = int(os.getenv("OPTIONS_EXPIRY_DAYS", "7"))   # DTE target
 OTM_OFFSET_PCT      = float(os.getenv("OPTIONS_OTM_PCT", "2.0"))   # % OTM for strike
 
@@ -128,17 +138,19 @@ class OptionsTrader(BaseAgent):
         asset_cls  = data.get("asset_class", "equity")
 
         try:
-            # Only options signals
             if asset_cls != "options":
-                return
-
-            if confidence < MIN_CONFIDENCE:
-                log.debug("trader-options.below_threshold",
-                          ticker=ticker, conf=confidence)
                 return
 
             if ticker in self._positions_today:
                 log.debug("trader-options.already_traded", ticker=ticker)
+                return
+
+            # Resolve active assignments whose strategy covers options.
+            # Strategy parameters (min confidence, etc.) come from here.
+            assignments = load_active_assignments(asset_cls)
+            if not assignments:
+                log.debug("trader-options.no_assignments",
+                          ticker=ticker, asset_class=asset_cls)
                 return
 
             trade_mode = await self._trade_mode()
@@ -161,7 +173,17 @@ class OptionsTrader(BaseAgent):
                          tv_rec=tv["recommendation"],
                          buy=tv["buy"], sell=tv["sell"])
 
-            await self._place_option_order(ticker, direction, confidence, data)
+            # Place an order for each assigned account
+            for assignment in assignments:
+                if confidence < assignment["min_confidence"]:
+                    log.debug("trader-options.below_threshold",
+                              ticker=ticker, conf=confidence,
+                              required=assignment["min_confidence"],
+                              strategy=assignment["strategy_name"])
+                    continue
+                await self._place_option_order(
+                    ticker, direction, confidence, data, assignment
+                )
 
         except Exception as e:
             log.error("trader-options.handle_signal_error",
@@ -175,10 +197,13 @@ class OptionsTrader(BaseAgent):
         direction:  str,
         confidence: float,
         data:       dict,
+        assignment: dict,
     ):
-        trade_mode = await self._trade_mode()
+        account_label = assignment["account_label"]
+        strategy_name = assignment["strategy_name"]
+        trade_mode    = await self._trade_mode()
 
-        price = await self._get_price(ticker)
+        price = await self._get_price(ticker, trade_mode)
         if not price:
             log.warning("trader-options.no_price", ticker=ticker)
             return
@@ -187,85 +212,125 @@ class OptionsTrader(BaseAgent):
         offset        = price * (OTM_OFFSET_PCT / 100)
         target_strike = round(price + offset if opt_type == "call" else price - offset, 2)
 
-        contract_symbol = await self._resolve_contract(ticker, opt_type, target_strike)
+        contract_symbol = await self._resolve_contract(
+            ticker, opt_type, target_strike, trade_mode
+        )
         if not contract_symbol:
             log.warning("trader-options.no_contract",
                         ticker=ticker, opt_type=opt_type, strike=target_strike)
             return
 
-        contracts = MAX_CONTRACTS
-        order_id  = str(uuid.uuid4())
-        acct, broker = await self._route_account(trade_mode)
+        request_id = str(uuid.uuid4())
 
         log.info("trader-options.placing_order",
                  ticker=ticker, contract=contract_symbol,
-                 opt_type=opt_type, contracts=contracts,
-                 account=acct, broker=broker, mode=trade_mode)
+                 opt_type=opt_type, contracts=MAX_CONTRACTS,
+                 account=account_label, strategy=strategy_name,
+                 mode=trade_mode)
 
+        # ── Send to broker gateway — route to the assigned account ────────────
         await self.redis.xadd(
             STREAMS["broker_commands"],
             {
-                "command":      "place_option_order",
-                "request_id":   order_id,
-                "symbol":       contract_symbol,
-                "underlying":   ticker,
-                "option_type":  opt_type,
-                "contracts":    str(contracts),
-                "order_type":   "market",
-                "strategy_tag": "options_momentum",
-                "mode":         trade_mode,
-                "issued_by":    "trader-options",
+                "command":       "place_option_order",
+                "request_id":    request_id,
+                "symbol":        contract_symbol,
+                "underlying":    ticker,
+                "option_type":   opt_type,
+                "contracts":     str(MAX_CONTRACTS),
+                "order_type":    "market",
+                "account_label": account_label,
+                "strategy_tag":  strategy_name,
+                "mode":          trade_mode,
+                "issued_by":     "trader-options",
             },
             maxlen=10_000,
         )
+
+        # ── Wait for gateway reply ─────────────────────────────────────────────
+        reply_raw = await self.redis.blpop(
+            f"broker:reply:{request_id}", timeout=GATEWAY_TIMEOUT
+        )
+        if reply_raw is None:
+            log.warning("trader-options.gateway_timeout",
+                        ticker=ticker, request_id=request_id)
+            return
+
+        _, reply_json = reply_raw
+        try:
+            results = json.loads(reply_json)
+        except Exception:
+            log.error("trader-options.reply_parse_error", raw=reply_json[:200])
+            return
+
+        if not isinstance(results, list):
+            results = [results]
+
+        if not results:
+            log.warning("trader-options.no_accounts_matched",
+                        ticker=ticker, account=account_label)
+            return
 
         self._positions_today.add(ticker)
 
-        payload = OrderEventPayload(
-            event_type  = "submitted",
-            account_id  = acct,
-            broker      = broker,
-            mode        = trade_mode,
-            ticker      = contract_symbol,
-            asset_class = "options",
-            direction   = direction,
-            qty         = float(contracts),
-            price       = None,
-            order_id    = order_id,
-            strategy    = "momentum_options",
-        )
-        await self.redis.xadd(
-            ORD_STREAM,
-            {
-                "event_type":  payload.event_type,
-                "account_id":  payload.account_id,
-                "broker":      payload.broker,
-                "mode":        payload.mode,
-                "ticker":      payload.ticker,
-                "asset_class": payload.asset_class,
-                "direction":   payload.direction,
-                "qty":         str(payload.qty),
-                "price":       "",
-                "order_id":    payload.order_id,
-                "strategy":    payload.strategy,
-            },
-            maxlen=10_000,
-        )
-        log.info("trader-options.order_submitted",
-                 ticker=ticker, contract=contract_symbol, order_id=order_id)
+        # ── Publish order events ───────────────────────────────────────────────
+        for r in results:
+            if r.get("status") == "error":
+                log.warning("trader-options.order_rejected",
+                            ticker=ticker, error=r.get("error"))
+                continue
 
-    async def _get_price(self, ticker: str) -> Optional[float]:
+            acct     = r.get("account_label", account_label)
+            broker   = r.get("broker", assignment["broker"])
+            mode     = r.get("mode", trade_mode)
+            rdata    = r.get("data", {})
+            order_id = str(rdata.get("id", rdata.get("orderId", request_id)))
+
+            payload = OrderEventPayload(
+                event_type  = "submitted",
+                account_id  = acct,
+                broker      = broker,
+                mode        = mode,
+                ticker      = contract_symbol,
+                asset_class = "options",
+                direction   = direction,
+                qty         = float(MAX_CONTRACTS),
+                price       = None,
+                order_id    = order_id,
+                strategy    = strategy_name,
+            )
+            await self.redis.xadd(
+                ORD_STREAM,
+                {
+                    "event_type":  payload.event_type,
+                    "account_id":  payload.account_id,
+                    "broker":      payload.broker,
+                    "mode":        payload.mode,
+                    "ticker":      payload.ticker,
+                    "asset_class": payload.asset_class,
+                    "direction":   payload.direction,
+                    "qty":         str(payload.qty),
+                    "price":       "",
+                    "order_id":    payload.order_id,
+                    "strategy":    payload.strategy,
+                },
+                maxlen=10_000,
+            )
+            log.info("trader-options.order_submitted",
+                     ticker=ticker, contract=contract_symbol,
+                     account=acct, strategy=strategy_name, order_id=order_id)
+
+    async def _get_price(self, ticker: str, trade_mode: str) -> Optional[float]:
         try:
             request_id = str(uuid.uuid4())
             await self.redis.xadd(
                 STREAMS["broker_commands"],
                 {
-                    "command":      "get_quote",
-                    "request_id":   request_id,
-                    "symbol":       ticker,
-                    "strategy_tag": "options",
-                    "mode":         await self._trade_mode(),
-                    "issued_by":    "trader-options",
+                    "command":    "get_quote",
+                    "request_id": request_id,
+                    "symbol":     ticker,
+                    "mode":       trade_mode if trade_mode != "all" else "",
+                    "issued_by":  "trader-options",
                 },
                 maxlen=10_000,
             )
@@ -290,6 +355,7 @@ class OptionsTrader(BaseAgent):
         ticker:        str,
         opt_type:      str,
         target_strike: float,
+        trade_mode:    str,
     ) -> Optional[str]:
         """Ask broker gateway for nearest options contract."""
         try:
@@ -303,7 +369,7 @@ class OptionsTrader(BaseAgent):
                     "option_type":   opt_type,
                     "target_strike": str(target_strike),
                     "expiry_days":   str(DEFAULT_EXPIRY_DAYS),
-                    "mode":          await self._trade_mode(),
+                    "mode":          trade_mode if trade_mode != "all" else "",
                     "issued_by":     "trader-options",
                 },
                 maxlen=10_000,
@@ -322,14 +388,6 @@ class OptionsTrader(BaseAgent):
             log.warning("trader-options.contract_resolve_failed",
                         ticker=ticker, error=str(e))
             return None
-
-    async def _route_account(self, trade_mode: str) -> tuple[str, str]:
-        if trade_mode == "sandbox":
-            return os.getenv("TRADIER_SANDBOX_ACCOUNT_NUMBER", "sandbox"), "tradier"
-        acct1 = os.getenv("TRADIER_PROD_ACCOUNT_1", "")
-        if acct1:
-            return acct1, "tradier"
-        return "unknown", "tradier"
 
     async def _midnight_reset(self):
         from scheduler.calendar import now_et

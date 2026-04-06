@@ -1,11 +1,13 @@
 """
 OpenTrader Equity Trader
-Consumes predictor.signals, sizes positions, routes orders through
-the Broker Gateway agent via Redis stream (broker.commands), and
-publishes OrderEventPayload to orders.events.
+Consumes predictor.signals, looks up active strategy assignments,
+sizes positions using the assigned strategy's parameters, and routes
+orders to the assigned accounts through the Broker Gateway agent via
+Redis stream (broker.commands).
 
-Sandbox-first: only routes to sandbox/paper accounts by default.
-Flip TRADE_MODE=live to enable live accounts.
+Trading strategy parameters (confidence threshold, max position size,
+etc.) come exclusively from the Strategy Assignment workflow — there
+are no embedded strategy values in this agent.
 """
 import asyncio
 import json
@@ -20,6 +22,7 @@ from shared.base_agent import BaseAgent
 from shared.redis_client import STREAMS, GROUPS, REDIS_URL
 from shared.envelope import OrderEventPayload
 from shared.mcp_client import get_tv_indicators, tv_confirms_direction
+from shared.assignments import load_active_assignments
 from scheduler.calendar import is_market_open, is_trading_day
 
 log = structlog.get_logger("trader-equity")
@@ -29,28 +32,19 @@ ORD_STREAM     = STREAMS["orders"]
 CONSUMER_GROUP = GROUPS["equity"]
 CONSUMER_NAME  = os.getenv("HOSTNAME", "trader-equity-0")
 
-# "sandbox" | "live" | "all" — default from env, overridden at runtime via Redis
-TRADE_MODE_DEFAULT = os.getenv("TRADE_MODE", "sandbox")
-MAX_POS_USD     = float(os.getenv("MAX_POSITION_USD", "500"))
-MIN_CONFIDENCE  = float(os.getenv("MIN_CONFIDENCE_TRADE", "0.70"))
-STOP_LOSS_PCT   = float(os.getenv("STOP_LOSS_PCT", "1.5"))
-TAKE_PROFIT_PCT = float(os.getenv("TAKE_PROFIT_PCT", "3.0"))
-# Allow trading outside market hours in sandbox (for testing)
+# Operational defaults — not strategy parameters
+TRADE_MODE_DEFAULT   = os.getenv("TRADE_MODE", "sandbox")
 SANDBOX_IGNORE_HOURS = os.getenv("SANDBOX_IGNORE_HOURS", "true").lower() == "true"
-
-
-GATEWAY_TIMEOUT = int(os.getenv("BROKER_GATEWAY_TIMEOUT_SEC", "15"))
+GATEWAY_TIMEOUT      = int(os.getenv("BROKER_GATEWAY_TIMEOUT_SEC", "15"))
 
 
 class EquityTrader(BaseAgent):
 
     def __init__(self):
         super().__init__("trader-equity")
-        # Track tickers we've already entered today to avoid duplicates
         self._positions_today: set[str] = set()
 
     async def _trade_mode(self) -> str:
-        """Return current trade mode — checks Redis first so UI changes take effect immediately."""
         try:
             stored = await self.redis.get("config:trade_mode")
             return stored if stored else TRADE_MODE_DEFAULT
@@ -117,7 +111,6 @@ class EquityTrader(BaseAgent):
                 err = str(e)
                 log.error("trader-equity.signal_loop_error", error=err)
                 if "NOGROUP" in err:
-                    # Stream was deleted/recreated — rebuild consumer group
                     await self._ensure_consumer_group()
                 await asyncio.sleep(3)
                 try:
@@ -137,20 +130,21 @@ class EquityTrader(BaseAgent):
         asset_cls  = data.get("asset_class", "equity")
 
         try:
-            # Only trade equity/etf here (options trader handles options)
             if asset_cls not in ("equity", "etf"):
-                return
-
-            if confidence < MIN_CONFIDENCE:
-                log.debug("trader-equity.below_threshold",
-                          ticker=ticker, conf=confidence)
                 return
 
             if ticker in self._positions_today:
                 log.debug("trader-equity.already_traded", ticker=ticker)
                 return
 
-            # Market hours check (skip for sandbox if configured)
+            # Resolve active assignments whose strategy covers this asset class.
+            # Strategy parameters (min confidence, max position) come from here.
+            assignments = load_active_assignments(asset_cls)
+            if not assignments:
+                log.debug("trader-equity.no_assignments",
+                          ticker=ticker, asset_class=asset_cls)
+                return
+
             trade_mode = await self._trade_mode()
             in_sandbox = trade_mode == "sandbox"
             if not (in_sandbox and SANDBOX_IGNORE_HOURS):
@@ -158,7 +152,7 @@ class EquityTrader(BaseAgent):
                     log.debug("trader-equity.market_closed", ticker=ticker)
                     return
 
-            # TradingView confirmation — skip trade if indicators contradict signal
+            # TradingView confirmation — veto if indicators contradict signal
             tv = await get_tv_indicators(ticker)
             if not tv_confirms_direction(tv, direction):
                 log.info("trader-equity.tv_veto",
@@ -171,7 +165,18 @@ class EquityTrader(BaseAgent):
                          tv_rec=tv["recommendation"],
                          buy=tv["buy"], sell=tv["sell"])
 
-            await self._place_order(ticker, direction, confidence, asset_cls, data)
+            # Place an order for each assigned account, using that
+            # assignment's strategy parameters
+            for assignment in assignments:
+                if confidence < assignment["min_confidence"]:
+                    log.debug("trader-equity.below_threshold",
+                              ticker=ticker, conf=confidence,
+                              required=assignment["min_confidence"],
+                              strategy=assignment["strategy_name"])
+                    continue
+                await self._place_order(
+                    ticker, direction, confidence, asset_cls, data, assignment
+                )
 
         except Exception as e:
             log.error("trader-equity.handle_signal_error",
@@ -186,44 +191,49 @@ class EquityTrader(BaseAgent):
         confidence: float,
         asset_cls:  str,
         raw_data:   dict,
+        assignment: dict,
     ):
-        # ── 1. Get quote for position sizing ─────────────────────────────────
-        price = await self._get_price(ticker)
+        account_label = assignment["account_label"]
+        strategy_name = assignment["strategy_name"]
+        max_pos_usd   = assignment["max_pos_usd"]
+
+        # ── 1. Get quote for position sizing ─────────────────���───────────────
+        trade_mode = await self._trade_mode()
+        price = await self._get_price(ticker, trade_mode)
         if price is None:
             log.warning("trader-equity.no_quote", ticker=ticker)
-            # Still proceed — market order will use current price
             price = 0.0
 
-        # ── 2. Size position ──────────────────────────────────────────────────
-        qty = self._size_position(price, confidence)
+        # ── 2. Size position using the assigned strategy's max position ───────
+        qty = self._size_position(price, confidence, max_pos_usd)
         if qty < 1:
             log.info("trader-equity.qty_too_small",
-                     ticker=ticker, price=price, max_pos=MAX_POS_USD)
+                     ticker=ticker, price=price, max_pos=max_pos_usd)
             return
 
         side = "buy" if direction == "long" else "sell_short"
-        trade_mode = await self._trade_mode()
 
         log.info("trader-equity.placing",
                  ticker=ticker, side=side, qty=qty,
                  price=price, confidence=confidence,
+                 account=account_label, strategy=strategy_name,
                  mode=trade_mode)
 
-        # ── 3. Send to broker gateway via Redis stream ────────────────────────
+        # ── 3. Send to broker gateway — route to the assigned account ─────────
         request_id = str(uuid.uuid4())
         cmd = {
-            "command":      "place_order",
-            "request_id":   request_id,
-            "asset_class":  "equity",
-            "symbol":       ticker,
-            "side":         side,
-            "quantity":     str(qty),
-            "order_type":   "market",
-            "duration":     "day",
-            "strategy_tag": "equity",
-            "mode":         trade_mode if trade_mode != "all" else "",
-            "tag":          f"ot-{ticker}-{direction[:1]}",
-            "issued_by":    "trader-equity",
+            "command":       "place_order",
+            "request_id":    request_id,
+            "asset_class":   "equity",
+            "account_label": account_label,
+            "symbol":        ticker,
+            "side":          side,
+            "quantity":      str(qty),
+            "order_type":    "market",
+            "duration":      "day",
+            "strategy_tag":  strategy_name,
+            "tag":           f"ot-{ticker}-{direction[:1]}",
+            "issued_by":     "trader-equity",
         }
         await self.redis.xadd(STREAMS["broker_commands"], cmd, maxlen=10_000)
 
@@ -247,21 +257,22 @@ class EquityTrader(BaseAgent):
             results = [results]
 
         if not results:
-            log.warning("trader-equity.no_accounts_matched", ticker=ticker)
+            log.warning("trader-equity.no_accounts_matched",
+                        ticker=ticker, account=account_label)
             return
 
         self._positions_today.add(ticker)
 
-        # ── 5. Publish order events ───────────────────────────────────────────
+        # ── 5. Publish order events ───────────────────────────���───────────────
         for r in results:
             if r.get("status") == "error":
                 log.warning("trader-equity.order_rejected",
                             ticker=ticker, error=r.get("error"))
                 continue
 
-            acct     = r.get("account_label", "unknown")
-            broker   = r.get("broker", "unknown")
-            mode     = r.get("mode", await self._trade_mode())
+            acct     = r.get("account_label", account_label)
+            broker   = r.get("broker", assignment["broker"])
+            mode     = r.get("mode", trade_mode)
             data     = r.get("data", {})
             order_id = str(data.get("id", data.get("orderId", "")))
             status   = data.get("status", "ok")
@@ -278,7 +289,7 @@ class EquityTrader(BaseAgent):
                 qty         = float(qty),
                 price       = price or None,
                 order_id    = order_id,
-                strategy    = "momentum_equity",
+                strategy    = strategy_name,
             )
 
             await self.redis.xadd(
@@ -301,21 +312,20 @@ class EquityTrader(BaseAgent):
 
             log.info("trader-equity.order_event",
                      ticker=ticker, account=acct, broker=broker,
-                     evt=event_type, order_id=order_id)
+                     strategy=strategy_name, evt=event_type, order_id=order_id)
 
-    async def _get_price(self, ticker: str) -> Optional[float]:
+    async def _get_price(self, ticker: str, trade_mode: str) -> Optional[float]:
         """Fetch latest quote via broker gateway. Returns None on failure."""
         try:
             request_id = str(uuid.uuid4())
             await self.redis.xadd(
                 STREAMS["broker_commands"],
                 {
-                    "command":      "get_quote",
-                    "request_id":   request_id,
-                    "symbol":       ticker,
-                    "strategy_tag": "equity",
-                    "mode":         (await self._trade_mode()) if (await self._trade_mode()) != "all" else "",
-                    "issued_by":    "trader-equity",
+                    "command":    "get_quote",
+                    "request_id": request_id,
+                    "symbol":     ticker,
+                    "mode":       trade_mode if trade_mode != "all" else "",
+                    "issued_by":  "trader-equity",
                 },
                 maxlen=10_000,
             )
@@ -335,16 +345,14 @@ class EquityTrader(BaseAgent):
             log.warning("trader-equity.quote_failed", ticker=ticker, error=str(e))
             return None
 
-    def _size_position(self, price: float, confidence: float) -> int:
+    def _size_position(self, price: float, confidence: float, max_pos_usd: float) -> int:
         """
-        Size position based on max_position_usd and confidence.
+        Size position using the assigned strategy's max_pos_usd and signal confidence.
         Higher confidence → larger position (up to max).
         """
         if price <= 0:
-            # No price — default to 1 share
             return 1
-        # Scale dollars by confidence (0.70 → 70% of max, 1.0 → 100%)
-        dollars = MAX_POS_USD * confidence
+        dollars = max_pos_usd * confidence
         qty = math.floor(dollars / price)
         return max(qty, 1)
 
@@ -352,9 +360,8 @@ class EquityTrader(BaseAgent):
         """Reset today's position tracker at midnight ET."""
         from scheduler.calendar import now_et
         while self._running:
-            now    = now_et()
-            # Wait until next midnight ET
-            secs   = (24 * 3600) - (now.hour * 3600 + now.minute * 60 + now.second)
+            now  = now_et()
+            secs = (24 * 3600) - (now.hour * 3600 + now.minute * 60 + now.second)
             await asyncio.sleep(secs + 1)
             self._positions_today.clear()
             log.info("trader-equity.daily_reset")
