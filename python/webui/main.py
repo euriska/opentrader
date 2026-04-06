@@ -2815,6 +2815,9 @@ Stop Loss %: <value>                       (exit and full only — omit for entr
 Take Profit %: <value>                     (exit and full only — omit for entry)
 Entry Signals: <comma-separated sources>   (entry and full only — omit for exit)
 Indicators: <TradingView indicators used>
+Risk Controls:
+  Max Slippage %: <max bid-ask spread as % of mid, e.g. 0.5>   (0 = disabled)
+  Min Volume K:   <minimum avg daily volume in thousands, e.g. 100>  (0 = disabled)
 Hypothesis: <1-3 sentences describing the edge>
 Rules:
   - <rule 1>
@@ -2829,6 +2832,13 @@ Type guidance:
            Omit Asset Class, Direction, Min Confidence, Max Position USD, and Entry Signals.
 - full   — A complete self-contained strategy with both entry and exit logic. Include all fields.
 
+Risk Controls guidance:
+- Max Slippage %: blocks trades when the bid-ask spread exceeds this % of the mid price.
+  Tight spreads indicate liquid markets. Typical values: 0.25–1.0 for large-caps, 1.0–3.0 for
+  small-caps. Set to 0 to disable.
+- Min Volume K: blocks trades in stocks with less than this many thousand shares of average daily
+  volume. Typical values: 50–500 for equity strategies. Set to 0 to disable.
+
 Guidelines:
 - Use OpenTrader's available signal sources: ovtlyr, wsb_sentiment, seekalpha, yahoo_finance
 - Entry signals must be quantifiable and testable
@@ -2836,6 +2846,7 @@ Guidelines:
 - Keep rules concise and implementable
 - For full and exit strategies, always define a stop loss and a take profit
 - For entry and full strategies, always specify the asset class and direction
+- Always include Risk Controls with appropriate values for the strategy's target universe
 - If live market data is provided, incorporate it into your analysis\
 """
 
@@ -3751,6 +3762,115 @@ async def save_exclusion_tickers(body: dict, token: str = ""):
     tickers     = [t.strip().upper() for t in body.get("tickers", []) if t.strip()]
     ticker_meta = {k.upper(): v for k, v in (body.get("ticker_meta") or {}).items()}
     return await _merge_exclusions(redis, {"tickers": tickers, "ticker_meta": ticker_meta})
+
+
+# ── Risk Controls ────────────────────────────────────────────────────────────
+
+_RISK_CONTROLS_KEY     = "config:risk_controls"
+_RISK_CONTROLS_DEFAULT = {"max_slippage_pct": 0.0, "min_volume_k": 0.0}
+
+
+@app.get("/api/config/risk-controls")
+async def get_risk_controls_api(token: str = ""):
+    check_token(token)
+    redis = await get_redis()
+    try:
+        raw = await redis.get(_RISK_CONTROLS_KEY)
+        if raw:
+            stored = json.loads(raw)
+            return {**_RISK_CONTROLS_DEFAULT, **stored}
+    except Exception:
+        pass
+    return dict(_RISK_CONTROLS_DEFAULT)
+
+
+@app.post("/api/config/risk-controls")
+async def save_risk_controls_api(body: dict, token: str = ""):
+    check_token(token)
+    redis = await get_redis()
+    controls = {
+        "max_slippage_pct": float(body.get("max_slippage_pct", 0.0)),
+        "min_volume_k":     float(body.get("min_volume_k", 0.0)),
+    }
+    await redis.set(_RISK_CONTROLS_KEY, json.dumps(controls))
+    return {"ok": True, **controls}
+
+
+# ── Trade Directives ──────────────────────────────────────────────────────────
+
+_DIRECTIVES_KEY = "trade:directives"
+
+
+@app.get("/api/directives")
+async def get_directives(token: str = ""):
+    check_token(token)
+    redis = await get_redis()
+    try:
+        raw = await redis.get(_DIRECTIVES_KEY)
+        return json.loads(raw) if raw else []
+    except Exception:
+        return []
+
+
+@app.post("/api/directives")
+async def create_directive(body: dict, token: str = ""):
+    check_token(token)
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    redis = await get_redis()
+    try:
+        raw = await redis.get(_DIRECTIVES_KEY)
+        directives = json.loads(raw) if raw else []
+    except Exception:
+        directives = []
+    from datetime import datetime, timezone
+    directive = {
+        "id":          str(uuid.uuid4()),
+        "text":        text,
+        "status":      "active",
+        "created_at":  datetime.now(timezone.utc).isoformat(),
+        "executed_at": None,
+        "result":      None,
+    }
+    directives.append(directive)
+    await redis.set(_DIRECTIVES_KEY, json.dumps(directives))
+    return directive
+
+
+@app.delete("/api/directives/{directive_id}")
+async def delete_directive(directive_id: str, token: str = ""):
+    check_token(token)
+    redis = await get_redis()
+    try:
+        raw = await redis.get(_DIRECTIVES_KEY)
+        directives = json.loads(raw) if raw else []
+    except Exception:
+        directives = []
+    new_list = [d for d in directives if d.get("id") != directive_id]
+    await redis.set(_DIRECTIVES_KEY, json.dumps(new_list))
+    return {"ok": True}
+
+
+@app.patch("/api/directives/{directive_id}")
+async def update_directive(directive_id: str, body: dict, token: str = ""):
+    """Cancel or reactivate a directive."""
+    check_token(token)
+    redis = await get_redis()
+    try:
+        raw = await redis.get(_DIRECTIVES_KEY)
+        directives = json.loads(raw) if raw else []
+    except Exception:
+        directives = []
+    for d in directives:
+        if d.get("id") == directive_id:
+            if "status" in body:
+                d["status"] = body["status"]
+            break
+    else:
+        raise HTTPException(status_code=404, detail="Directive not found")
+    await redis.set(_DIRECTIVES_KEY, json.dumps(directives))
+    return {"ok": True}
 
 
 # ── WebSocket — live push ─────────────────────────────────────────────────────

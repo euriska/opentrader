@@ -105,6 +105,23 @@ async def get_sector(ticker: str) -> str | None:
         return None
 
 
+async def get_avg_volume(ticker: str) -> float | None:
+    """
+    Fetch the average daily volume for a ticker via Yahoo Finance MCP.
+    Returns volume as a float (e.g. 5_000_000) or None on failure.
+    """
+    raw = await call_mcp_tool(YAHOO_MCP_URL, "get_avg_volume", {"ticker": ticker})
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        vol = data.get("avg_volume") or data.get("avgVolume") or data.get("volume")
+        return float(vol) if vol else None
+    except Exception as e:
+        log.warning("mcp_client.avg_volume_parse_failed", ticker=ticker, error=str(e))
+        return None
+
+
 def tv_confirms_direction(indicators: dict, direction: str) -> bool:
     """
     Returns True if TradingView indicators confirm the trade direction.

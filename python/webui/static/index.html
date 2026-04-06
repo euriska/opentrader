@@ -276,6 +276,10 @@ select option{background:var(--surface2)}
         <span class="nav-dot" style="background:var(--blue)"></span>
         Broker
       </div>
+      <div class="nav-item" onclick="navigate('page-trading-directives')" data-page="page-trading-directives">
+        <span class="nav-dot" style="background:var(--green)"></span>
+        Trade Directives
+      </div>
     </div>
     <div class="nav-group">
       <div class="nav-label">Trading Plan</div>
@@ -779,6 +783,33 @@ select option{background:var(--surface2)}
               <div id="ticker-exclusion-list" style="display:flex;flex-wrap:wrap;gap:6px;min-height:28px"></div>
             </div>
 
+            <!-- Risk Controls -->
+            <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--amber);border-radius:8px;padding:14px 16px;margin-bottom:14px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <div style="font-size:12px;font-weight:600;color:var(--text)">Risk Controls</div>
+                <button class="btn btn-primary btn-xs" onclick="_saveRiskControls()">Save</button>
+              </div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:12px">
+                Filter trades that exceed slippage or liquidity thresholds. Set to 0 to disable a control.
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+                <div>
+                  <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Max Slippage %</div>
+                  <div style="font-size:10px;color:var(--dim);margin-bottom:6px">Bid-ask spread as % of mid price. Block trades above this threshold.</div>
+                  <input id="rc-max-slippage" type="number" min="0" max="10" step="0.1"
+                    class="select-input" style="width:120px"
+                    placeholder="0 = off" value="0">
+                </div>
+                <div>
+                  <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Min Volume (K shares/day)</div>
+                  <div style="font-size:10px;color:var(--dim);margin-bottom:6px">Minimum average daily volume in thousands. Block illiquid stocks.</div>
+                  <input id="rc-min-volume" type="number" min="0" step="10"
+                    class="select-input" style="width:120px"
+                    placeholder="0 = off" value="0">
+                </div>
+              </div>
+              <div id="rc-status" style="font-size:11px;color:var(--green);margin-top:8px;display:none">Saved.</div>
+            </div>
 
           </div>
         </div>
@@ -793,6 +824,51 @@ select option{background:var(--surface2)}
         <div class="empty-state">Loading&#8230;</div>
       </div>
 
+    </div>
+
+    <!-- ════════════════════════════════════════
+         PAGE: Trade Directives
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-trading-directives">
+      <div class="card" style="margin-bottom:18px">
+        <div class="card-header">
+          <div style="display:flex;align-items:center;gap:10px;width:100%">
+            <span class="card-title" style="white-space:nowrap">New Directive</span>
+            <div style="flex:1;height:1px;background:var(--border)"></div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+            Enter a natural-language trade instruction. The Directive Agent will evaluate it
+            against live market conditions every 5 minutes during trading hours and execute
+            when conditions are met. Directives remain active until executed or cancelled.
+          </div>
+          <div style="display:flex;gap:10px;align-items:flex-start">
+            <textarea id="directive-input" rows="3"
+              style="flex:1;resize:vertical;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--fg);font-family:inherit;line-height:1.5;min-height:70px"
+              placeholder="e.g. Buy 50 shares of AAPL if it pulls back below $182 today&#10;e.g. Sell short TSLA if TradingView shows STRONG_SELL&#10;e.g. Buy $500 of SPY on any 1% intraday dip"></textarea>
+            <button class="btn btn-primary" onclick="_submitDirective()" style="flex-shrink:0;height:38px;margin-top:2px">
+              Submit
+            </button>
+          </div>
+          <div id="directive-submit-status" style="font-size:11px;margin-top:6px;display:none"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div style="display:flex;align-items:center;gap:10px;width:100%">
+            <span class="card-title">Active Directives</span>
+            <div style="flex:1;height:1px;background:var(--border)"></div>
+            <button class="btn btn-ghost btn-xs" onclick="loadDirectivesPage()">Refresh</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div id="directives-list">
+            <div class="empty-state">Loading…</div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Config connector modal -->
@@ -1921,6 +1997,7 @@ const PAGE_TITLES = {
   'page-trading-trades':     'Trades',
   'page-trading-broker':     'Broker',
   'page-trading-charts':     'Charts',
+  'page-trading-directives': 'Trade Directives',
   'page-plan-engineer':      'Strategy Engineer',
   'page-plan-library':       'Strategy Library',
   'page-plan-assignment':    'Strategy Assignment',
@@ -2039,6 +2116,7 @@ function navigate(pageId) {
     case 'page-trading-trades':     loadTradesPage();    break;
     case 'page-trading-broker':     loadBrokerPage();       break;
     case 'page-trading-charts':     loadChartsPage();       break;
+    case 'page-trading-directives': loadDirectivesPage();   break;
     case 'page-plan-engineer':      loadEngineerPage();     break;
     case 'page-plan-library':       loadLibraryPage();      break;
     case 'page-plan-assignment':    loadAssignmentPage();   break;
@@ -5056,8 +5134,9 @@ async function loadConfigPage() {
   </div>`;
 
 
-  // Load user exclusions
+  // Load user exclusions + risk controls
   _loadUserExclusions();
+  _loadRiskControls();
 
   grid.innerHTML = Object.keys(CFG_META).map(svc => {
     const m = CFG_META[svc];
@@ -9196,6 +9275,162 @@ function _closeAssignDrawer() {
     </div>
   </div>
 </div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     RISK CONTROLS JS
+     ══════════════════════════════════════════════════════════════════════════ -->
+<script>
+async function _loadRiskControls() {
+  const token = getToken();
+  try {
+    const d = await apiFetch(`/api/config/risk-controls?token=${encodeURIComponent(token)}`);
+    const slipInput = document.getElementById('rc-max-slippage');
+    const volInput  = document.getElementById('rc-min-volume');
+    if (slipInput) slipInput.value = d.max_slippage_pct || 0;
+    if (volInput)  volInput.value  = d.min_volume_k || 0;
+  } catch(_) {}
+}
+
+async function _saveRiskControls() {
+  const token = getToken();
+  const max_slippage_pct = parseFloat(document.getElementById('rc-max-slippage').value) || 0;
+  const min_volume_k     = parseFloat(document.getElementById('rc-min-volume').value) || 0;
+  const st = document.getElementById('rc-status');
+  try {
+    await apiFetch(`/api/config/risk-controls?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ max_slippage_pct, min_volume_k }),
+    });
+    st.textContent = 'Saved.';
+    st.style.color = 'var(--green)';
+    st.style.display = 'block';
+    setTimeout(() => { st.style.display = 'none'; }, 2500);
+  } catch(e) {
+    st.textContent = 'Save failed: ' + e.message;
+    st.style.color = 'var(--coral)';
+    st.style.display = 'block';
+  }
+}
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     TRADE DIRECTIVES JS
+     ══════════════════════════════════════════════════════════════════════════ -->
+<script>
+let _directivesData = [];
+
+async function loadDirectivesPage() {
+  const token = getToken();
+  const el = document.getElementById('directives-list');
+  if (!el) return;
+  el.innerHTML = '<div class="empty-state">Loading…</div>';
+  try {
+    _directivesData = await apiFetch(`/api/directives?token=${encodeURIComponent(token)}`);
+    _renderDirectives();
+  } catch(e) {
+    el.innerHTML = `<div class="empty-state" style="color:var(--coral)">Failed to load directives: ${e.message}</div>`;
+  }
+}
+
+function _renderDirectives() {
+  const el = document.getElementById('directives-list');
+  if (!el) return;
+  const token = getToken();
+  if (!_directivesData.length) {
+    el.innerHTML = '<div class="empty-state" style="color:var(--muted)">No directives yet. Enter a trade instruction above.</div>';
+    return;
+  }
+  // Show most recent first
+  const sorted = [..._directivesData].reverse();
+  el.innerHTML = sorted.map(d => {
+    const statusColor = d.status === 'executed' ? 'var(--green)' : d.status === 'cancelled' ? 'var(--muted)' : 'var(--amber)';
+    const statusLabel = d.status.charAt(0).toUpperCase() + d.status.slice(1);
+    const created = d.created_at ? new Date(d.created_at).toLocaleString() : '';
+    const executed = d.executed_at ? new Date(d.executed_at).toLocaleString() : null;
+    const canCancel = d.status === 'active';
+    const canDelete = d.status !== 'active';
+    return `
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:10px">
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;color:var(--text);line-height:1.5;word-break:break-word">${_escHtml(d.text)}</div>
+          <div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap">
+            <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:${statusColor}">${statusLabel}</span>
+            ${created ? `<span style="font-size:10px;color:var(--dim)">Created ${created}</span>` : ''}
+            ${executed ? `<span style="font-size:10px;color:var(--green)">Executed ${executed}</span>` : ''}
+          </div>
+          ${d.result ? `<div style="font-size:11px;color:var(--muted);margin-top:6px;padding:8px;background:var(--bg);border-radius:6px;border:1px solid var(--border)">${_escHtml(d.result)}</div>` : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+          ${canCancel ? `<button class="btn btn-ghost btn-xs" onclick="_cancelDirective('${d.id}')">Cancel</button>` : ''}
+          ${!canCancel ? `<button class="btn btn-ghost btn-xs" style="color:var(--coral)" onclick="_deleteDirective('${d.id}')">Delete</button>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function _submitDirective() {
+  const token = getToken();
+  const input = document.getElementById('directive-input');
+  const st    = document.getElementById('directive-submit-status');
+  const text  = (input.value || '').trim();
+  if (!text) {
+    st.textContent = 'Please enter a directive.';
+    st.style.color = 'var(--coral)';
+    st.style.display = 'block';
+    return;
+  }
+  st.textContent = 'Submitting…';
+  st.style.color = 'var(--muted)';
+  st.style.display = 'block';
+  try {
+    await apiFetch(`/api/directives?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ text }),
+    });
+    input.value = '';
+    st.textContent = 'Directive submitted. It will be evaluated every 5 minutes during market hours.';
+    st.style.color = 'var(--green)';
+    await loadDirectivesPage();
+  } catch(e) {
+    st.textContent = 'Failed: ' + e.message;
+    st.style.color = 'var(--coral)';
+  }
+}
+
+async function _cancelDirective(id) {
+  const token = getToken();
+  try {
+    await apiFetch(`/api/directives/${id}?token=${encodeURIComponent(token)}`, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ status: 'cancelled' }),
+    });
+    await loadDirectivesPage();
+  } catch(e) {
+    showToast('Failed to cancel directive: ' + e.message, 'error');
+  }
+}
+
+async function _deleteDirective(id) {
+  const token = getToken();
+  try {
+    await apiFetch(`/api/directives/${id}?token=${encodeURIComponent(token)}`, {
+      method: 'DELETE',
+    });
+    await loadDirectivesPage();
+  } catch(e) {
+    showToast('Failed to delete directive: ' + e.message, 'error');
+  }
+}
+
+function _escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
 
 </body>
 </html>

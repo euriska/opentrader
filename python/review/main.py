@@ -268,10 +268,11 @@ class ReviewAgent(BaseAgent):
         stats = self._compute_stats(trades, fills)
 
         # 4. Generate report (LLM if available, else template)
+        sector_breakdown = await self._get_sector_breakdown(trades)
         if USE_LLM and (trades or fills):
             report_text = await self._llm_eod_report(date_str, stats, trades, fills)
         else:
-            report_text = self._template_eod_report(date_str, stats, trades)
+            report_text = self._template_eod_report(date_str, stats, trades, sector_breakdown)
 
         # 5. Save to DB
         await self._save_review_log(report_text, stats)
@@ -363,12 +364,36 @@ class ReviewAgent(BaseAgent):
             "avg_pnl":      round(total_pnl / len(closed), 2) if closed else 0.0,
         }
 
+    async def _get_sector_breakdown(self, trades: list) -> dict:
+        """
+        Build a sector → [ticker, ...] map for active (non-reject) trades.
+        Uses Redis cache (ticker:sectors) populated by the exclusion module.
+        """
+        breakdown: dict = {}
+        for t in trades:
+            if t.get("status") == "reject":
+                continue
+            ticker = t.get("ticker", "").upper()
+            if not ticker:
+                continue
+            sector = ""
+            try:
+                sector = await self.redis.hget("ticker:sectors", ticker) or ""
+            except Exception:
+                pass
+            if not sector:
+                sector = "Unknown"
+            breakdown.setdefault(sector, [])
+            if ticker not in breakdown[sector]:
+                breakdown[sector].append(ticker)
+        return breakdown
+
     async def _llm_eod_report(
         self, date_str: str, stats: dict, trades: list, fills: list
     ) -> str:
         from llm.connector import LLMConnector
 
-        active_trades  = [t for t in trades if t.get("status") != "reject"]
+        active_trades   = [t for t in trades if t.get("status") != "reject"]
         rejected_trades = [t for t in trades if t.get("status") == "reject"]
 
         trade_lines = "\n".join(
@@ -390,6 +415,12 @@ class ReviewAgent(BaseAgent):
             for f in fills[:20]
         ) or "  No Tradier fills today."
 
+        sector_breakdown = await self._get_sector_breakdown(trades)
+        sector_lines = "\n".join(
+            f"  {sector}: {', '.join(sorted(tickers))}"
+            for sector, tickers in sorted(sector_breakdown.items())
+        ) or "  No sector data available."
+
         prompt = f"""
 Date: {date_str}
 
@@ -408,12 +439,16 @@ Rejected orders:
 Tradier fills:
 {fill_lines}
 
+Sector breakdown of new positions:
+{sector_lines}
+
 Write a concise EOD trading report (3-5 paragraphs) covering:
 1. What happened today — which signals fired and what was acted on
 2. P&L performance and notable winners/losers
 3. Rejected orders — what caused them and whether they represent a systemic issue
 4. Signal quality assessment — were OVTLYR signals accurate?
-5. One concrete recommendation for tomorrow
+5. Sector concentration risk — any concerning concentration in the sector breakdown?
+6. One concrete recommendation for tomorrow
 
 Be direct, analytical, and specific. Use actual tickers from the data.
 """
@@ -423,18 +458,32 @@ Be direct, analytical, and specific. Use actual tickers from the data.
         )
         try:
             llm = LLMConnector("review")
-            return await llm.complete(prompt=prompt, system=system, max_tokens=800)
+            return await llm.complete(prompt=prompt, system=system, max_tokens=900)
         except Exception as e:
             log.warning("review-agent.llm_failed", error=str(e))
             return self._template_eod_report(date_str, stats)
 
-    def _template_eod_report(self, date_str: str, stats: dict, trades: list = None) -> str:
+    def _template_eod_report(
+        self,
+        date_str: str,
+        stats: dict,
+        trades: list = None,
+        sector_breakdown: dict = None,
+    ) -> str:
         rejected_trades = [t for t in (trades or []) if t.get("status") == "reject"]
         reject_lines = "\n".join(
             f"  {t.get('ticker')} {t.get('direction')} {t.get('qty')}sh"
             f" — {t.get('signal_src') or 'reason unknown'}"
             for t in rejected_trades[:20]
         ) or "  None."
+
+        if sector_breakdown:
+            sector_lines = "\n".join(
+                f"  {sector}: {', '.join(sorted(tickers))}"
+                for sector, tickers in sorted(sector_breakdown.items())
+            )
+        else:
+            sector_lines = "  No sector data available."
 
         return f"""OpenTrader EOD Report — {date_str}
 {'=' * 40}
@@ -455,6 +504,9 @@ PERFORMANCE
 
 REJECTED ORDERS
 {reject_lines}
+
+SECTOR BREAKDOWN
+{sector_lines}
 
 {'LLM analysis not available (no API key configured).' if not USE_LLM else ''}
 """

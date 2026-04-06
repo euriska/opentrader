@@ -198,3 +198,18 @@ class Notifier:
             self.send_email(REPORT_RECIPIENT, subject, findings),
             return_exceptions=True,
         )
+
+    async def directive_executed(self, directive_text: str, result: str) -> None:
+        """Notify all channels when a trade directive is executed."""
+        subject = "[OpenTrader] Trade Directive Executed"
+        msg = (
+            f"*Trade Directive Executed*\n\n"
+            f"Directive: {directive_text[:200]}\n\n"
+            f"Result: {result[:500]}"
+        )
+        await asyncio.gather(
+            self.telegram(msg),
+            self.discord(msg, webhook_type="general"),
+            self.send_email(REPORT_RECIPIENT, subject, f"Directive: {directive_text}\n\nResult: {result}"),
+            return_exceptions=True,
+        )

@@ -21,9 +21,10 @@ import structlog
 from shared.base_agent import BaseAgent
 from shared.redis_client import STREAMS, GROUPS, REDIS_URL
 from shared.envelope import OrderEventPayload
-from shared.mcp_client import get_tv_indicators, tv_confirms_direction
+from shared.mcp_client import get_tv_indicators, tv_confirms_direction, get_avg_volume
 from shared.exclusions import is_excluded
 from shared.assignments import load_active_assignments
+from shared.risk_controls import get_risk_controls, check_slippage, check_liquidity
 from scheduler.calendar import is_market_open, is_trading_day
 
 log = structlog.get_logger("trader-equity")
@@ -207,12 +208,32 @@ class EquityTrader(BaseAgent):
         strategy_name = assignment["strategy_name"]
         max_pos_usd   = assignment["max_pos_usd"]
 
-        # ── 1. Get quote for position sizing ─────────────────���───────────────
+        # ── 1. Get quote for position sizing + risk controls ─────────────────
         trade_mode = await self._trade_mode()
-        price = await self._get_price(ticker, trade_mode)
+        quote = await self._get_quote(ticker, trade_mode)
+        price = quote.get("last") or quote.get("ask") or quote.get("bid")
         if price is None:
             log.warning("trader-equity.no_quote", ticker=ticker)
             price = 0.0
+        else:
+            price = float(price)
+
+        # ── 1a. Risk controls — slippage + liquidity ──────────────────────────
+        controls = await get_risk_controls(self.redis)
+        ok, spread = check_slippage(quote.get("bid"), quote.get("ask"), controls["max_slippage_pct"])
+        if not ok:
+            log.info("trader-equity.slippage_blocked",
+                     ticker=ticker, spread_pct=spread,
+                     max_pct=controls["max_slippage_pct"])
+            return
+        if controls["min_volume_k"] > 0:
+            avg_vol = await get_avg_volume(ticker)
+            vol_ok, vol_k = check_liquidity(avg_vol, controls["min_volume_k"])
+            if not vol_ok:
+                log.info("trader-equity.liquidity_blocked",
+                         ticker=ticker, vol_k=vol_k,
+                         min_k=controls["min_volume_k"])
+                return
 
         # ── 2. Size position using the assigned strategy's max position ───────
         qty = self._size_position(price, confidence, max_pos_usd)
@@ -348,8 +369,8 @@ class EquityTrader(BaseAgent):
                      ticker=ticker, account=acct, broker=broker,
                      strategy=strategy_name, evt=event_type, order_id=order_id)
 
-    async def _get_price(self, ticker: str, trade_mode: str) -> Optional[float]:
-        """Fetch latest quote via broker gateway. Returns None on failure."""
+    async def _get_quote(self, ticker: str, trade_mode: str) -> dict:
+        """Fetch full quote (last, bid, ask) via broker gateway. Returns {} on failure."""
         try:
             request_id = str(uuid.uuid4())
             await self.redis.xadd(
@@ -367,17 +388,31 @@ class EquityTrader(BaseAgent):
                 f"broker:reply:{request_id}", timeout=10
             )
             if reply_raw is None:
-                return None
+                return {}
             _, reply_json = reply_raw
             r = json.loads(reply_json)
             if isinstance(r, list):
                 r = r[0]
             data = r.get("data", {})
-            price = data.get("last") or data.get("ask") or data.get("bid")
-            return float(price) if price else None
+            def _f(v):
+                try:
+                    return float(v) if v else None
+                except Exception:
+                    return None
+            return {
+                "last": _f(data.get("last")),
+                "bid":  _f(data.get("bid")),
+                "ask":  _f(data.get("ask")),
+            }
         except Exception as e:
             log.warning("trader-equity.quote_failed", ticker=ticker, error=str(e))
-            return None
+            return {}
+
+    async def _get_price(self, ticker: str, trade_mode: str) -> Optional[float]:
+        """Fetch latest price via broker gateway. Returns None on failure."""
+        q = await self._get_quote(ticker, trade_mode)
+        p = q.get("last") or q.get("ask") or q.get("bid")
+        return float(p) if p else None
 
     def _size_position(self, price: float, confidence: float, max_pos_usd: float) -> int:
         """
