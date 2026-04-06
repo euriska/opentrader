@@ -3,6 +3,20 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.18] - 2026-04-06
+
+### Added
+- Risk Controls: slippage % and liquidity (min volume K) filters in shared module, enforced by equity and options traders
+- Trade Directives: natural-language trade portal with GTC directives evaluated every 5 min by LLM
+- Directive Agent: new container service that evaluates directives, places orders, and sends notifications
+- EOD Report: sector breakdown of new positions added
+- Strategy Engineer: Risk Controls section in strategy document format
+- WebUI: Risk Controls panel in User Settings, Trade Directives nav page
+
+### Changed
+- Yahoo Finance MCP: added get_avg_volume tool
+
+---
 ---
 
 ## [3.5.17] - 2026-04-06
