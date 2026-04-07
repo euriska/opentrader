@@ -4423,7 +4423,8 @@ function _renderAccountHeatmap(positions, acctKey) {
   </div>`;
 }
 
-function _renderUnifiedCard(acct, signalMap, sentMap) {
+function _renderUnifiedCard(acct, signalMap, sentMap, sectorMap) {
+  sectorMap = sectorMap || {};
   const brokerColors = { tradier:'#1da462', alpaca:'#ffa500', webull:'#e82f3e' };
   const bal     = acct.balances || {};
   const broker  = acct.broker || '';
@@ -4808,7 +4809,7 @@ async function loadUnifiedPositions() {
     _buildRiskCharts(_unifiedLastData);
 
     // Render tables (always show all accounts regardless of paper filter)
-    container.innerHTML = accounts.map(a => _renderUnifiedCard(a, signalMap, sentData)).join('');
+    container.innerHTML = accounts.map(a => _renderUnifiedCard(a, signalMap, sentData, sectorMap)).join('');
 
   } catch(e) {
     container.innerHTML = `<div class="empty-state">Error: ${e.message}</div>`;
