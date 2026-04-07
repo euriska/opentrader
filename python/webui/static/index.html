@@ -9407,16 +9407,65 @@ function _renderDirectives() {
   // Show most recent first
   const sorted = [..._directivesData].reverse();
   el.innerHTML = sorted.map(d => {
-    const statusColor = d.status === 'executed' ? 'var(--green)' : d.status === 'cancelled' ? 'var(--muted)' : 'var(--amber)';
+    const isActive    = d.status === 'active';
+    const isExecuted  = d.status === 'executed';
+    const isCancelled = d.status === 'cancelled';
+    const statusColor = isExecuted ? 'var(--green)' : isCancelled ? 'var(--muted)' : 'var(--amber)';
     const statusLabel = d.status.charAt(0).toUpperCase() + d.status.slice(1);
     const created  = d.created_at  ? new Date(d.created_at).toLocaleString()  : '';
     const executed = d.executed_at ? new Date(d.executed_at).toLocaleString() : null;
-    const canCancel = d.status === 'active';
+    const isCertified = isActive && !!d.interpretation;
+
     const tickerHtml = (d.tickers || []).map(t =>
       `<span style="font-size:10px;font-weight:600;background:rgba(99,102,241,0.12);color:var(--accent);padding:1px 6px;border-radius:3px">${_escHtml(t)}</span>`
     ).join(' ');
+
+    // Certification stamp — only on active analyzed directives
+    const stampHtml = isCertified ? `
+      <div style="display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 12px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.25);border-radius:6px">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" style="flex-shrink:0">
+          <circle cx="11" cy="11" r="10" stroke="rgba(16,185,129,0.7)" stroke-width="1.5"/>
+          <circle cx="11" cy="11" r="7.5" stroke="rgba(16,185,129,0.4)" stroke-width="1" stroke-dasharray="2 2"/>
+          <polyline points="7,11 10,14 15,8.5" stroke="#10b981" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#10b981">Policy Certified · GTC</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px;line-height:1.4">Analyzed and understood. Will execute at next open trading window. Active until cancelled.</div>
+        </div>
+        <div style="font-size:9px;color:rgba(16,185,129,0.6);font-weight:600;text-transform:uppercase;letter-spacing:.06em;flex-shrink:0;text-align:right;line-height:1.5">
+          Awaiting<br>market open
+        </div>
+      </div>` : '';
+
+    // Executed stamp
+    const executedStampHtml = isExecuted ? `
+      <div style="display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 12px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:6px">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" style="flex-shrink:0">
+          <circle cx="11" cy="11" r="10" stroke="#10b981" stroke-width="1.5"/>
+          <polyline points="7,11 10,14 15,8.5" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div>
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#10b981">Policy Executed</div>
+          ${executed ? `<div style="font-size:10px;color:var(--muted);margin-top:1px">${executed}</div>` : ''}
+        </div>
+      </div>` : '';
+
+    // Cancelled stamp
+    const cancelledStampHtml = isCancelled ? `
+      <div style="display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 12px;background:rgba(100,116,139,0.08);border:1px solid rgba(100,116,139,0.2);border-radius:6px">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" style="flex-shrink:0">
+          <circle cx="11" cy="11" r="10" stroke="rgba(100,116,139,0.5)" stroke-width="1.5"/>
+          <line x1="7.5" y1="7.5" x2="14.5" y2="14.5" stroke="var(--muted)" stroke-width="1.8" stroke-linecap="round"/>
+          <line x1="14.5" y1="7.5" x2="7.5" y2="14.5" stroke="var(--muted)" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+        <div>
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)">Policy Cancelled</div>
+          <div style="font-size:10px;color:var(--dim);margin-top:1px">This directive will not be evaluated.</div>
+        </div>
+      </div>` : '';
+
     return `
-    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:10px">
+    <div style="background:var(--surface2);border:1px solid ${isCertified ? 'rgba(16,185,129,0.2)' : 'var(--border)'};border-radius:8px;padding:12px 14px;margin-bottom:10px">
       <div style="display:flex;align-items:flex-start;gap:10px">
         <div style="flex:1;min-width:0">
           <div style="font-size:13px;color:var(--text);line-height:1.5;word-break:break-word">${_escHtml(d.text)}</div>
@@ -9426,14 +9475,14 @@ function _renderDirectives() {
           <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center">
             <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:${statusColor}">${statusLabel}</span>
             ${tickerHtml}
-            ${created  ? `<span style="font-size:10px;color:var(--dim)">Created ${created}</span>`  : ''}
-            ${executed ? `<span style="font-size:10px;color:var(--green)">Executed ${executed}</span>` : ''}
+            ${created ? `<span style="font-size:10px;color:var(--dim)">Created ${created}</span>` : ''}
           </div>
           ${d.result ? `<div style="font-size:11px;color:var(--muted);margin-top:6px;padding:8px;background:var(--bg);border-radius:6px;border:1px solid var(--border)">${_escHtml(d.result)}</div>` : ''}
+          ${stampHtml}${executedStampHtml}${cancelledStampHtml}
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
-          ${canCancel ? `<button class="btn btn-ghost btn-xs" onclick="_cancelDirective('${d.id}')">Cancel</button>` : ''}
-          ${!canCancel ? `<button class="btn btn-ghost btn-xs" style="color:var(--coral)" onclick="_deleteDirective('${d.id}')">Delete</button>` : ''}
+          ${isActive  ? `<button class="btn btn-ghost btn-xs" onclick="_cancelDirective('${d.id}')">Cancel</button>` : ''}
+          ${!isActive ? `<button class="btn btn-ghost btn-xs" style="color:var(--coral)" onclick="_deleteDirective('${d.id}')">Delete</button>` : ''}
         </div>
       </div>
     </div>`;
