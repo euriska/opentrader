@@ -7809,7 +7809,8 @@ async function viewVersionBacktest(familyId, version, stratName) {
     `Run ${v.backtest_run_at ? new Date(v.backtest_run_at).toLocaleString() : 'unknown'} · ${r.period || ''}`;
   document.getElementById('bt-results-modal-body').innerHTML = _renderBtResults(r);
   document.getElementById('bt-results-dl-btns').style.display = 'flex';
-  _btTab(null, 'summary');
+  const _vvPanel = document.querySelector('#bt-results-modal-body [data-bt-panel]');
+  _btTab(_vvPanel, 'summary');
   document.getElementById('bt-results-modal-overlay').style.display = 'flex';
 }
 
@@ -7818,11 +7819,20 @@ function closeBtResultsModal() {
 }
 
 function _btTab(btnEl, tab) {
+  // Scope to the nearest [data-bt-panel] ancestor to avoid collisions
+  // when multiple bt results panels are in the DOM simultaneously
+  const panel = btnEl ? btnEl.closest('[data-bt-panel]') : null;
+  const scope = panel || document;
   ['summary','trades','chart'].forEach(t => {
-    const el = document.getElementById(`bt-tab-${t}`);
+    const el = scope.querySelector(`[data-bt-tab="${t}"]`);
     if (el) el.style.display = t === tab ? 'block' : 'none';
   });
-  document.querySelectorAll('.bt-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  scope.querySelectorAll('.bt-tab-btn').forEach(b => {
+    const isActive = b.dataset.tab === tab;
+    b.classList.toggle('active', isActive);
+    b.style.borderBottomColor = isActive ? 'var(--blue)' : 'transparent';
+    b.style.color = isActive ? 'var(--fg)' : 'var(--muted)';
+  });
 }
 
 function _downloadBtCsv() {
@@ -7863,7 +7873,8 @@ function _openAiBtInModal() {
   document.getElementById('bt-results-modal-body').innerHTML = _renderBtResults(r);
   // Hide version-linked download buttons; user can use Export CSV in the AI panel
   document.getElementById('bt-results-dl-btns').style.display = 'none';
-  _btTab(null, 'summary');
+  const _aiPanel = document.querySelector('#bt-results-modal-body [data-bt-panel]');
+  _btTab(_aiPanel, 'summary');
   document.getElementById('bt-results-modal-overlay').style.display = 'flex';
 }
 
@@ -8016,6 +8027,7 @@ function _renderBtResults(r) {
 
   // ── Tab strip ──────────────────────────────────────────────────────────
   const tabs = `
+    <div data-bt-panel>
     <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:14px">
       <button class="bt-tab-btn active" data-tab="summary" onclick="_btTab(this,'summary')"
         style="padding:6px 14px;font-size:12px;background:none;border:none;border-bottom:2px solid var(--blue);color:var(--fg);cursor:pointer">Summary</button>
@@ -8027,7 +8039,7 @@ function _renderBtResults(r) {
 
   // ── Summary tab ────────────────────────────────────────────────────────
   const summaryTab = `
-    <div id="bt-tab-summary">
+    <div data-bt-tab="summary">
       <div style="display:flex;align-items:center;margin-bottom:12px">
         <span style="font-size:12px;color:var(--muted)">Strategy Performance${engineBadge}</span>
         ${r.ticker ? `<span style="font-size:11px;color:var(--dim);margin-left:8px">· ${r.ticker}</span>` : ''}
@@ -8100,7 +8112,7 @@ function _renderBtResults(r) {
     const totalPnl = tradeLog.reduce((s, t) => s + (t.pnl || 0), 0);
     const pnlC = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
     tradesTab = `
-      <div id="bt-tab-trades" style="display:none">
+      <div data-bt-tab="trades" style="display:none">
         <div style="overflow-x:auto;max-height:420px;overflow-y:auto">
           <table style="width:100%;border-collapse:collapse;font-size:11px">
             <thead style="position:sticky;top:0;background:var(--surface2)">
@@ -8129,18 +8141,18 @@ function _renderBtResults(r) {
         </div>
       </div>`;
   } else {
-    tradesTab = `<div id="bt-tab-trades" style="display:none;color:var(--muted);font-size:12px;padding:16px 0">No trades recorded in this backtest.</div>`;
+    tradesTab = `<div data-bt-tab="trades" style="display:none;color:var(--muted);font-size:12px;padding:16px 0">No trades recorded in this backtest.</div>`;
   }
 
   // ── Chart tab ──────────────────────────────────────────────────────────
   const chartTab = isReal ? `
-    <div id="bt-tab-chart" style="display:none">
+    <div data-bt-tab="chart" style="display:none">
       ${r.chart_png_b64
         ? `<img src="data:image/png;base64,${r.chart_png_b64}" style="width:100%;border-radius:6px;border:1px solid var(--border)">`
         : '<div style="color:var(--muted);font-size:12px;padding:16px 0">Chart not available for this backtest result.</div>'}
     </div>` : '';
 
-  return tabs + summaryTab + tradesTab + chartTab;
+  return tabs + summaryTab + tradesTab + chartTab + '</div>';
 }
 
 async function confirmUpdateDeployment(familyId) {
