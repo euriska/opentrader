@@ -7836,15 +7836,40 @@ function _btTab(btnEl, tab) {
 }
 
 function _downloadBtCsv() {
-  if (!_btCtx) return;
-  const token = getToken();
-  window.open(`/api/strategies/${_btCtx.familyId}/versions/${_btCtx.version}/backtest/trades.csv?token=${encodeURIComponent(token)}`);
+  if (_btCtx) {
+    // Saved version — stream from backend
+    const token = getToken();
+    window.open(`/api/strategies/${_btCtx.familyId}/versions/${_btCtx.version}/backtest/trades.csv?token=${encodeURIComponent(token)}`);
+  } else if (_lastAiBacktest && _lastAiBacktest.results) {
+    // AI quick backtest — client-side CSV
+    _downloadAiBtCsv();
+  }
 }
 
 function _downloadBtPdf() {
-  if (!_btCtx) return;
-  const token = getToken();
-  window.open(`/api/strategies/${_btCtx.familyId}/versions/${_btCtx.version}/backtest/trades.pdf?token=${encodeURIComponent(token)}`);
+  if (_btCtx) {
+    // Saved version — stream from backend
+    const token = getToken();
+    window.open(`/api/strategies/${_btCtx.familyId}/versions/${_btCtx.version}/backtest/trades.pdf?token=${encodeURIComponent(token)}`);
+  } else if (_lastAiBacktest && _lastAiBacktest.results) {
+    // AI quick backtest — POST results to quick PDF endpoint
+    const token = getToken();
+    fetch('/api/backtest/quick/trades.pdf', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ results: _lastAiBacktest.results, token }),
+    }).then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.blob();
+    }).then(blob => {
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `backtest_${(_lastAiBacktest.stratName || 'ai').replace(/[^a-z0-9]/gi,'_')}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }).catch(e => toast('error', 'PDF Export', e.message));
+  }
 }
 
 function _downloadAiBtCsv() {
@@ -7865,14 +7890,13 @@ function _downloadAiBtCsv() {
 function _openAiBtInModal() {
   if (!_lastAiBacktest || !_lastAiBacktest.results) return;
   const r = _lastAiBacktest.results;
-  _btCtx = null;  // AI backtest has no version — CSV downloads handled client-side
+  _btCtx = null;  // AI backtest — use _lastAiBacktest for downloads
   document.getElementById('bt-results-modal-title').textContent =
     `Backtest Results — ${_lastAiBacktest.stratName || 'AI Strategy'}`;
   document.getElementById('bt-results-modal-sub').textContent =
     `${r.period || ''} · ${r.ticker || ''}`;
   document.getElementById('bt-results-modal-body').innerHTML = _renderBtResults(r);
-  // Hide version-linked download buttons; user can use Export CSV in the AI panel
-  document.getElementById('bt-results-dl-btns').style.display = 'none';
+  document.getElementById('bt-results-dl-btns').style.display = 'flex';
   const _aiPanel = document.querySelector('#bt-results-modal-body [data-bt-panel]');
   _btTab(_aiPanel, 'summary');
   document.getElementById('bt-results-modal-overlay').style.display = 'flex';

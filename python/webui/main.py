@@ -4,12 +4,15 @@ Central station for all agent containers.
 Sections: Overview · Agents · Scheduler · Trades · Signals · Sentiment · Logs · System
 """
 import asyncio
+import csv
 import http.client
+import io
 import json
 import os
 import re
 import socket
 import uuid
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -28,6 +31,9 @@ from scheduler.calendar import (
 )
 
 log = structlog.get_logger("command-center")
+
+# ── Backtest job store (in-memory, single-process) ────────────────────────────
+_bt_jobs: dict[str, dict] = {}   # job_id → {status, family_id, version, results?, error?}
 TZ  = ZoneInfo(os.getenv("TIMEZONE", "America/New_York"))
 
 app = FastAPI(title="OpenTrader Command Center", version="2.0.0")
@@ -3591,6 +3597,290 @@ async def save_version_backtest(
     return {"ok": True}
 
 
+# ── Real Backtrader Backtesting ───────────────────────────────────────────────
+
+class BacktestRunBody(BaseModel):
+    ticker:          str
+    period:          str   = "2y"
+    initial_capital: float = 10_000.0
+    token:           str   = ""
+
+
+def _bt_run_in_process(params: dict) -> dict:
+    """Top-level wrapper so ProcessPoolExecutor can pickle it."""
+    from webui.backtest_runner import run_backtest
+    return run_backtest(params)
+
+
+async def _run_backtest_task(job_id: str, version_dict: dict, body: BacktestRunBody,
+                              family_id: str, version: int):
+    _bt_jobs[job_id]["status"] = "running"
+    params = {
+        "ticker":           body.ticker,
+        "period":           body.period,
+        "stop_pct":         version_dict.get("stop_pct",   1.5),
+        "tp_pct":           version_dict.get("tp_pct",     3.0),
+        "confidence":       version_dict.get("confidence", 0.70),
+        "direction":        version_dict.get("direction",  "long"),
+        "max_pos":          version_dict.get("max_pos") or 500,
+        "initial_capital":  body.initial_capital,
+    }
+    try:
+        loop = asyncio.get_event_loop()
+        with ProcessPoolExecutor(max_workers=1) as pool:
+            results = await loop.run_in_executor(pool, _bt_run_in_process, params)
+        versions = _read_versions(family_id)
+        target   = next((v for v in versions if v["version"] == version), None)
+        if target:
+            target["backtest_results"] = results
+            target["backtest_run_at"]  = datetime.now(timezone.utc).isoformat()
+            _write_versions(family_id, versions)
+        _bt_jobs[job_id]["status"]  = "done"
+        _bt_jobs[job_id]["results"] = results
+    except Exception as e:
+        log.error("backtest.task_error", job_id=job_id, error=str(e))
+        _bt_jobs[job_id]["status"] = "error"
+        _bt_jobs[job_id]["error"]  = str(e)
+
+
+@app.post("/api/strategies/{family_id}/versions/{version}/backtest/run")
+async def run_version_backtest(family_id: str, version: int, body: BacktestRunBody):
+    check_token(body.token)
+    versions = _read_versions(family_id)
+    target   = next((v for v in versions if v["version"] == version), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Version not found")
+    job_id = str(uuid.uuid4())
+    _bt_jobs[job_id] = {"status": "queued", "family_id": family_id, "version": version}
+    asyncio.create_task(_run_backtest_task(job_id, target, body, family_id, version))
+    return {"job_id": job_id}
+
+
+@app.get("/api/strategies/{family_id}/backtest/status/{job_id}")
+async def backtest_status_stream(family_id: str, job_id: str, token: str = ""):
+    check_token(token)
+
+    async def _stream():
+        yield f"data: {json.dumps({'type': 'started', 'job_id': job_id})}\n\n"
+        pct = 0
+        messages = ["Fetching OHLCV data…", "Running strategy…", "Computing metrics…",
+                    "Generating charts…", "Saving results…"]
+        msg_idx = 0
+        while True:
+            await asyncio.sleep(1.5)
+            job = _bt_jobs.get(job_id)
+            if not job:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'Job not found'})}\n\n"
+                return
+            if job["status"] == "error":
+                yield f"data: {json.dumps({'type': 'error', 'message': job.get('error', 'Unknown error')})}\n\n"
+                return
+            if job["status"] == "done":
+                r = job["results"]
+                # Strip large chart PNG from SSE payload — client fetches modal separately
+                summary = {k: v for k, v in r.items() if k not in ("chart_png_b64", "trade_log")}
+                summary["trade_count"] = len(r.get("trade_log", []))
+                yield f"data: {json.dumps({'type': 'done', 'results': summary})}\n\n"
+                return
+            # Progress heartbeat
+            pct = min(pct + 15, 85)
+            msg = messages[min(msg_idx, len(messages) - 1)]
+            msg_idx += 1
+            yield f"data: {json.dumps({'type': 'progress', 'pct': pct, 'message': msg})}\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/strategies/{family_id}/versions/{version}/backtest/trades.csv")
+async def download_trades_csv(family_id: str, version: int, token: str = ""):
+    check_token(token)
+    versions = _read_versions(family_id)
+    target   = next((v for v in versions if v["version"] == version), None)
+    if not target or not target.get("backtest_results"):
+        raise HTTPException(status_code=404, detail="No backtest results for this version")
+    trade_log = target["backtest_results"].get("trade_log", [])
+    buf = io.StringIO()
+    if trade_log:
+        writer = csv.DictWriter(buf, fieldnames=list(trade_log[0].keys()))
+        writer.writeheader()
+        writer.writerows(trade_log)
+    else:
+        buf.write("No trades recorded\n")
+    filename = f"backtest_{family_id[:8]}_v{version}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/strategies/{family_id}/versions/{version}/backtest/trades.pdf")
+async def download_trades_pdf(family_id: str, version: int, token: str = ""):
+    check_token(token)
+    versions = _read_versions(family_id)
+    target   = next((v for v in versions if v["version"] == version), None)
+    if not target or not target.get("backtest_results"):
+        raise HTTPException(status_code=404, detail="No backtest results for this version")
+    r         = target["backtest_results"]
+    trade_log = r.get("trade_log", [])
+    pdf_bytes = _build_trades_pdf(trade_log, r, family_id, version,
+                                  target.get("backtest_run_at", ""))
+    filename  = f"backtest_{family_id[:8]}_v{version}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _build_trades_pdf(trade_log: list, results: dict, family_id: str,
+                      version: int, run_at: str) -> bytes:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                    Paragraph, Spacer, HRFlowable)
+
+    buf    = io.BytesIO()
+    doc    = SimpleDocTemplate(buf, pagesize=landscape(A4),
+                                leftMargin=12*mm, rightMargin=12*mm,
+                                topMargin=12*mm, bottomMargin=12*mm)
+    styles = getSampleStyleSheet()
+    h1     = ParagraphStyle("h1", fontSize=14, fontName="Helvetica-Bold",
+                             textColor=colors.HexColor("#e2e8f0"))
+    sub    = ParagraphStyle("sub", fontSize=9, fontName="Helvetica",
+                             textColor=colors.HexColor("#94a3b8"))
+    story  = []
+
+    ticker  = results.get("ticker", "")
+    period  = results.get("period", "")
+    run_str = run_at[:19].replace("T", " ") if run_at else "unknown"
+    story.append(Paragraph(f"Backtest Trade Log — {ticker} v{version}", h1))
+    story.append(Spacer(1, 4*mm))
+    story.append(Paragraph(
+        f"Period: {period}  ·  Run: {run_str}  ·  "
+        f"Total Return: {results.get('total_return', 0):+.2f}%  ·  "
+        f"Trades: {results.get('total_trades', 0)}  ·  "
+        f"Win Rate: {results.get('win_rate', 0):.1f}%  ·  "
+        f"Sharpe: {results.get('sharpe', 0):.3f}  ·  "
+        f"Max DD: {results.get('max_drawdown', 0):.2f}%", sub))
+    story.append(Spacer(1, 4*mm))
+    story.append(HRFlowable(width="100%", thickness=0.5,
+                             color=colors.HexColor("#334155")))
+    story.append(Spacer(1, 4*mm))
+
+    cols = ["#", "Entry Date", "Exit Date", "Ticker", "Dir",
+            "Entry $", "Exit $", "Qty", "P&L $", "P&L %", "Exit Reason"]
+    rows = [cols]
+    total_pnl = 0.0
+    for i, t in enumerate(trade_log, 1):
+        pnl = t.get("pnl", 0) or 0
+        total_pnl += pnl
+        rows.append([
+            str(i),
+            t.get("entry_date", ""),
+            t.get("exit_date",  ""),
+            t.get("ticker",     ""),
+            t.get("direction",  "long").upper(),
+            f"${t.get('entry_price', 0):,.4f}",
+            f"${t.get('exit_price',  0):,.4f}",
+            str(t.get("qty", 0)),
+            f"${pnl:+,.2f}",
+            f"{t.get('pnl_pct', 0):+.2f}%",
+            t.get("exit_reason", ""),
+        ])
+    # Summary footer row
+    rows.append(["", "", "", "", "TOTAL", "", "", "",
+                 f"${total_pnl:+,.2f}", "", ""])
+
+    col_widths = [18, 62, 62, 42, 28, 62, 62, 28, 62, 52, 60]
+    tbl = Table(rows, colWidths=[w*mm for w in col_widths], repeatRows=1)
+    dark_bg   = colors.HexColor("#0f172a")
+    row_alt   = colors.HexColor("#1e293b")
+    header_bg = colors.HexColor("#1e3a5f")
+    green     = colors.HexColor("#4ade80")
+    red       = colors.HexColor("#f87171")
+    muted     = colors.HexColor("#94a3b8")
+
+    style = [
+        ("BACKGROUND",  (0, 0), (-1, 0),  header_bg),
+        ("TEXTCOLOR",   (0, 0), (-1, 0),  colors.white),
+        ("FONTNAME",    (0, 0), (-1, 0),  "Helvetica-Bold"),
+        ("FONTSIZE",    (0, 0), (-1, 0),  8),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [dark_bg, row_alt]),
+        ("TEXTCOLOR",   (0, 1), (-1, -1), muted),
+        ("FONTNAME",    (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE",    (0, 1), (-1, -1), 7.5),
+        ("ALIGN",       (0, 0), (-1, -1), "CENTER"),
+        ("ALIGN",       (1, 1), (2, -1),  "CENTER"),
+        ("TOPPADDING",  (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING",(0,0), (-1, -1), 3),
+        ("GRID",        (0, 0), (-1, -1), 0.3, colors.HexColor("#334155")),
+        ("BACKGROUND",  (0, -1), (-1, -1), colors.HexColor("#1e3a5f")),
+        ("FONTNAME",    (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("TEXTCOLOR",   (0, -1), (-1, -1), colors.white),
+    ]
+    # Colour P&L column by sign
+    for i, t in enumerate(trade_log, 1):
+        pnl = t.get("pnl", 0) or 0
+        c   = green if pnl >= 0 else red
+        style.append(("TEXTCOLOR", (8, i), (9, i), c))
+
+    tbl.setStyle(TableStyle(style))
+    story.append(tbl)
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+@app.post("/api/backtest/quick")
+async def quick_backtest(body: BacktestRunBody):
+    """Run a backtest without a saved strategy version (used by AI Engineer panel)."""
+    check_token(body.token)
+    params = {
+        "ticker":          body.ticker,
+        "period":          body.period,
+        "stop_pct":        1.5,
+        "tp_pct":          3.0,
+        "confidence":      0.70,
+        "direction":       "long",
+        "max_pos":         500,
+        "initial_capital": body.initial_capital,
+    }
+    loop = asyncio.get_event_loop()
+    try:
+        with ProcessPoolExecutor(max_workers=1) as pool:
+            results = await asyncio.wait_for(
+                loop.run_in_executor(pool, _bt_run_in_process, params),
+                timeout=120,
+            )
+        return results
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Backtest timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class QuickBacktestPdfBody(BaseModel):
+    results: dict
+    token:   str = ""
+
+@app.post("/api/backtest/quick/trades.pdf")
+async def quick_backtest_pdf(body: QuickBacktestPdfBody):
+    """Generate a PDF trade report from quick (unsaved) backtest results."""
+    check_token(body.token)
+    r         = body.results
+    trade_log = r.get("trade_log", [])
+    pdf_bytes = _build_trades_pdf(trade_log, r, "ai", 0, r.get("period", ""))
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="backtest_ai.pdf"'},
+    )
+
+
 # ── Stock Search ──────────────────────────────────────────────────────────────
 
 @app.get("/api/search/stocks")
@@ -3840,7 +4130,7 @@ Extract and return:
   "interpretation": "one sentence plain-English summary of exactly what will happen and when",
   "tickers": ["LIST", "OF", "TICKERS"],
   "action": {{
-    "direction": "long" | "short" | null,
+    "direction": "long" | "sell" | "short" | null,
     "quantity": <integer shares or null>,
     "dollars": <dollar amount or null>,
     "condition": "plain-English description of the trigger condition",
@@ -3851,6 +4141,11 @@ Extract and return:
   "issues": ["list any ambiguities, missing details, or reasons the directive cannot execute"],
   "warnings": ["list any non-blocking observations, e.g. risk notes, unclear price levels"]
 }}
+
+Direction values:
+- "long"  = buy (open or add to a long position)
+- "sell"  = sell existing long position (close/reduce — NOT a short sale)
+- "short" = sell short (open a short position)
 
 Rules:
 - Set understood=false if: ticker is not identifiable, action is contradictory, directive is too vague to execute safely
