@@ -19,6 +19,9 @@ MASSIVE_MCP_URL = os.getenv(
 YAHOO_MCP_URL = os.getenv(
     "YAHOO_MCP_URL", "http://ot-mcp-yahoo:8000/mcp"
 )
+UNUSUALWHALES_MCP_URL = os.getenv(
+    "UNUSUALWHALES_MCP_URL", "http://ot-mcp-unusualwhales:8000/mcp"
+)
 
 
 async def call_mcp_tool(url: str, tool_name: str, arguments: dict) -> str | None:
@@ -119,6 +122,80 @@ async def get_avg_volume(ticker: str) -> float | None:
         return float(vol) if vol else None
     except Exception as e:
         log.warning("mcp_client.avg_volume_parse_failed", ticker=ticker, error=str(e))
+        return None
+
+
+async def get_uw_ticker_flow(ticker: str) -> dict | None:
+    """
+    Fetch Unusual Whales options flow for a ticker.
+    Returns a dict with keys: flow_signal, net_premium, call_premium,
+    put_premium, bullish_count, bearish_count, total_alerts.
+    Returns None if the MCP is unavailable or API key is missing.
+    """
+    raw = await call_mcp_tool(
+        UNUSUALWHALES_MCP_URL,
+        "get_ticker_flow",
+        {"ticker": ticker, "limit": 50},
+    )
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        if "error" in data:
+            log.warning("mcp_client.uw_flow_error", ticker=ticker, error=data["error"])
+            return None
+        return {
+            "flow_signal":   data.get("flow_signal",   "neutral"),
+            "net_premium":   float(data.get("net_premium",   0) or 0),
+            "call_premium":  float(data.get("call_premium",  0) or 0),
+            "put_premium":   float(data.get("put_premium",   0) or 0),
+            "bullish_count": int(data.get("bullish_count",   0) or 0),
+            "bearish_count": int(data.get("bearish_count",   0) or 0),
+            "total_alerts":  int(data.get("total_alerts",    0) or 0),
+        }
+    except Exception as e:
+        log.warning("mcp_client.uw_flow_parse_failed", ticker=ticker, error=str(e))
+        return None
+
+
+async def get_uw_darkpool(ticker: str) -> dict | None:
+    """
+    Fetch Unusual Whales dark pool summary for a ticker.
+    Returns: print_count, total_shares, total_notional.
+    """
+    raw = await call_mcp_tool(
+        UNUSUALWHALES_MCP_URL,
+        "get_darkpool_recent",
+        {"ticker": ticker, "limit": 20},
+    )
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        if "error" in data:
+            return None
+        return {
+            "print_count":    int(data.get("print_count",    0) or 0),
+            "total_shares":   int(data.get("total_shares",   0) or 0),
+            "total_notional": float(data.get("total_notional", 0) or 0),
+        }
+    except Exception as e:
+        log.warning("mcp_client.uw_darkpool_parse_failed", ticker=ticker, error=str(e))
+        return None
+
+
+async def get_uw_market_tide() -> dict | None:
+    """
+    Fetch the Unusual Whales market tide (aggregate call/put premium ratio).
+    Returns raw data dict or None.
+    """
+    raw = await call_mcp_tool(UNUSUALWHALES_MCP_URL, "get_market_tide", {})
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        return None if "error" in data else data
+    except Exception:
         return None
 
 

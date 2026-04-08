@@ -304,6 +304,18 @@ services:
       FASTMCP_PORT: "8000"
     networks: [trading-net]
 
+  mcp-unusualwhales:
+    build:
+      context: ./mcp/unusual-whales-mcp
+      dockerfile: Dockerfile
+    container_name: ot-mcp-unusualwhales
+    restart: unless-stopped
+    environment:
+      FASTMCP_HOST: "0.0.0.0"
+      FASTMCP_PORT: "8000"
+      UNUSUAL_WHALES_API_KEY: ${UNUSUAL_WHALES_API_KEY:-}
+    networks: [trading-net]
+
   mcp-massive:
     build:
       context: ./mcp/massive-mcp
@@ -374,6 +386,8 @@ services:
       EARNINGS_BUFFER_DAYS: "5"
       INTEL_TTL_SEC: "7200"
       YF_CACHE_TTL_SEC: "3600"
+      UW_CACHE_TTL_SEC: "1800"
+      UNUSUALWHALES_MCP_URL: http://ot-mcp-unusualwhales:8000/mcp
     env_file: [.env]
     volumes:
       - ./logs/python:/app/logs
@@ -538,6 +552,7 @@ services:
       - ./config:/app/config                   # writable — scheduler_jobs.json persisted here
       - ./python/webui/static:/app/webui/static # live-reload static files without rebuild
       - ./python/webui/main.py:/app/webui/main.py # live-reload backend without rebuild
+      - ./python/webui/backtest_runner.py:/app/webui/backtest_runner.py # live-reload backtest engine
       - ./VERSION:/app/VERSION:ro               # expose version file for sidebar display
     networks: [trading-net]
     depends_on:

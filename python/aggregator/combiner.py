@@ -26,9 +26,11 @@ SOURCE_WEIGHTS = {
 
 def build_intelligence(
     ticker:         str,
-    sentiment_data: dict,   # source → {mention_count, sentiment_score, sentiment_label, headlines}
-    yf_data:        dict,   # from _fetch_yfinance()
+    sentiment_data: dict,           # source → {mention_count, sentiment_score, sentiment_label, headlines}
+    yf_data:        dict,           # from _fetch_yfinance()
     current_price:  float = 0.0,
+    uw_flow:        dict | None = None,    # from get_uw_ticker_flow()
+    uw_darkpool:    dict | None = None,    # from get_uw_darkpool()
 ) -> TickerIntelligence:
     """Combine all sources into a single TickerIntelligence object."""
     intel = TickerIntelligence(ticker=ticker)
@@ -100,6 +102,22 @@ def build_intelligence(
             and intel.earnings_days_away <= EARNINGS_BUFFER_DAYS
         )
 
+    # ── Unusual Whales options flow ───────────────────────────────────────────
+    if uw_flow:
+        intel.uw_flow_signal   = uw_flow.get("flow_signal",   "neutral")
+        intel.uw_net_premium   = uw_flow.get("net_premium",   0.0)
+        intel.uw_call_premium  = uw_flow.get("call_premium",  0.0)
+        intel.uw_put_premium   = uw_flow.get("put_premium",   0.0)
+        intel.uw_bullish_count = uw_flow.get("bullish_count", 0)
+        intel.uw_bearish_count = uw_flow.get("bearish_count", 0)
+        intel.uw_total_alerts  = uw_flow.get("total_alerts",  0)
+
+    # ── Unusual Whales dark pool ──────────────────────────────────────────────
+    if uw_darkpool:
+        intel.uw_dp_print_count    = uw_darkpool.get("print_count",    0)
+        intel.uw_dp_total_shares   = uw_darkpool.get("total_shares",   0)
+        intel.uw_dp_total_notional = uw_darkpool.get("total_notional", 0.0)
+
     # ── Confidence delta ──────────────────────────────────────────────────────
     intel.confidence_delta = _compute_delta(intel)
 
@@ -152,6 +170,16 @@ def _compute_delta(intel: TickerIntelligence) -> float:
     if intel.social_momentum == "rising" and intel.social_sentiment > 0:
         delta += 0.03
 
+    # Unusual Whales options flow (max ±0.06)
+    if intel.uw_flow_signal == "bullish":
+        delta += 0.06
+    elif intel.uw_flow_signal == "bearish":
+        delta -= 0.06
+
+    # Dark pool: large notional prints are a mild bullish signal (+0.02)
+    if intel.uw_dp_total_notional >= 1_000_000:
+        delta += 0.02
+
     # Earnings proximity penalty
     if intel.earnings_days_away is not None:
         if intel.earnings_days_away <= EARNINGS_BUFFER_DAYS:
@@ -175,6 +203,17 @@ def _build_summary(intel: TickerIntelligence) -> str:
 
     if intel.social_mentions >= 3:
         parts.append(f"WSB {intel.social_mentions} mentions")
+
+    if intel.uw_flow_signal != "neutral" and intel.uw_total_alerts > 0:
+        net_m = intel.uw_net_premium / 1_000_000
+        parts.append(
+            f"UW flow {intel.uw_flow_signal} "
+            f"(${net_m:+.1f}M net, {intel.uw_total_alerts} alerts)"
+        )
+
+    if intel.uw_dp_total_notional >= 500_000:
+        notional_m = intel.uw_dp_total_notional / 1_000_000
+        parts.append(f"DP ${notional_m:.1f}M ({intel.uw_dp_print_count} prints)")
 
     if intel.earnings_too_close and intel.earnings_date:
         parts.append(f"⚠ earnings in {intel.earnings_days_away}d ({intel.earnings_date})")

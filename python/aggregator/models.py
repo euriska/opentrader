@@ -42,6 +42,20 @@ class TickerIntelligence:
     earnings_days_away: Optional[int] = None
     earnings_too_close: bool          = False  # hard filter — skip if True
 
+    # ── Unusual Whales options flow ───────────────────────────────────────────
+    uw_flow_signal:   str        = "neutral"  # bullish | bearish | neutral
+    uw_net_premium:   float      = 0.0        # net call - put premium ($)
+    uw_call_premium:  float      = 0.0
+    uw_put_premium:   float      = 0.0
+    uw_bullish_count: int        = 0
+    uw_bearish_count: int        = 0
+    uw_total_alerts:  int        = 0
+
+    # ── Unusual Whales dark pool ──────────────────────────────────────────────
+    uw_dp_print_count:    int   = 0
+    uw_dp_total_shares:   int   = 0
+    uw_dp_total_notional: float = 0.0
+
     # ── Aggregated predictor output ───────────────────────────────────────────
     confidence_delta: float     = 0.0    # -0.20 → +0.20 applied to OVTLYR score
     actionable:       bool      = False  # False if earnings_too_close or no data
