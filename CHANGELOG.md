@@ -3,6 +3,29 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.19] - 2026-04-08
+
+### Added
+- Backtrader engine: real backtesting replacing Monte Carlo simulation, with EMA 10/21 crossover strategy, stop-loss/take-profit management, and trade log
+- Backtest exports: PDF and CSV trade reports for both saved version backtests and AI quick backtests
+- Backtest chart: custom matplotlib chart with price/EMA/volume/equity curve panels and trade markers
+- Backtest results modal: tabbed Summary / Trades / Chart view with inline download buttons
+- Unusual Whales MCP: new FastMCP server with 8 tools (options flow, dark pool, market tide, greek exposure, short interest, OI change)
+- Aggregator: Unusual Whales options flow and dark pool data integrated into TickerIntelligence (10 new fields, confidence delta ±0.06)
+- Strategy Engineer: benchmark ticker field (default SPY) saved per strategy — no more prompt when running a backtest
+- Backtest history: version backtests auto-open results modal on completion
+
+### Fixed
+- Directive agent: multi-ticker directives now execute all tickers (previously only first)
+- Directive agent: direction mapping long→buy, sell→sell, short→sell_short (prevents rejected orders on no-shorting accounts)
+- Backtest tab switching: scoped to nearest panel container to prevent ID collisions when inline and modal results coexist
+- PDF export: missing Response import causing HTTP 500
+
+### Changed
+- Quick backtest endpoint now returns chart PNG (previously stripped)
+
+---
+
 ## [3.5.18] - 2026-04-06
 
 ### Added
