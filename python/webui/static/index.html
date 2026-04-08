@@ -1515,7 +1515,7 @@ select option{background:var(--surface2)}
                 <button class="btn btn-ghost btn-xs" onclick="addSignalChip()" style="font-size:11px">+ Add Signal</button>
               </div>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px">
               <div>
                 <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Stop Loss %</label>
                 <input id="eng-stop" class="select-input" style="width:100%" type="number" min="0.1" max="20" step="0.1" value="1.5">
@@ -1523,6 +1523,10 @@ select option{background:var(--surface2)}
               <div>
                 <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Take Profit %</label>
                 <input id="eng-tp" class="select-input" style="width:100%" type="number" min="0.1" max="50" step="0.1" value="3.0">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Benchmark Ticker</label>
+                <input id="eng-benchmark" class="select-input" style="width:100%;text-transform:uppercase" type="text" placeholder="SPY" value="SPY">
               </div>
             </div>
             <div style="margin-bottom:16px">
@@ -1600,7 +1604,13 @@ select option{background:var(--surface2)}
                 oninput="onAiStrategyEdit()"></textarea>
             </div>
             <div id="ai-backtest-results" style="display:none;flex-shrink:0;border-top:1px solid var(--border);padding:12px">
-              <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Backtest Results</div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <span style="font-size:11px;color:var(--muted)">Backtest Results</span>
+                <div style="display:flex;gap:6px">
+                  <button class="btn btn-ghost btn-xs" onclick="_downloadAiBtCsv()">Export CSV</button>
+                  <button class="btn btn-ghost btn-xs" onclick="_openAiBtInModal()">Full View</button>
+                </div>
+              </div>
               <div id="ai-backtest-content"></div>
             </div>
           </div>
@@ -6524,6 +6534,7 @@ function resetEngineerForm() {
   document.getElementById('eng-max-pos').value    = '500';
   document.getElementById('eng-stop').value       = '1.5';
   document.getElementById('eng-tp').value         = '3.0';
+  document.getElementById('eng-benchmark').value  = 'SPY';
   document.getElementById('eng-notes').value      = '';
   document.getElementById('eng-backtest-results').innerHTML =
     '<p style="color:var(--muted);font-size:13px">No backtest run yet</p><small style="color:var(--dim)">Save a strategy and run a backtest to see results here</small>';
@@ -6565,14 +6576,15 @@ function saveStrategy() {
   const signals = [...document.querySelectorAll('#eng-signals [data-sig]')].map(e => e.dataset.sig);
   const stratData = {
     name,
-    asset:      document.getElementById('eng-asset').value,
-    direction:  document.getElementById('eng-direction').value,
-    confidence: parseFloat(document.getElementById('eng-confidence').value),
-    max_pos:    parseFloat(document.getElementById('eng-max-pos').value),
-    stop_pct:   parseFloat(document.getElementById('eng-stop').value),
-    tp_pct:     parseFloat(document.getElementById('eng-tp').value),
+    asset:             document.getElementById('eng-asset').value,
+    direction:         document.getElementById('eng-direction').value,
+    confidence:        parseFloat(document.getElementById('eng-confidence').value),
+    max_pos:           parseFloat(document.getElementById('eng-max-pos').value),
+    stop_pct:          parseFloat(document.getElementById('eng-stop').value),
+    tp_pct:            parseFloat(document.getElementById('eng-tp').value),
+    benchmark_ticker:  (document.getElementById('eng-benchmark').value.trim().toUpperCase() || 'SPY'),
     signals,
-    notes:      document.getElementById('eng-notes').value.trim(),
+    notes:             document.getElementById('eng-notes').value.trim(),
   };
 
   const existing = _strategies.find(s => s.name === name);
@@ -7097,6 +7109,7 @@ function editStrategy(id) {
     document.getElementById('eng-max-pos').value    = s.max_pos;
     document.getElementById('eng-stop').value       = s.stop_pct;
     document.getElementById('eng-tp').value         = s.tp_pct;
+    document.getElementById('eng-benchmark').value  = s.benchmark_ticker || 'SPY';
     document.getElementById('eng-notes').value      = s.notes || '';
     _renderSignalChips(s.signals || []);
     // Restore strategy document text so user can continue editing
@@ -7352,6 +7365,13 @@ function onAiStrategyEdit() {
   document.getElementById('ai-save-btn').disabled     = !hasContent;
   document.getElementById('ai-backtest-btn').disabled = !hasContent;
   document.getElementById('ai-download-btn').disabled = !hasContent;
+  if (hasContent) {
+    const s = _parseAiStrategyDoc();
+    const ticker = s.benchmark_ticker || 'SPY';
+    document.getElementById('ai-backtest-btn').textContent = `Backtest (${ticker})`;
+  } else {
+    document.getElementById('ai-backtest-btn').textContent = 'Backtest';
+  }
 }
 
 function downloadAiStrategy() {
@@ -7419,8 +7439,9 @@ function _parseAiStrategyDoc() {
     max_pos:    isEntry ? parseFloat(field('Max Position', 'Max Position USD', 'Position Size') || '1000') : null,
     stop_pct:   isExit  ? numPct(field('Stop Loss', 'Stop-Loss', 'Stop Loss %', 'Stop Loss Pct', 'Stop')) : null,
     tp_pct:     isExit  ? numPct(field('Take Profit', 'Take-Profit', 'Take Profit %', 'Take Profit Pct', 'Target')) : null,
-    signals:    isEntry ? (field('Entry Signals', 'Signals', 'Signal Sources', 'Signal') || '').split(',').map(s => s.trim()).filter(Boolean) : [],
-    notes:      text,
+    signals:          isEntry ? (field('Entry Signals', 'Signals', 'Signal Sources', 'Signal') || '').split(',').map(s => s.trim()).filter(Boolean) : [],
+    benchmark_ticker: (field('Benchmark Ticker', 'Benchmark', 'Ticker') || 'SPY').toUpperCase(),
+    notes:            text,
   };
 }
 
@@ -7436,15 +7457,36 @@ function saveAiStrategy() {
   }
 }
 
-function runAiBacktest() {
-  const s         = _parseAiStrategyDoc();
+async function runAiBacktest() {
+  const s      = _parseAiStrategyDoc();
+  const ticker = s.benchmark_ticker || 'SPY';
+
   const resultsEl = document.getElementById('ai-backtest-results');
   const contentEl = document.getElementById('ai-backtest-content');
+  const btn       = document.getElementById('ai-backtest-btn');
   resultsEl.style.display = 'block';
-  const results = _simulateBacktest(s);
-  contentEl.innerHTML = _renderBtResults(results);
-  // Stash for saving with strategy
-  _lastAiBacktest = { results, stratName: s.name };
+  contentEl.innerHTML     = `<div style="color:var(--muted);font-size:12px;padding:8px 0">Running backtest on ${ticker}… this may take 15–30 seconds.</div>`;
+  btn.disabled            = true;
+
+  try {
+    const token = getToken();
+    const res   = await fetch('/api/backtest/quick', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ ticker, token }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+    const results = await res.json();
+    contentEl.innerHTML   = _renderBtResults(results);
+    _lastAiBacktest       = { results, stratName: s.name };
+  } catch (e) {
+    contentEl.innerHTML = `<div style="color:var(--red);font-size:12px">${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -7646,9 +7688,10 @@ function _renderVerHistory(familyId, stratName, versions) {
            onclick="viewVersionBacktest('${familyId}',${v.version},'${stratName.replace(/'/g,"\\'")}')">View</button>`
       : '';
 
-    const runBt = `<button class="btn btn-ghost btn-xs" style="margin-left:4px"
-        onclick="runVersionBacktest('${familyId}',${v.version},this)">
-        ${hasBt ? 'Re-run' : 'Backtest'}</button>`;
+    const btTicker = (v.benchmark_ticker || 'SPY').replace(/'/g, "\\'");
+    const runBt = `<button class="btn btn-ghost btn-xs" style="margin-left:4px" title="Benchmark: ${btTicker}"
+        onclick="runVersionBacktest('${familyId}',${v.version},this,'${btTicker}')">
+        ${hasBt ? 'Re-run' : 'Backtest'} <span style="opacity:0.6;font-size:10px">${btTicker}</span></button>`;
 
     const restoreBtn = !isCurrent
       ? `<button class="btn btn-ghost btn-xs" style="margin-left:4px;color:var(--blue)"
@@ -7699,43 +7742,59 @@ async function restoreVersion(familyId, version, stratName) {
   }
 }
 
-async function runVersionBacktest(familyId, version, btnEl) {
+async function runVersionBacktest(familyId, version, btnEl, ticker = 'SPY') {
   const origText = btnEl.textContent;
   btnEl.disabled = true;
-  btnEl.textContent = 'Running…';
+  btnEl.textContent = '0%…';
 
-  // Find strategy params from version history
-  let versions = [];
-  try {
-    const res = await fetch(`/api/strategies/${familyId}/versions`);
-    versions = await res.json();
-  } catch (e) {
-    btnEl.disabled = false; btnEl.textContent = origText;
-    toast('error', 'Backtest', 'Could not load version data'); return;
-  }
-  const v = versions.find(x => x.version === version);
-  if (!v) { btnEl.disabled = false; btnEl.textContent = origText; return; }
-
-  // Run simulation with strategy parameters
-  const results = _simulateBacktest(v);
-
-  // Persist results to version file
   const token = getToken();
+  let jobId;
   try {
-    await fetch(`/api/strategies/${familyId}/versions/${version}/backtest?token=${encodeURIComponent(token)}`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ results, run_at: new Date().toISOString() }),
-    });
-    toast('success', 'Backtest Complete', `v${version} results saved`);
-    // Refresh version history modal
-    const title = document.getElementById('ver-modal-title').textContent.replace('Version History — ', '');
-    await openVerHistoryModal(familyId, title);
+    const res = await fetch(
+      `/api/strategies/${familyId}/versions/${version}/backtest/run?`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker: ticker.trim().toUpperCase(), token }) }
+    );
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Failed to start backtest');
+    jobId = data.job_id;
   } catch (e) {
-    toast('error', 'Backtest Save Failed', e.message);
+    toast('error', 'Backtest', e.message);
     btnEl.disabled = false; btnEl.textContent = origText;
+    return;
   }
+
+  // Stream progress via SSE
+  const evtSrc = new EventSource(
+    `/api/strategies/${familyId}/backtest/status/${jobId}?token=${encodeURIComponent(token)}`
+  );
+  evtSrc.onmessage = async (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'progress') {
+      btnEl.textContent = `${msg.pct}%…`;
+    } else if (msg.type === 'done') {
+      evtSrc.close();
+      btnEl.disabled = false; btnEl.textContent = origText;
+      toast('success', 'Backtest Complete',
+        `${ticker.toUpperCase()} · ${msg.results.total_return > 0 ? '+' : ''}${msg.results.total_return}% return · ${msg.results.total_trades} trades`);
+      const title = document.getElementById('ver-modal-title').textContent.replace('Version History — ', '');
+      await openVerHistoryModal(familyId, title);
+      // Auto-open results modal so chart and downloads are immediately accessible
+      await viewVersionBacktest(familyId, version, `${title} v${version}`);
+    } else if (msg.type === 'error') {
+      evtSrc.close();
+      btnEl.disabled = false; btnEl.textContent = origText;
+      toast('error', 'Backtest Failed', msg.message);
+    }
+  };
+  evtSrc.onerror = () => {
+    evtSrc.close();
+    btnEl.disabled = false; btnEl.textContent = origText;
+    toast('error', 'Backtest', 'Connection lost');
+  };
 }
+
+let _btCtx = null;  // {familyId, version} — used by download buttons
 
 async function viewVersionBacktest(familyId, version, stratName) {
   const res      = await fetch(`/api/strategies/${familyId}/versions`);
@@ -7743,16 +7802,69 @@ async function viewVersionBacktest(familyId, version, stratName) {
   const v        = versions.find(x => x.version === version);
   if (!v || !v.backtest_results) { toast('info', 'No Results', 'No backtest results stored for this version'); return; }
 
+  _btCtx = { familyId, version };
   const r = v.backtest_results;
   document.getElementById('bt-results-modal-title').textContent = `Backtest Results — ${stratName} v${version}`;
   document.getElementById('bt-results-modal-sub').textContent   =
-    `Run ${v.backtest_run_at ? new Date(v.backtest_run_at).toLocaleString() : 'unknown'} · ${r.period || '252 trading days'}`;
+    `Run ${v.backtest_run_at ? new Date(v.backtest_run_at).toLocaleString() : 'unknown'} · ${r.period || ''}`;
   document.getElementById('bt-results-modal-body').innerHTML = _renderBtResults(r);
+  document.getElementById('bt-results-dl-btns').style.display = 'flex';
+  _btTab(null, 'summary');
   document.getElementById('bt-results-modal-overlay').style.display = 'flex';
 }
 
 function closeBtResultsModal() {
   document.getElementById('bt-results-modal-overlay').style.display = 'none';
+}
+
+function _btTab(btnEl, tab) {
+  ['summary','trades','chart'].forEach(t => {
+    const el = document.getElementById(`bt-tab-${t}`);
+    if (el) el.style.display = t === tab ? 'block' : 'none';
+  });
+  document.querySelectorAll('.bt-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+}
+
+function _downloadBtCsv() {
+  if (!_btCtx) return;
+  const token = getToken();
+  window.open(`/api/strategies/${_btCtx.familyId}/versions/${_btCtx.version}/backtest/trades.csv?token=${encodeURIComponent(token)}`);
+}
+
+function _downloadBtPdf() {
+  if (!_btCtx) return;
+  const token = getToken();
+  window.open(`/api/strategies/${_btCtx.familyId}/versions/${_btCtx.version}/backtest/trades.pdf?token=${encodeURIComponent(token)}`);
+}
+
+function _downloadAiBtCsv() {
+  if (!_lastAiBacktest || !_lastAiBacktest.results) return;
+  const trades = _lastAiBacktest.results.trade_log || [];
+  if (!trades.length) { toast('warning', 'No Trades', 'No trades to export'); return; }
+  const keys = Object.keys(trades[0]);
+  const rows = [keys.join(','), ...trades.map(t => keys.map(k => JSON.stringify(t[k] ?? '')).join(','))];
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `backtest_${(_lastAiBacktest.stratName || 'ai').replace(/[^a-z0-9]/gi,'_')}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function _openAiBtInModal() {
+  if (!_lastAiBacktest || !_lastAiBacktest.results) return;
+  const r = _lastAiBacktest.results;
+  _btCtx = null;  // AI backtest has no version — CSV downloads handled client-side
+  document.getElementById('bt-results-modal-title').textContent =
+    `Backtest Results — ${_lastAiBacktest.stratName || 'AI Strategy'}`;
+  document.getElementById('bt-results-modal-sub').textContent =
+    `${r.period || ''} · ${r.ticker || ''}`;
+  document.getElementById('bt-results-modal-body').innerHTML = _renderBtResults(r);
+  // Hide version-linked download buttons; user can use Export CSV in the AI panel
+  document.getElementById('bt-results-dl-btns').style.display = 'none';
+  _btTab(null, 'summary');
+  document.getElementById('bt-results-modal-overlay').style.display = 'flex';
 }
 
 function _simulateBacktest(s) {
@@ -7891,44 +8003,144 @@ function _svgMonthlyBars(monthly, w, h) {
 function _renderBtResults(r) {
   const ret  = r.total_return;
   const retC = ret > 0 ? 'var(--green)' : 'var(--red)';
-  const stopVal = r.stop_pct != null ? r.stop_pct : '—';
-  const tpVal   = r.tp_pct   != null ? r.tp_pct   : '—';
-  const equityChart  = _svgEquityCurve(r.equity_curve, 460, 130);
-  const monthlyChart = _svgMonthlyBars(r.monthly_returns, 460, 90);
-  return `
-    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px">
-      <div class="stat-card" style="padding:12px">
-        <div class="stat-label">Total Return</div>
-        <div class="stat-value" style="color:${retC}">${ret > 0 ? '+' : ''}${ret}%</div>
-      </div>
-      <div class="stat-card" style="padding:12px">
-        <div class="stat-label">Sharpe Ratio</div>
-        <div class="stat-value">${r.sharpe}</div>
-      </div>
-      <div class="stat-card" style="padding:12px">
-        <div class="stat-label">Win Rate</div>
-        <div class="stat-value">${r.win_rate}%</div>
-      </div>
-      <div class="stat-card" style="padding:12px">
-        <div class="stat-label">Max Drawdown</div>
-        <div class="stat-value" style="color:var(--red)">-${r.max_drawdown}%</div>
-      </div>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
-      <div style="font-size:11px;color:var(--muted)">Total Trades<br><strong style="color:var(--text)">${r.total_trades}</strong></div>
-      <div style="font-size:11px;color:var(--muted)">Final Capital<br><strong style="color:var(--text)">$${r.final_cap.toLocaleString()}</strong></div>
-      <div style="font-size:11px;color:var(--muted)">Direction<br><strong style="color:var(--text)">${r.direction || '—'}</strong></div>
-    </div>
-    ${equityChart ? `<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 6px 4px;margin-bottom:10px">
-      <div style="font-size:10px;color:var(--muted);margin-left:46px;margin-bottom:4px">Equity Curve</div>
-      ${equityChart}
-    </div>` : ''}
-    ${monthlyChart ? `<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 6px 4px;margin-bottom:10px">
-      ${monthlyChart}
-    </div>` : ''}
-    <div style="font-size:10px;color:var(--dim);border-top:1px solid var(--border);padding-top:8px">
-      Simulated backtest · ${r.period} · Stop ${stopVal}% / TP ${tpVal}% · Min confidence ${r.confidence != null ? (r.confidence*100).toFixed(0) : '—'}%
+  const stopVal = r.stop_pct  != null ? r.stop_pct  : '—';
+  const tpVal   = r.tp_pct    != null ? r.tp_pct    : '—';
+  const isReal  = r.engine === 'backtrader';
+  const equityChart  = _svgEquityCurve(r.equity_curve, 600, 130);
+  const monthlyChart = _svgMonthlyBars(r.monthly_returns, 600, 90);
+  const annRet  = r.annualized_return != null ? `${r.annualized_return > 0 ? '+' : ''}${r.annualized_return}%` : '—';
+
+  const engineBadge = isReal
+    ? `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(74,222,128,0.12);color:var(--green);border:1px solid rgba(74,222,128,0.3);margin-left:6px">Backtrader</span>`
+    : `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(148,163,184,0.1);color:var(--muted);border:1px solid var(--border);margin-left:6px">Simulated</span>`;
+
+  // ── Tab strip ──────────────────────────────────────────────────────────
+  const tabs = `
+    <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:14px">
+      <button class="bt-tab-btn active" data-tab="summary" onclick="_btTab(this,'summary')"
+        style="padding:6px 14px;font-size:12px;background:none;border:none;border-bottom:2px solid var(--blue);color:var(--fg);cursor:pointer">Summary</button>
+      <button class="bt-tab-btn" data-tab="trades" onclick="_btTab(this,'trades')"
+        style="padding:6px 14px;font-size:12px;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);cursor:pointer">Trades (${r.total_trades || 0})</button>
+      ${isReal ? `<button class="bt-tab-btn" data-tab="chart" onclick="_btTab(this,'chart')"
+        style="padding:6px 14px;font-size:12px;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);cursor:pointer">Chart</button>` : ''}
     </div>`;
+
+  // ── Summary tab ────────────────────────────────────────────────────────
+  const summaryTab = `
+    <div id="bt-tab-summary">
+      <div style="display:flex;align-items:center;margin-bottom:12px">
+        <span style="font-size:12px;color:var(--muted)">Strategy Performance${engineBadge}</span>
+        ${r.ticker ? `<span style="font-size:11px;color:var(--dim);margin-left:8px">· ${r.ticker}</span>` : ''}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+        <div class="stat-card" style="padding:12px">
+          <div class="stat-label">Total Return</div>
+          <div class="stat-value" style="color:${retC}">${ret > 0 ? '+' : ''}${ret}%</div>
+        </div>
+        <div class="stat-card" style="padding:12px">
+          <div class="stat-label">Annualized</div>
+          <div class="stat-value" style="color:${retC}">${annRet}</div>
+        </div>
+        <div class="stat-card" style="padding:12px">
+          <div class="stat-label">Sharpe Ratio</div>
+          <div class="stat-value">${r.sharpe}</div>
+        </div>
+        <div class="stat-card" style="padding:12px">
+          <div class="stat-label">Win Rate</div>
+          <div class="stat-value">${r.win_rate}%</div>
+        </div>
+        <div class="stat-card" style="padding:12px">
+          <div class="stat-label">Max Drawdown</div>
+          <div class="stat-value" style="color:var(--red)">-${r.max_drawdown}%</div>
+        </div>
+        <div class="stat-card" style="padding:12px">
+          <div class="stat-label">Total Trades</div>
+          <div class="stat-value">${r.total_trades}</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
+        <div style="font-size:11px;color:var(--muted)">Final Capital<br><strong style="color:var(--fg)">$${(r.final_cap||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</strong></div>
+        <div style="font-size:11px;color:var(--muted)">Initial Capital<br><strong style="color:var(--fg)">$${(r.initial_cap||10000).toLocaleString()}</strong></div>
+        <div style="font-size:11px;color:var(--muted)">Direction<br><strong style="color:var(--fg)">${r.direction || '—'}</strong></div>
+      </div>
+      ${equityChart ? `<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 6px 4px;margin-bottom:10px">
+        <div style="font-size:10px;color:var(--muted);margin-left:46px;margin-bottom:4px">Equity Curve</div>
+        ${equityChart}
+      </div>` : ''}
+      ${monthlyChart ? `<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 6px 4px;margin-bottom:10px">
+        ${monthlyChart}
+      </div>` : ''}
+      <div style="font-size:10px;color:var(--dim);border-top:1px solid var(--border);padding-top:8px">
+        ${isReal ? 'Real backtest (Backtrader · EMA 10/21 crossover · 0.1% commission)' : 'Simulated backtest'}
+        · ${r.period || '252 trading days'} · Stop ${stopVal}% / TP ${tpVal}%
+        · Min confidence ${r.confidence != null ? (r.confidence*100).toFixed(0) : '—'}%
+      </div>
+    </div>`;
+
+  // ── Trades tab ─────────────────────────────────────────────────────────
+  const tradeLog = r.trade_log || [];
+  let tradesTab = '';
+  if (tradeLog.length) {
+    const rows = tradeLog.map((t, i) => {
+      const pnlC = (t.pnl || 0) >= 0 ? 'var(--green)' : 'var(--red)';
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:4px 8px;color:var(--dim)">${i+1}</td>
+        <td style="padding:4px 8px">${t.entry_date||''}</td>
+        <td style="padding:4px 8px">${t.exit_date||''}</td>
+        <td style="padding:4px 8px;font-weight:600">${t.ticker||''}</td>
+        <td style="padding:4px 8px">${(t.direction||'long').toUpperCase()}</td>
+        <td style="padding:4px 8px">$${(t.entry_price||0).toFixed(2)}</td>
+        <td style="padding:4px 8px">$${(t.exit_price||0).toFixed(2)}</td>
+        <td style="padding:4px 8px">${t.qty||0}</td>
+        <td style="padding:4px 8px;color:${pnlC};font-weight:600">${(t.pnl||0) >= 0 ? '+' : ''}$${(t.pnl||0).toFixed(2)}</td>
+        <td style="padding:4px 8px;color:${pnlC}">${(t.pnl_pct||0) >= 0 ? '+' : ''}${(t.pnl_pct||0).toFixed(2)}%</td>
+        <td style="padding:4px 8px;color:var(--dim);font-size:10px">${t.exit_reason||''}</td>
+      </tr>`;
+    }).join('');
+    const totalPnl = tradeLog.reduce((s, t) => s + (t.pnl || 0), 0);
+    const pnlC = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
+    tradesTab = `
+      <div id="bt-tab-trades" style="display:none">
+        <div style="overflow-x:auto;max-height:420px;overflow-y:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:11px">
+            <thead style="position:sticky;top:0;background:var(--surface2)">
+              <tr style="border-bottom:1px solid var(--border)">
+                <th style="padding:6px 8px;text-align:left;color:var(--muted);font-weight:600">#</th>
+                <th style="padding:6px 8px;text-align:left;color:var(--muted);font-weight:600">Entry</th>
+                <th style="padding:6px 8px;text-align:left;color:var(--muted);font-weight:600">Exit</th>
+                <th style="padding:6px 8px;text-align:left;color:var(--muted);font-weight:600">Ticker</th>
+                <th style="padding:6px 8px;text-align:left;color:var(--muted);font-weight:600">Dir</th>
+                <th style="padding:6px 8px;text-align:left;color:var(--muted);font-weight:600">Entry $</th>
+                <th style="padding:6px 8px;text-align:left;color:var(--muted);font-weight:600">Exit $</th>
+                <th style="padding:6px 8px;text-align:left;color:var(--muted);font-weight:600">Qty</th>
+                <th style="padding:6px 8px;text-align:left;color:var(--muted);font-weight:600">P&L $</th>
+                <th style="padding:6px 8px;text-align:left;color:var(--muted);font-weight:600">P&L %</th>
+                <th style="padding:6px 8px;text-align:left;color:var(--muted);font-weight:600">Exit Reason</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+            <tfoot>
+              <tr style="border-top:2px solid var(--border);background:var(--surface2)">
+                <td colspan="8" style="padding:6px 8px;font-size:11px;color:var(--muted);font-weight:600">Total P&L</td>
+                <td colspan="3" style="padding:6px 8px;font-weight:700;color:${pnlC}">${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>`;
+  } else {
+    tradesTab = `<div id="bt-tab-trades" style="display:none;color:var(--muted);font-size:12px;padding:16px 0">No trades recorded in this backtest.</div>`;
+  }
+
+  // ── Chart tab ──────────────────────────────────────────────────────────
+  const chartTab = isReal ? `
+    <div id="bt-tab-chart" style="display:none">
+      ${r.chart_png_b64
+        ? `<img src="data:image/png;base64,${r.chart_png_b64}" style="width:100%;border-radius:6px;border:1px solid var(--border)">`
+        : '<div style="color:var(--muted);font-size:12px;padding:16px 0">Chart not available for this backtest result.</div>'}
+    </div>` : '';
+
+  return tabs + summaryTab + tradesTab + chartTab;
 }
 
 async function confirmUpdateDeployment(familyId) {
@@ -9321,7 +9533,7 @@ function _closeAssignDrawer() {
 
 <!-- ── Backtest Results Modal ── -->
 <div id="bt-results-modal-overlay" class="bk-modal-overlay" style="display:none" onclick="if(event.target===this)closeBtResultsModal()">
-  <div class="bk-modal" style="width:560px">
+  <div class="bk-modal" style="width:780px;max-width:98vw">
     <div class="bk-modal-head">
       <span style="font-size:20px">📊</span>
       <div>
@@ -9333,7 +9545,11 @@ function _closeAssignDrawer() {
     <div class="bk-modal-body">
       <div id="bt-results-modal-body"></div>
     </div>
-    <div class="bk-modal-foot">
+    <div class="bk-modal-foot" style="display:flex;justify-content:space-between;align-items:center">
+      <div id="bt-results-dl-btns" style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="_downloadBtCsv()">Export CSV</button>
+        <button class="btn btn-ghost btn-sm" onclick="_downloadBtPdf()">Export PDF</button>
+      </div>
       <button class="btn btn-ghost" onclick="closeBtResultsModal()">Close</button>
     </div>
   </div>
