@@ -8137,7 +8137,11 @@ function _renderBtResults(r) {
     const pnlC = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
     tradesTab = `
       <div data-bt-tab="trades" style="display:none">
-        <div style="overflow-x:auto;max-height:420px;overflow-y:auto">
+        <div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:8px">
+          <button class="btn btn-ghost btn-xs" onclick="_downloadBtCsv()">⬇ Export CSV</button>
+          <button class="btn btn-ghost btn-xs" onclick="_downloadBtPdf()">⬇ Export PDF</button>
+        </div>
+        <div style="overflow-x:auto;max-height:400px;overflow-y:auto">
           <table style="width:100%;border-collapse:collapse;font-size:11px">
             <thead style="position:sticky;top:0;background:var(--surface2)">
               <tr style="border-bottom:1px solid var(--border)">
