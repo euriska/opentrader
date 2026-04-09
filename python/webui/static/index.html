@@ -271,6 +271,10 @@ select option{background:var(--surface2)}
         <span class="nav-dot" style="background:var(--coral)"></span>
         Active Positions
       </div>
+      <div class="nav-item" onclick="navigate('page-trading-dividends')" data-page="page-trading-dividends">
+        <span class="nav-dot" style="background:var(--green)"></span>
+        Dividends
+      </div>
       <div class="nav-item" onclick="navigate('page-trading-charts')" data-page="page-trading-charts">
         <span class="nav-dot" style="background:#f59e0b"></span>
         Charts
@@ -429,7 +433,7 @@ select option{background:var(--surface2)}
         </div>
         <div class="card-body topology-wrap">
           <svg id="topology-svg" class="topo-svg"
-               viewBox="0 0 1100 445"
+               viewBox="0 0 1100 515"
                preserveAspectRatio="xMidYMid meet"
                style="width:100%;height:auto;min-height:200px">
             <defs>
@@ -521,6 +525,7 @@ select option{background:var(--surface2)}
               <option value="mcp-alpaca">mcp-alpaca</option>
               <option value="mcp-tradingview">mcp-tradingview</option>
               <option value="mcp-massive">mcp-massive</option>
+              <option value="mcp-unusualwhales">mcp-unusualwhales</option>
               <option value="chat-agent">chat-agent</option>
             </select>
             <select class="select-input" id="logs-lines-select">
@@ -1172,6 +1177,155 @@ select option{background:var(--surface2)}
     </div>
 
     <!-- ════════════════════════════════════════
+         PAGE: Dividend Tracker
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-trading-dividends">
+
+      <!-- Pie Charts Row — very top -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px;margin-bottom:16px">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Income by Ticker</span></div>
+          <div class="card-body" style="display:flex;align-items:flex-start;gap:14px;padding:14px">
+            <svg id="div-pie-ticker" viewBox="0 0 120 120" style="width:110px;height:110px;flex-shrink:0"></svg>
+            <div id="div-leg-ticker" style="flex:1;display:flex;flex-direction:column;gap:4px;font-size:11px;overflow-y:auto;max-height:110px"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Income by Sector</span></div>
+          <div class="card-body" style="display:flex;align-items:flex-start;gap:14px;padding:14px">
+            <svg id="div-pie-sector" viewBox="0 0 120 120" style="width:110px;height:110px;flex-shrink:0"></svg>
+            <div id="div-leg-sector" style="flex:1;display:flex;flex-direction:column;gap:4px;font-size:11px;overflow-y:auto;max-height:110px"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Income by Account</span></div>
+          <div class="card-body" style="display:flex;align-items:flex-start;gap:14px;padding:14px">
+            <svg id="div-pie-account" viewBox="0 0 120 120" style="width:110px;height:110px;flex-shrink:0"></svg>
+            <div id="div-leg-account" style="flex:1;display:flex;flex-direction:column;gap:4px;font-size:11px;overflow-y:auto;max-height:110px"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Best Dividend Payers</span><span style="font-size:10px;color:var(--muted)">by yield %</span></div>
+          <div class="card-body" style="display:flex;align-items:flex-start;gap:14px;padding:14px">
+            <svg id="div-pie-yield" viewBox="0 0 120 120" style="width:110px;height:110px;flex-shrink:0"></svg>
+            <div id="div-leg-yield" style="flex:1;display:flex;flex-direction:column;gap:4px;font-size:11px;overflow-y:auto;max-height:110px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stat-grid" style="margin-bottom:16px">
+        <div class="stat-card">
+          <div class="stat-label">Annual Projected Income</div>
+          <div class="stat-value" id="div-stat-annual" style="color:var(--green)">—</div>
+          <div class="stat-sub" id="div-stat-annual-sub" style="font-size:10px;color:var(--muted);margin-top:3px"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Forward Yield on Portfolio</div>
+          <div class="stat-value" id="div-stat-yield" style="color:var(--blue)">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Dividend Payers</div>
+          <div class="stat-value" id="div-stat-payers" style="color:var(--amber)">—</div>
+          <div class="stat-sub" id="div-stat-payers-sub" style="font-size:10px;color:var(--muted);margin-top:3px"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Portfolio Value</div>
+          <div class="stat-value" id="div-stat-portval" style="color:var(--text)">—</div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" onclick="loadDividendPage(true)" id="div-refresh-btn">&#8635; Refresh Data</button>
+        <button class="btn btn-ghost btn-sm" onclick="_divBackfill()" id="div-backfill-btn"
+          title="Fetch 18 months of actual dividend payments from all held tickers and save to history">&#8659; Backfill 18mo History</button>
+        <span id="div-status" style="font-size:11px;color:var(--muted)"></span>
+      </div>
+
+      <!-- Account Cards -->
+      <div id="div-account-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:16px"></div>
+
+      <!-- 12-Month Bar Chart -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <span class="card-title">12-Month Projected Income</span>
+          <span id="div-bar-total" style="font-size:11px;color:var(--muted)"></span>
+        </div>
+        <div class="card-body" style="padding:16px 16px 8px">
+          <svg id="div-bar-svg" viewBox="0 0 900 190" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block;overflow:visible"></svg>
+        </div>
+      </div>
+
+      <!-- Holdings Table -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <span class="card-title">Dividend Holdings</span>
+          <span id="div-holdings-count" style="font-size:11px;color:var(--muted)"></span>
+        </div>
+        <div class="card-body table-wrap" style="padding:0">
+          <table>
+            <thead><tr>
+              <th>Account</th><th>Ticker</th><th>Sector</th><th>Qty</th>
+              <th>Mkt Value</th><th>Ex-Date</th><th>Pay Date</th>
+              <th>$/Share</th><th>Freq</th><th>Fwd Rate</th><th>Yield</th><th>Ann. Income</th>
+            </tr></thead>
+            <tbody id="div-holdings-body"><tr><td colspan="12" class="empty-state">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- History Table + Chart -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Received Dividends (History)</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="div-hist-account-filter" onchange="_divFilterHistory()"
+              style="background:var(--bg-card);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12px">
+              <option value="">All Accounts</option>
+            </select>
+            <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+              <button id="div-hist-tab-table" onclick="_divHistTab('table')"
+                style="padding:3px 10px;font-size:11px;border:none;cursor:pointer;background:var(--accent);color:#fff">Table</button>
+              <button id="div-hist-tab-chart" onclick="_divHistTab('chart')"
+                style="padding:3px 10px;font-size:11px;border:none;cursor:pointer;background:transparent;color:var(--muted)">Chart</button>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="_divAddHistory()">+ Add</button>
+          </div>
+        </div>
+        <!-- Table view -->
+        <div id="div-hist-table-view" class="card-body table-wrap" style="padding:0">
+          <table>
+            <thead><tr>
+              <th>Pay Date</th><th>Account</th><th>Ticker</th><th>$/Share</th><th>Qty</th><th>Total</th><th>Source</th>
+            </tr></thead>
+            <tbody id="div-history-body"><tr><td colspan="7" class="empty-state">No history recorded.</td></tr></tbody>
+          </table>
+        </div>
+        <!-- Chart view -->
+        <div id="div-hist-chart-view" style="display:none;padding:16px">
+          <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+            <span style="font-size:11px;color:var(--muted)">Group by:</span>
+            <label style="font-size:11px;display:flex;gap:4px;align-items:center;cursor:pointer">
+              <input type="radio" name="div-hist-group" value="month" checked onchange="_divHistChartRender()"> Month
+            </label>
+            <label style="font-size:11px;display:flex;gap:4px;align-items:center;cursor:pointer">
+              <input type="radio" name="div-hist-group" value="ticker" onchange="_divHistChartRender()"> Ticker
+            </label>
+            <label style="font-size:11px;display:flex;gap:4px;align-items:center;cursor:pointer">
+              <input type="radio" name="div-hist-group" value="account" onchange="_divHistChartRender()"> Account
+            </label>
+            <span id="div-hist-chart-total" style="margin-left:auto;font-size:12px;font-weight:600;color:var(--green)"></span>
+          </div>
+          <svg id="div-hist-chart-svg" viewBox="0 0 900 220" preserveAspectRatio="xMidYMid meet"
+            style="width:100%;height:auto;display:block;overflow:visible"></svg>
+          <div id="div-hist-chart-legend" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:11px"></div>
+        </div>
+      </div>
+
+    </div><!-- /page-trading-dividends -->
+
+    <!-- ════════════════════════════════════════
          PAGE: Charts
     ════════════════════════════════════════ -->
     <div class="page" id="page-trading-charts">
@@ -1740,23 +1894,31 @@ select option{background:var(--surface2)}
     ════════════════════════════════════════ -->
     <div class="page" id="page-resources-library">
 
-      <!-- Stats bar -->
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-        <div class="card" style="padding:14px 18px">
+      <!-- Stats bar (click status cards to filter) -->
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:16px">
+        <div class="card" style="padding:14px 18px;cursor:pointer" onclick="_libStatFilter('')" title="Show all books">
           <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Total Books</div>
           <div id="lib-stat-total" style="font-size:28px;font-weight:700;color:var(--fg)">—</div>
         </div>
-        <div class="card" style="padding:14px 18px">
+        <div class="card" style="padding:14px 18px;cursor:pointer" onclick="_libStatFilter('reading')" title="Filter by Reading">
           <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Reading</div>
           <div id="lib-stat-reading" style="font-size:28px;font-weight:700;color:#4ade80">—</div>
         </div>
-        <div class="card" style="padding:14px 18px">
+        <div class="card" style="padding:14px 18px;cursor:pointer" onclick="_libStatFilter('read')" title="Filter by Read">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Read</div>
+          <div id="lib-stat-read" style="font-size:28px;font-weight:700;color:#34d399">—</div>
+        </div>
+        <div class="card" style="padding:14px 18px;cursor:pointer" onclick="_libStatFilter('purchased')" title="Filter by Purchased">
           <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Purchased</div>
           <div id="lib-stat-purchased" style="font-size:28px;font-weight:700;color:#60a5fa">—</div>
         </div>
-        <div class="card" style="padding:14px 18px">
+        <div class="card" style="padding:14px 18px;cursor:pointer" onclick="_libStatFilter('reference')" title="Filter by Reference">
           <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Reference</div>
           <div id="lib-stat-reference" style="font-size:28px;font-weight:700;color:#a78bfa">—</div>
+        </div>
+        <div class="card" style="padding:14px 18px">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Total Cost</div>
+          <div id="lib-stat-cost" style="font-size:28px;font-weight:700;color:#f59e0b">—</div>
         </div>
       </div>
 
@@ -1771,6 +1933,7 @@ select option{background:var(--surface2)}
         <select id="lib-filter-status" class="select-input" style="font-size:12px;padding:4px 8px" onchange="_libLoad()">
           <option value="">All statuses</option>
           <option value="reading">Reading</option>
+          <option value="read">Read</option>
           <option value="purchased">Purchased</option>
           <option value="reference">Reference</option>
         </select>
@@ -1778,6 +1941,7 @@ select option{background:var(--surface2)}
           <option value="">All categories</option>
         </select>
         <div style="flex:1"></div>
+        <span id="lib-count-badge" style="font-size:12px;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:3px 12px;white-space:nowrap"></span>
         <!-- View toggle -->
         <div style="display:flex;gap:2px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px">
           <button id="lib-view-tile" onclick="_libSetView('tile')"
@@ -1877,8 +2041,9 @@ select option{background:var(--surface2)}
     <div>
       <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Status</label>
       <select id="lib-f-status" class="select-input" style="width:100%;padding:7px 10px;font-size:13px">
-        <option value="purchased">Purchased</option>
         <option value="reading">Reading</option>
+        <option value="read">Read</option>
+        <option value="purchased">Purchased</option>
         <option value="reference">Reference</option>
       </select>
     </div>
@@ -2068,6 +2233,7 @@ const PAGE_TITLES = {
 
   'page-trading-trades':     'Trades',
   'page-trading-broker':     'Broker',
+  'page-trading-dividends':  'Dividend Tracker',
   'page-trading-charts':     'Charts',
   'page-trading-directives': 'Trade Directives',
   'page-plan-engineer':      'Strategy Engineer',
@@ -2187,6 +2353,7 @@ function navigate(pageId) {
 
     case 'page-trading-trades':     loadTradesPage();    break;
     case 'page-trading-broker':     loadBrokerPage();       break;
+    case 'page-trading-dividends':  loadDividendPage();     break;
     case 'page-trading-charts':     loadChartsPage();       break;
     case 'page-trading-directives': loadDirectivesPage();   break;
     case 'page-plan-engineer':      loadEngineerPage();     break;
@@ -2385,7 +2552,8 @@ const TOPO_NODES = [
   { id: 'mcp-yahoo',        label: 'MCP Yahoo',        x: 15,  y: 375, group: 'mcp'      },
   { id: 'mcp-alpaca',       label: 'MCP Alpaca',       x: 735, y: 310, group: 'mcp'      },
   { id: 'mcp-tradingview',  label: 'MCP TradingView',  x: 555, y: 230, group: 'mcp'      },
-  { id: 'mcp-massive',       label: 'MCP Massive',      x: 280, y: 390, group: 'mcp'      },
+  { id: 'mcp-massive',         label: 'MCP Massive',        x: 280, y: 390, group: 'mcp'      },
+  { id: 'mcp-unusualwhales',   label: 'MCP Unusual Whales', x: 90,  y: 460, group: 'mcp'      },
   // Chat agent
   { id: 'chat-agent',       label: 'Chat Agent',       x: 930, y: 140, group: 'interface'},
 ];
@@ -2443,8 +2611,12 @@ const TOPO_EDGES = [
   { from: 'chat-agent',        to: 'mcp-tradingview',   label: 'queries',         color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
   { from: 'chat-agent',        to: 'mcp-massive',       label: 'queries',         color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
   // MCP Massive — market data for predictor and aggregator
-  { from: 'mcp-massive',       to: 'predictor',         label: 'market data',     color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
-  { from: 'mcp-massive',       to: 'aggregator',        label: 'market data',     color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
+  { from: 'mcp-massive',         to: 'predictor',         label: 'market data',    color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
+  { from: 'mcp-massive',         to: 'aggregator',        label: 'market data',    color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
+  // MCP Unusual Whales — options flow and dark pool data for predictor
+  { from: 'mcp-unusualwhales',   to: 'predictor',         label: 'options flow',   color: '#f97316', markerId: 'arrow-orange', dashed: false },
+  { from: 'chat-agent',          to: 'mcp-unusualwhales', label: 'queries',        color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
+  { from: 'mcp-unusualwhales',   to: 'orchestrator',      label: 'heartbeat',      color: '#334155', markerId: 'arrow-gray',   dashed: true  },
 ];
 
 function healthColor(health) {
@@ -2492,6 +2664,7 @@ function resetTopoLayout() {
     'orchestrator':195,'orchestrator_y':310, 'broker-gateway':735,'broker-gateway_y':200,
     'mcp-yahoo':15,'mcp-yahoo_y':375, 'mcp-alpaca':735,'mcp-alpaca_y':310,
     'mcp-massive':280,'mcp-massive_y':390,
+    'mcp-unusualwhales':90,'mcp-unusualwhales_y':460,
     'chat-agent':930,'chat-agent_y':140,
   };
   TOPO_NODES.forEach(n => {
@@ -2750,7 +2923,7 @@ function downloadTopology() {
   const clone = svg.cloneNode(true);
   // Embed a dark background so the download looks right
   const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-  bg.setAttribute('width', '880'); bg.setAttribute('height', '380');
+  bg.setAttribute('width', '1100'); bg.setAttribute('height', '515');
   bg.setAttribute('fill', '#0f1117');
   clone.insertBefore(bg, clone.firstChild);
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
@@ -5128,6 +5301,16 @@ const CFG_META = {
     fields: [
       { key: 'GOOGLE_BOOKS_API_KEY', label: 'API Key', type: 'password', required: true, mono: true,
         hint: 'Get a free key at console.cloud.google.com → APIs → Books API — enables ISBN lookups in the Library' },
+    ],
+  },
+  unusualwhales: {
+    label: 'Unusual Whales', letter: 'U', bg: '#f97316', fg: '#fff',
+    fields: [
+      { key: 'UNUSUAL_WHALES_API_KEY', label: 'API Key', type: 'password', required: true, mono: true,
+        hint: 'Get your key at unusualwhales.com/api — required for options flow, dark pool, and congress tracking' },
+      { type: 'separator', label: 'MCP Server' },
+      { key: 'UNUSUAL_WHALES_MCP_URL', label: 'MCP URL', type: 'text',
+        hint: 'Default: http://ot-mcp-unusualwhales:8000/mcp (auto-set)' },
     ],
   },
 };
@@ -8474,10 +8657,17 @@ async function _libLoadStats() {
   try {
     const r = await fetch('/api/library/stats');
     const d = await r.json();
-    document.getElementById('lib-stat-total').textContent     = d.total     ?? 0;
+    const total = d.total ?? 0;
+    const cost  = d.total_cost ?? 0;
+    document.getElementById('lib-stat-total').textContent     = total;
     document.getElementById('lib-stat-reading').textContent   = d.reading   ?? 0;
+    document.getElementById('lib-stat-read').textContent      = d.read      ?? 0;
     document.getElementById('lib-stat-purchased').textContent = d.purchased ?? 0;
     document.getElementById('lib-stat-reference').textContent = d.reference ?? 0;
+    const costEl = document.getElementById('lib-stat-cost');
+    if (costEl) costEl.textContent = '$' + cost.toFixed(2);
+    const badge = document.getElementById('lib-count-badge');
+    if (badge) badge.textContent = total + ' book' + (total !== 1 ? 's' : '');
     // Populate category filter
     const sel = document.getElementById('lib-filter-category');
     const cur = sel.value;
@@ -8538,11 +8728,17 @@ function _libStars(rating, size = 14) {
 function _libStatusBadge(status) {
   const map = {
     reading:   ['#4ade80','rgba(74,222,128,.15)'],
+    read:      ['#34d399','rgba(52,211,153,.15)'],
     purchased: ['#60a5fa','rgba(96,165,250,.15)'],
     reference: ['#a78bfa','rgba(167,139,250,.15)'],
   };
   const [color, bg] = map[status] || ['var(--muted)','transparent'];
   return `<span style="color:${color};background:${bg};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;text-transform:capitalize">${status}</span>`;
+}
+
+function _libStatFilter(status) {
+  const sel = document.getElementById('lib-filter-status');
+  if (sel) { sel.value = status; _libLoad(); }
 }
 
 function _libRender() {
@@ -8611,7 +8807,7 @@ function _libOpenAdd() {
   document.getElementById('lib-modal-title').textContent = 'Add Book';
   ['title','author','category','publisher','published_date','pages','price','cover_url','description','review','notes']
     .forEach(f => { const el = document.getElementById('lib-f-'+f); if(el) el.value = ''; });
-  document.getElementById('lib-f-status').value = 'purchased';
+  document.getElementById('lib-f-status').value = 'reading';
   document.getElementById('lib-isbn-input').value = '';
   document.getElementById('lib-lookup-status').textContent = '';
   _libRenderStars(0);
@@ -9922,6 +10118,530 @@ async function _deleteDirective(id) {
 
 function _escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Dividend Tracker
+// ══════════════════════════════════════════════════════════════════════════════
+const _DIV_PALETTE = [
+  '#22c55e','#3b82f6','#f59e0b','#f97316','#8b5cf6',
+  '#14b8a6','#ef4444','#ec4899','#a78bfa','#34d399',
+  '#fbbf24','#60a5fa','#fb7185','#4ade80','#38bdf8',
+];
+let _divData = null, _divForecast = null;
+
+async function loadDividendPage(forceRefresh = false) {
+  document.getElementById('div-status').textContent = 'Loading broker data… this may take a moment.';
+  document.getElementById('div-refresh-btn').disabled = true;
+  try {
+    const token = getToken();
+    if (forceRefresh) {
+      await apiFetch(`/api/dividends/refresh?token=${encodeURIComponent(token)}`, { method: 'POST' });
+    }
+    const [holdings, forecast, history] = await Promise.all([
+      apiFetch(`/api/dividends/holdings?token=${encodeURIComponent(token)}`),
+      apiFetch(`/api/dividends/forecast?token=${encodeURIComponent(token)}`),
+      apiFetch(`/api/dividends/history?token=${encodeURIComponent(token)}&limit=100`),
+    ]);
+    _divData = holdings;
+    _divForecast = forecast;
+    _divActiveAccount = '';
+    _divRenderStats(holdings.summary);
+    _divRenderAccountCards(holdings.accounts || []);
+    _divRenderHoldings(holdings.accounts || []);
+    _divRenderBar(forecast.monthly || []);
+    _divRenderPies(forecast);
+    _divRenderHistory(history.records || []);
+    document.getElementById('div-status').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+  } catch(e) {
+    document.getElementById('div-status').textContent = 'Error: ' + e.message;
+    toast('error', 'Dividends', e.message);
+  } finally {
+    document.getElementById('div-refresh-btn').disabled = false;
+  }
+}
+
+function _divFmt$(v) { return '$' + (+v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+async function _divBackfill() {
+  const btn = document.getElementById('div-backfill-btn');
+  const status = document.getElementById('div-status');
+  btn.disabled = true;
+  status.textContent = 'Fetching 18 months of dividend history… (this may take 30–60s)';
+  try {
+    const token = getToken();
+    const r = await fetch(`/api/dividends/backfill?token=${encodeURIComponent(token)}`, {method:'POST'});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    status.textContent = `Backfill complete — ${d.saved} records saved across ${d.tickers} tickers`;
+    toast('success', 'Dividend Backfill', `Saved ${d.saved} historical payments from ${d.tickers} tickers`);
+    // Reload history table
+    const token2 = getToken();
+    const hist = await apiFetch(`/api/dividends/history?token=${encodeURIComponent(token2)}&limit=500`);
+    _divRenderHistory(hist.records || []);
+  } catch(e) {
+    status.textContent = 'Backfill failed: ' + e.message;
+    toast('error', 'Backfill Failed', e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function _divRenderStats(s) {
+  if (!s) return;
+  const annual = s.annual_projected_income || 0;
+  document.getElementById('div-stat-annual').textContent    = _divFmt$(annual);
+  document.getElementById('div-stat-annual-sub').textContent = _divFmt$(annual / 12) + '/mo avg';
+  document.getElementById('div-stat-yield').textContent     = (+s.forward_yield_on_portfolio_pct || 0).toFixed(2) + '%';
+  document.getElementById('div-stat-payers').textContent    = s.dividend_payers || 0;
+  document.getElementById('div-stat-payers-sub').textContent = 'of ' + (s.total_holdings || 0) + ' holdings';
+  document.getElementById('div-stat-portval').textContent   = _divFmt$(s.total_portfolio_value || 0);
+}
+
+let _divActiveAccount = '';
+
+function _divRenderAccountCards(accounts) {
+  const container = document.getElementById('div-account-cards');
+  if (!container) return;
+  const brokerColors = { alpaca:'#3b82f6', tradier:'#22c55e', webull:'#f97316' };
+  const cards = accounts.map(a => {
+    const payers  = (a.positions||[]).filter(p => p.is_dividend_payer);
+    const annInc  = payers.reduce((s,p) => s + (p.projected_annual_income||0), 0);
+    const mktVal  = (a.positions||[]).reduce((s,p) => s + (p.market_value||0), 0);
+    const broker  = (a.label||'').split('-')[0];
+    const bColor  = brokerColors[broker] || 'var(--muted)';
+    const isActive = _divActiveAccount === a.label;
+    return `<div class="card" onclick="_divSelectAccount('${a.label}')"
+      style="padding:14px 16px;cursor:pointer;border-left:3px solid ${bColor};
+             ${isActive ? 'background:rgba(255,255,255,.06);outline:1px solid '+bColor : ''}">
+      <div style="font-weight:700;font-size:13px;color:var(--fg);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+           title="${_escHtml(a.label)}">${_escHtml(a.display_name || a.label)}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px;text-transform:capitalize">${broker}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px">
+        <div><span style="color:var(--muted)">Payers</span><br><strong style="color:var(--fg)">${payers.length}</strong></div>
+        <div><span style="color:var(--muted)">Annual</span><br><strong style="color:var(--green)">$${annInc.toFixed(0)}</strong></div>
+      </div>
+    </div>`;
+  });
+  container.innerHTML = cards.join('');
+}
+
+function _divSelectAccount(label) {
+  _divActiveAccount = (_divActiveAccount === label) ? '' : label;
+  if (!_divData) return;
+  const accounts = _divActiveAccount
+    ? (_divData.accounts||[]).filter(a => a.label === _divActiveAccount)
+    : (_divData.accounts||[]);
+  _divRenderAccountCards(_divData.accounts||[]);
+  _divRenderHoldings(accounts);
+}
+
+function _divApplyFilter() {
+  if (!_divData) return;
+  const accounts = _divActiveAccount
+    ? (_divData.accounts||[]).filter(a => a.label === _divActiveAccount)
+    : (_divData.accounts||[]);
+  _divRenderHoldings(accounts);
+}
+
+function _divFreqLabel(f) {
+  return {1:'Annual',2:'Semi-Annual',4:'Quarterly',12:'Monthly'}[+f] || (f || '—');
+}
+
+function _divRenderHoldings(accounts) {
+  const tbody = document.getElementById('div-holdings-body');
+  const rows = [];
+  let payerCount = 0;
+  (accounts||[]).forEach(acct => {
+    const acctName = acct.display_name || acct.label;
+    (acct.positions||[]).forEach(p => {
+      const isPayer = p.is_dividend_payer;
+      if (isPayer) payerCount++;
+      const dim = isPayer ? '' : 'opacity:.45;';
+      rows.push(`<tr style="${dim}">
+        <td><span class="chip chip-muted" style="font-size:10px" title="${_escHtml(acct.label)}">${_escHtml(acctName)}</span></td>
+        <td style="font-weight:700">${_escHtml(p.symbol)}</td>
+        <td style="font-size:11px;color:var(--muted)">${_escHtml(p.sector||'—')}</td>
+        <td>${(+p.qty||0).toLocaleString()}</td>
+        <td>${_divFmt$(p.market_value||0)}</td>
+        <td style="font-family:monospace;font-size:11px">${isPayer ? _escHtml(p.ex_date||'—') : '—'}</td>
+        <td style="font-family:monospace;font-size:11px">${isPayer ? _escHtml(p.pay_date||'—') : '—'}</td>
+        <td>${isPayer ? '$'+(+(p.amount_per_share||0)).toFixed(4) : '—'}</td>
+        <td style="font-size:11px;color:var(--muted)">${isPayer ? _divFreqLabel(p.frequency) : '—'}</td>
+        <td>${isPayer ? '$'+(+(p.forward_annual_rate||0)).toFixed(2) : '—'}</td>
+        <td style="${isPayer?'color:var(--green)':''}">${isPayer ? (+(p.forward_yield_pct||0)).toFixed(2)+'%' : '—'}</td>
+        <td style="${isPayer?'color:var(--green);font-weight:600':''}">${isPayer ? _divFmt$(p.projected_annual_income||0) : '—'}</td>
+      </tr>`);
+    });
+  });
+  const total = rows.length;
+  document.getElementById('div-holdings-count').textContent =
+    `${payerCount} payers · ${total - payerCount} non-payers`;
+  tbody.innerHTML = rows.length
+    ? rows.join('')
+    : '<tr><td colspan="12" class="empty-state">No positions found.</td></tr>';
+}
+
+// ── Bar Chart ─────────────────────────────────────────────────────────────────
+function _divRenderBar(months) {
+  const svg = document.getElementById('div-bar-svg');
+  svg.innerHTML = '';
+  if (!months.length) return;
+  const W=900, H=190, pt=24, pr=10, pb=44, pl=56;
+  const iW = W-pl-pr, iH = H-pt-pb;
+  const n  = months.length;
+  const maxVal = Math.max(...months.map(m => m.projected_income), 1);
+  const ns = 'http://www.w3.org/2000/svg';
+  const mk = (tag,attrs,text) => {
+    const el = document.createElementNS(ns,tag);
+    Object.entries(attrs).forEach(([k,v]) => el.setAttribute(k,v));
+    if (text != null) el.textContent = text;
+    return el;
+  };
+  const thisMonth = new Date().toISOString().slice(0,7);
+  const totalIncome = months.reduce((s,m) => s+m.projected_income, 0);
+  document.getElementById('div-bar-total').textContent = _divFmt$(totalIncome) + ' projected (12 mo)';
+
+  // Y gridlines
+  for (let i=0; i<=4; i++) {
+    const y = pt + iH - (i/4)*iH;
+    svg.appendChild(mk('line',{x1:pl,x2:W-pr,y1:y,y2:y,stroke:'#1e2438','stroke-width':'1'}));
+    const v = maxVal*(i/4);
+    svg.appendChild(mk('text',{x:pl-5,y:y+4,'text-anchor':'end',fill:'#6b7394','font-size':'9','font-family':'system-ui,sans-serif'},
+      v>=1000 ? '$'+(v/1000).toFixed(1)+'k' : '$'+v.toFixed(0)));
+  }
+
+  const barW = (iW/n)*0.6;
+  const gap  = (iW/n)*0.4;
+  months.forEach((m,i) => {
+    const bH  = Math.max((m.projected_income/maxVal)*iH, m.projected_income > 0 ? 2 : 0);
+    const x   = pl + i*(iW/n) + gap/2;
+    const y   = pt + iH - bH;
+    const cur = m.month === thisMonth;
+    svg.appendChild(mk('rect',{x,y,width:barW,height:bH||1,fill:cur?'#22c55e':'#3b82f6',rx:'3',opacity:'0.85'}));
+    // value label on bar
+    if (m.projected_income > 0) {
+      svg.appendChild(mk('text',{x:x+barW/2,y:y-4,'text-anchor':'middle',fill:'#e4e8f1','font-size':'8','font-family':'system-ui,sans-serif'},
+        '$'+m.projected_income.toFixed(0)));
+    }
+    // month label
+    svg.appendChild(mk('text',{x:x+barW/2,y:H-pb+13,'text-anchor':'middle',fill:cur?'#22c55e':'#6b7394','font-size':'9','font-family':'system-ui,sans-serif','font-weight':cur?'700':'400'},
+      m.label.slice(0,3)));
+    svg.appendChild(mk('text',{x:x+barW/2,y:H-pb+23,'text-anchor':'middle',fill:'#3d4566','font-size':'8','font-family':'system-ui,sans-serif'},
+      m.month.slice(0,4)));
+  });
+}
+
+// ── Donut Pie ─────────────────────────────────────────────────────────────────
+function _divDrawDonut(svgId, data) {
+  const svg = document.getElementById(svgId);
+  svg.innerHTML = '';
+  const ns = 'http://www.w3.org/2000/svg';
+  const cx=60, cy=60, R=52, r=30;
+  const total = data.reduce((s,d)=>s+d.value,0);
+  if (!total || !data.length) {
+    const t = document.createElementNS(ns,'text');
+    t.setAttribute('x','60'); t.setAttribute('y','64'); t.setAttribute('text-anchor','middle');
+    t.setAttribute('fill','#3d4566'); t.setAttribute('font-size','10');
+    t.textContent = 'No data'; svg.appendChild(t); return;
+  }
+  if (data.length === 1) {
+    // Single item — draw full circle
+    const c = document.createElementNS(ns,'circle');
+    c.setAttribute('cx',cx); c.setAttribute('cy',cy);
+    c.setAttribute('r',(R+r)/2); c.setAttribute('stroke',data[0].color);
+    c.setAttribute('stroke-width',R-r); c.setAttribute('fill','none');
+    svg.appendChild(c);
+    return;
+  }
+  let angle = -Math.PI/2;
+  data.forEach(d => {
+    const sweep = (d.value/total)*2*Math.PI;
+    const x1=cx+R*Math.cos(angle), y1=cy+R*Math.sin(angle);
+    const xi1=cx+r*Math.cos(angle), yi1=cy+r*Math.sin(angle);
+    angle += sweep;
+    const x2=cx+R*Math.cos(angle), y2=cy+R*Math.sin(angle);
+    const xi2=cx+r*Math.cos(angle), yi2=cy+r*Math.sin(angle);
+    const large = sweep > Math.PI ? 1 : 0;
+    const path = document.createElementNS(ns,'path');
+    path.setAttribute('d',`M${xi1},${yi1} L${x1},${y1} A${R},${R} 0 ${large},1 ${x2},${y2} L${xi2},${yi2} A${r},${r} 0 ${large},0 ${xi1},${yi1} Z`);
+    path.setAttribute('fill',d.color); path.setAttribute('opacity','0.92');
+    svg.appendChild(path);
+  });
+}
+
+function _divLegendHtml(data, total) {
+  return data.map((d,i) => `
+    <div style="display:flex;align-items:center;gap:5px;min-width:0">
+      <span style="width:8px;height:8px;border-radius:2px;background:${d.color};flex-shrink:0;display:inline-block"></span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">${_escHtml(d.label)}</span>
+      <span style="color:var(--muted);white-space:nowrap;flex-shrink:0">$${(+d.value).toFixed(0)} <span style="color:var(--dim)">(${total?((d.value/total)*100).toFixed(0):0}%)</span></span>
+    </div>`).join('');
+}
+
+function _divRenderPies(forecast) {
+  if (!forecast) return;
+  const tickerData  = (forecast.by_ticker||[]).slice(0,15).map((d,i) => ({label:d.symbol,  value:d.annual_income, color:_DIV_PALETTE[i%_DIV_PALETTE.length]}));
+  const sectorData  = (forecast.by_sector||[]).slice(0,12).map((d,i) => ({label:d.sector||'Unknown', value:d.annual_income, color:_DIV_PALETTE[i%_DIV_PALETTE.length]}));
+  const accountData = (forecast.by_account||[]).map((d,i) => ({label:d.display_name||d.label, value:d.annual_income, color:_DIV_PALETTE[i%_DIV_PALETTE.length]}));
+  const yieldData   = (forecast.by_yield||[]).slice(0,10).map((d,i) => ({label:d.symbol, value:d.forward_yield_pct, yieldPct:d.forward_yield_pct, color:_DIV_PALETTE[i%_DIV_PALETTE.length]}));
+  const tTotal  = tickerData.reduce((s,d)=>s+d.value,0);
+  const sTotal  = sectorData.reduce((s,d)=>s+d.value,0);
+  const aTotal  = accountData.reduce((s,d)=>s+d.value,0);
+  _divDrawDonut('div-pie-ticker',  tickerData);
+  _divDrawDonut('div-pie-sector',  sectorData);
+  _divDrawDonut('div-pie-account', accountData);
+  _divDrawDonut('div-pie-yield',   yieldData);
+  document.getElementById('div-leg-ticker').innerHTML  = _divLegendHtml(tickerData,  tTotal);
+  document.getElementById('div-leg-sector').innerHTML  = _divLegendHtml(sectorData,  sTotal);
+  document.getElementById('div-leg-account').innerHTML = _divLegendHtml(accountData, aTotal);
+  document.getElementById('div-leg-yield').innerHTML   = yieldData.map(d => `
+    <div style="display:flex;align-items:center;gap:5px;min-width:0">
+      <span style="width:8px;height:8px;border-radius:2px;background:${d.color};flex-shrink:0;display:inline-block"></span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">${_escHtml(d.label)}</span>
+      <span style="color:var(--green);font-weight:600;white-space:nowrap">${d.yieldPct.toFixed(2)}%</span>
+    </div>`).join('');
+}
+
+// Stored history records for filtering
+let _divHistoryRecords = [];
+
+function _divRenderHistory(records) {
+  _divHistoryRecords = records || [];
+
+  // Build display name lookup from loaded accounts
+  const nameMap = {};
+  if (_divData && _divData.accounts) {
+    for (const a of _divData.accounts) {
+      nameMap[a.label] = a.display_name || a.label;
+    }
+  }
+
+  // Populate account filter dropdown (deduplicated, sorted by display name)
+  const sel = document.getElementById('div-hist-account-filter');
+  if (sel) {
+    const currentVal = sel.value;
+    const labels = [...new Set(records.map(r => r.account_label))].sort();
+    sel.innerHTML = '<option value="">All Accounts</option>' +
+      labels.map(lbl => {
+        const dn = nameMap[lbl] || lbl;
+        return `<option value="${_escHtml(lbl)}"${lbl === currentVal ? ' selected' : ''}>${_escHtml(dn)}</option>`;
+      }).join('');
+  }
+
+  _divFilterHistory(nameMap);
+}
+
+function _divFilterHistory(nameMap) {
+  const tbody = document.getElementById('div-history-body');
+  const sel = document.getElementById('div-hist-account-filter');
+  const filterLabel = sel ? sel.value : '';
+
+  // Build name map if not passed in
+  if (!nameMap) {
+    nameMap = {};
+    if (_divData && _divData.accounts) {
+      for (const a of _divData.accounts) nameMap[a.label] = a.display_name || a.label;
+    }
+  }
+
+  const filtered = filterLabel
+    ? _divHistoryRecords.filter(r => r.account_label === filterLabel)
+    : _divHistoryRecords;
+
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No history recorded.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtered.map(r => {
+    const dn = nameMap[r.account_label] || r.account_label;
+    return `<tr>
+    <td style="font-family:monospace;font-size:11px">${_escHtml(r.pay_date||'—')}</td>
+    <td><span class="chip chip-muted" style="font-size:10px">${_escHtml(dn)}</span></td>
+    <td style="font-weight:700">${_escHtml(r.ticker)}</td>
+    <td>$${(+r.amount_per_share).toFixed(4)}</td>
+    <td>${(+r.qty).toLocaleString()}</td>
+    <td style="color:var(--green);font-weight:600">$${(+r.total_received).toFixed(2)}</td>
+    <td style="font-size:11px;color:var(--muted)">${_escHtml(r.source||'manual')}</td>
+  </tr>`;
+  }).join('');
+
+  // Keep chart in sync if visible
+  if (_divHistMode === 'chart') _divHistChartRender();
+}
+
+// ── History Tab Toggle ────────────────────────────────────────────────────────
+let _divHistMode = 'table';
+
+function _divHistTab(mode) {
+  _divHistMode = mode;
+  const tableView = document.getElementById('div-hist-table-view');
+  const chartView = document.getElementById('div-hist-chart-view');
+  const tabTable  = document.getElementById('div-hist-tab-table');
+  const tabChart  = document.getElementById('div-hist-tab-chart');
+  if (mode === 'chart') {
+    tableView.style.display = 'none';
+    chartView.style.display = 'block';
+    tabChart.style.background = 'var(--accent)';
+    tabChart.style.color = '#fff';
+    tabTable.style.background = 'transparent';
+    tabTable.style.color = 'var(--muted)';
+    _divHistChartRender();
+  } else {
+    tableView.style.display = '';
+    chartView.style.display = 'none';
+    tabTable.style.background = 'var(--accent)';
+    tabTable.style.color = '#fff';
+    tabChart.style.background = 'transparent';
+    tabChart.style.color = 'var(--muted)';
+  }
+}
+
+function _divHistChartRender() {
+  const groupBy = (document.querySelector('input[name="div-hist-group"]:checked') || {}).value || 'month';
+  const filterLabel = (document.getElementById('div-hist-account-filter') || {}).value || '';
+  const nameMap = {};
+  if (_divData && _divData.accounts) {
+    for (const a of _divData.accounts) nameMap[a.label] = a.display_name || a.label;
+  }
+
+  const records = filterLabel
+    ? _divHistoryRecords.filter(r => r.account_label === filterLabel)
+    : _divHistoryRecords;
+
+  if (!records.length) {
+    document.getElementById('div-hist-chart-svg').innerHTML =
+      '<text x="450" y="110" text-anchor="middle" fill="var(--muted)" font-size="13">No history data</text>';
+    document.getElementById('div-hist-chart-legend').innerHTML = '';
+    document.getElementById('div-hist-chart-total').textContent = '';
+    return;
+  }
+
+  // Aggregate
+  const buckets = {};   // key → {label, value}
+  const seriesKeys = [];
+
+  if (groupBy === 'month') {
+    for (const r of records) {
+      const k = (r.pay_date || '').slice(0, 7); // YYYY-MM
+      buckets[k] = (buckets[k] || 0) + (+r.total_received || 0);
+    }
+  } else if (groupBy === 'ticker') {
+    for (const r of records) {
+      const k = r.ticker || '?';
+      buckets[k] = (buckets[k] || 0) + (+r.total_received || 0);
+    }
+  } else {
+    for (const r of records) {
+      const k = r.account_label || '?';
+      buckets[k] = (buckets[k] || 0) + (+r.total_received || 0);
+    }
+  }
+
+  // Sort keys
+  const keys = Object.keys(buckets).sort();
+  const values = keys.map(k => buckets[k]);
+  const maxVal = Math.max(...values) || 1;
+  const grandTotal = values.reduce((s, v) => s + v, 0);
+
+  document.getElementById('div-hist-chart-total').textContent =
+    `Total: $${grandTotal.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`;
+
+  // SVG bar chart
+  const W = 900, H = 220, padL = 60, padR = 20, padT = 20, padB = 55;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+  const n = keys.length;
+  const barW = Math.max(4, Math.min(60, Math.floor(chartW / n) - 4));
+  const gap  = (chartW - barW * n) / (n + 1);
+  const ns = 'http://www.w3.org/2000/svg';
+
+  const svg = document.getElementById('div-hist-chart-svg');
+  svg.innerHTML = '';
+
+  const g = (tag, attrs) => {
+    const el = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    return el;
+  };
+
+  // Y gridlines
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + chartH - (i / 4) * chartH;
+    const val = (maxVal * i / 4);
+    svg.appendChild(g('line', {x1: padL, y1: y, x2: W - padR, y2: y,
+      stroke: 'var(--border)', 'stroke-width': '0.5'}));
+    const lbl = svg.appendChild(g('text', {x: padL - 6, y: y + 4,
+      'text-anchor': 'end', fill: 'var(--muted)', 'font-size': '9'}));
+    lbl.textContent = val >= 1000 ? `$${(val/1000).toFixed(1)}k` : `$${val.toFixed(0)}`;
+  }
+
+  // Bars
+  keys.forEach((k, i) => {
+    const barH = (values[i] / maxVal) * chartH;
+    const x = padL + gap + i * (barW + gap);
+    const y = padT + chartH - barH;
+    const color = _DIV_PALETTE[i % _DIV_PALETTE.length];
+
+    const rect = svg.appendChild(g('rect', {
+      x, y, width: barW, height: Math.max(2, barH),
+      fill: color, rx: '3', opacity: '0.85',
+    }));
+
+    // Value label above bar
+    if (barH > 14) {
+      const vl = svg.appendChild(g('text', {'text-anchor': 'middle',
+        x: x + barW / 2, y: y - 3, fill: color, 'font-size': '8', 'font-weight': '600'}));
+      vl.textContent = `$${values[i].toFixed(0)}`;
+    }
+
+    // X-axis label
+    const xl = svg.appendChild(g('text', {'text-anchor': 'middle',
+      x: x + barW / 2, y: padT + chartH + 14,
+      fill: 'var(--muted)', 'font-size': '9',
+      transform: n > 10 ? `rotate(-40,${x + barW/2},${padT + chartH + 14})` : ''}));
+    xl.textContent = groupBy === 'account' ? (nameMap[k] || k) : k;
+  });
+
+  // Axis lines
+  svg.appendChild(g('line', {x1: padL, y1: padT, x2: padL, y2: padT + chartH,
+    stroke: 'var(--border)', 'stroke-width': '1'}));
+  svg.appendChild(g('line', {x1: padL, y1: padT + chartH, x2: W - padR, y2: padT + chartH,
+    stroke: 'var(--border)', 'stroke-width': '1'}));
+
+  // Legend (for ticker/account grouping)
+  const legend = document.getElementById('div-hist-chart-legend');
+  if (groupBy !== 'month') {
+    legend.innerHTML = keys.map((k, i) => {
+      const lbl = groupBy === 'account' ? (nameMap[k] || k) : k;
+      return `<span style="display:flex;align-items:center;gap:4px">
+        <span style="width:9px;height:9px;border-radius:2px;background:${_DIV_PALETTE[i%_DIV_PALETTE.length]};display:inline-block"></span>
+        <span style="color:var(--muted)">${_escHtml(lbl)}</span>
+        <span style="color:var(--green);font-weight:600">$${values[i].toFixed(2)}</span>
+      </span>`;
+    }).join('');
+  } else {
+    legend.innerHTML = '';
+  }
+}
+
+async function _divAddHistory() {
+  const ticker  = prompt('Ticker symbol:');       if (!ticker) return;
+  const acct    = prompt('Account label:');        if (!acct) return;
+  const payDate = prompt('Pay date (YYYY-MM-DD):'); if (!payDate) return;
+  const aps     = parseFloat(prompt('Amount per share ($):'));  if (isNaN(aps)) return;
+  const qty     = parseFloat(prompt('Shares held at record date:')); if (isNaN(qty)) return;
+  try {
+    const token = getToken();
+    await apiFetch(`/api/dividends/history?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({account_label:acct, ticker:ticker.toUpperCase(), pay_date:payDate,
+                            amount_per_share:aps, qty, total_received:aps*qty, source:'manual'}),
+    });
+    toast('success', 'Dividend Recorded', `${ticker.toUpperCase()} $${(aps*qty).toFixed(2)}`);
+    loadDividendPage();
+  } catch(e) { toast('error', 'Save Failed', e.message); }
 }
 </script>
 

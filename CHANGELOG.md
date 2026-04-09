@@ -3,6 +3,22 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.20] - 2026-04-09
+
+### Added
+- Dividends: four pie charts (Income by Ticker, Income by Sector, Income by Account, Best Dividend Payers by Yield %) moved to very top of page
+- Dividends: "Best Dividend Payers" pie chart — top 10 held tickers ranked by forward dividend yield %, legend shows yield % per ticker
+- Dividends: forecast API now returns `by_yield` array and `forward_yield_pct` per ticker in `by_ticker`
+- Dividends: Received Dividends History — Table / Chart toggle with SVG bar chart of actual received payments
+- Dividends: History chart supports three groupings — Month (default), Ticker, Account — via radio button selector
+- Dividends: History chart respects account filter dropdown; shows grand total and per-bar dollar labels
+- Dividends: History chart account grouping uses friendly display names
+- Dividends: Received Dividends History account filter dropdown — filter table and chart by broker account using display name
+- Dividends: account column in history table replaced with friendly display name (from broker env vars)
+
+### Changed
+- Dividends page layout: pie charts → stats → controls → account cards → 12-month bar chart → holdings → history
+
 ## [3.5.19] - 2026-04-08
 
 ### Added

@@ -609,6 +609,8 @@ async def on_startup():
             """)
         except Exception:
             pass
+    # Dividend tables
+    await _div_ensure_tables()
 
 
 async def save_job(redis, job: dict):
@@ -4511,16 +4513,19 @@ async def delete_library_category(name: str, token: str = ""):
 @app.get("/api/library/stats")
 async def library_stats():
     if not DB_URL:
-        return {"total": 0, "reading": 0, "purchased": 0, "reference": 0, "categories": []}
+        return {"total": 0, "reading": 0, "read": 0, "purchased": 0, "reference": 0, "total_cost": 0.0, "categories": []}
     pool = await _get_db_pool()
     rows = await pool.fetch("SELECT status, COUNT(*) as cnt FROM library_books GROUP BY status")
     counts = {r["status"]: r["cnt"] for r in rows}
+    cost_row = await pool.fetchrow("SELECT COALESCE(SUM(price), 0) as total_cost FROM library_books WHERE price IS NOT NULL")
     cats   = await pool.fetch("SELECT name FROM library_categories ORDER BY name")
     return {
-        "total":     sum(counts.values()),
-        "reading":   counts.get("reading", 0),
-        "purchased": counts.get("purchased", 0),
-        "reference": counts.get("reference", 0),
+        "total":      sum(counts.values()),
+        "reading":    counts.get("reading", 0),
+        "read":       counts.get("read", 0),
+        "purchased":  counts.get("purchased", 0),
+        "reference":  counts.get("reference", 0),
+        "total_cost": float(cost_row["total_cost"]),
         "categories": [r["name"] for r in cats],
     }
 
@@ -4581,6 +4586,652 @@ async def delete_library_book(book_id: str, token: str = ""):
     if r == "DELETE 0":
         raise HTTPException(status_code=404, detail="Book not found")
     return {"ok": True}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Dividend Tracker  —  /api/dividends/*
+# ══════════════════════════════════════════════════════════════════════════════
+
+class _DivHistoryCreate(BaseModel):
+    account_label:    str
+    ticker:           str
+    pay_date:         str
+    amount_per_share: float
+    qty:              float
+    total_received:   float
+    broker:           str = ""
+    source:           str = "manual"
+
+
+async def _div_ensure_tables():
+    """Idempotent migration for dividend tables."""
+    if not DB_URL:
+        return
+    try:
+        pool = await _get_db_pool()
+        await pool.execute("""
+            CREATE TABLE IF NOT EXISTS dividend_meta (
+                ticker                TEXT        NOT NULL PRIMARY KEY,
+                fetched_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                ex_date               DATE,
+                pay_date              DATE,
+                amount_per_share      NUMERIC,
+                frequency             INT,
+                forward_annual_rate   NUMERIC,
+                forward_yield_pct     NUMERIC,
+                sector                TEXT,
+                industry              TEXT,
+                payout_ratio          NUMERIC,
+                five_yr_avg_yield_pct NUMERIC,
+                raw                   JSONB
+            )
+        """)
+        await pool.execute("""
+            CREATE TABLE IF NOT EXISTS dividend_history (
+                id               UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+                account_label    TEXT        NOT NULL,
+                ticker           TEXT        NOT NULL,
+                pay_date         DATE        NOT NULL,
+                amount_per_share NUMERIC     NOT NULL,
+                qty              NUMERIC     NOT NULL,
+                total_received   NUMERIC     NOT NULL,
+                broker           TEXT,
+                source           TEXT        DEFAULT 'manual',
+                created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (account_label, ticker, pay_date)
+            )
+        """)
+        await pool.execute("CREATE INDEX IF NOT EXISTS div_hist_ticker ON dividend_history (ticker, pay_date DESC)")
+        await pool.execute("CREATE INDEX IF NOT EXISTS div_hist_acct   ON dividend_history (account_label, pay_date DESC)")
+    except Exception as e:
+        log.warning("dividend_migration_failed", error=str(e))
+
+
+async def _div_fetch_yahoo(ticker: str) -> dict:
+    """Fetch dividend metadata for one ticker using yfinance (runs in thread pool)."""
+    import asyncio as _asyncio
+    loop = _asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _div_fetch_yahoo_sync, ticker)
+
+
+def _div_fetch_yahoo_sync(ticker: str) -> dict:
+    """Synchronous yfinance fetch — called via run_in_executor."""
+    try:
+        import yfinance as yf
+        from datetime import datetime as _dt, timedelta as _td
+        t = yf.Ticker(ticker)
+        info = t.info or {}
+
+        # ex_date: yfinance returns Unix timestamp
+        ex_raw = info.get("exDividendDate")
+        ex_date = None
+        if ex_raw:
+            try:
+                ex_date = _dt.fromtimestamp(float(ex_raw)).strftime("%Y-%m-%d")
+            except Exception:
+                pass
+
+        # Frequency: count dividend payments in trailing 18 months
+        frequency = 4
+        aps = None
+        try:
+            import pandas as _pd
+            actions = t.dividends
+            if actions is not None and len(actions) > 0:
+                cutoff = _pd.Timestamp.now(tz="America/New_York") - _pd.Timedelta(days=548)
+                if actions.index.tz is None:
+                    actions.index = actions.index.tz_localize("America/New_York")
+                recent = actions[actions.index >= cutoff]
+                n = len(recent)
+                if   n >= 10: frequency = 12
+                elif n >= 3:  frequency = 4
+                elif n >= 1:  frequency = 2
+                else:         frequency = 1
+                if n > 0:
+                    aps = float(recent.iloc[-1])
+        except Exception:
+            pass
+
+        # Forward annual rate — try multiple fields, then derive from yield × price
+        far = info.get("dividendRate") or info.get("trailingAnnualDividendRate")
+        fyp = info.get("dividendYield")
+        if fyp and fyp < 1:
+            fyp = fyp * 100  # convert 0.0399 → 3.99
+
+        # Derive far from yield × current price (common for ETFs)
+        if not far and fyp:
+            price_now = (info.get("currentPrice") or info.get("regularMarketPrice")
+                         or info.get("navPrice") or info.get("previousClose"))
+            if price_now:
+                far = float(fyp) / 100.0 * float(price_now)
+
+        # Derive far from sum of trailing-12-month dividends
+        if not far:
+            try:
+                actions = t.dividends
+                if actions is not None and len(actions) > 0:
+                    cutoff_12m = _pd.Timestamp.now(tz="America/New_York") - _pd.Timedelta(days=365)
+                    if actions.index.tz is None:
+                        actions.index = actions.index.tz_localize("America/New_York")
+                    last_12m = actions[actions.index >= cutoff_12m]
+                    if len(last_12m) > 0:
+                        far = float(last_12m.sum())
+            except Exception:
+                pass
+
+        if not aps:
+            aps = info.get("lastDividendValue") or (float(far) / frequency if far else None)
+
+        # Derive fyp from far if still missing
+        if not fyp and far:
+            price_now = (info.get("currentPrice") or info.get("regularMarketPrice")
+                         or info.get("navPrice") or info.get("previousClose"))
+            if price_now and float(price_now) > 0:
+                fyp = float(far) / float(price_now) * 100.0
+
+        return {
+            "ex_date":               ex_date,
+            "pay_date":              None,
+            "amount_per_share":      float(aps) if aps else None,
+            "frequency":             frequency,
+            "forward_annual_rate":   float(far) if far else None,
+            "forward_yield_pct":     float(fyp) if fyp else None,
+            "sector":                info.get("sector"),
+            "industry":              info.get("industry"),
+            "payout_ratio":          float(info.get("payoutRatio")) if info.get("payoutRatio") else None,
+            "five_yr_avg_yield_pct": float(info.get("fiveYearAvgDividendYield") or 0) or None,
+            "raw":                   {k: v for k, v in info.items() if isinstance(v, (str, int, float, bool, type(None)))},
+        }
+    except Exception as e:
+        log.warning("dividend_yfinance_fetch_failed", ticker=ticker, error=str(e))
+        return {}
+
+
+def _div_parse_date(val):
+    """Convert a date string like '2026-03-16' to a datetime.date object, or None."""
+    if not val:
+        return None
+    if hasattr(val, "toordinal"):
+        return val  # already a date
+    from datetime import date as _date
+    try:
+        return _date.fromisoformat(str(val))
+    except Exception:
+        return None
+
+
+async def _div_get_meta(tickers: list[str]) -> dict[str, dict]:
+    """Return dividend metadata for each ticker, using DB cache (24h TTL)."""
+    if not DB_URL or not tickers:
+        return {}
+    await _div_ensure_tables()
+    pool = await _get_db_pool()
+
+    # Load cached rows
+    rows = await pool.fetch(
+        "SELECT * FROM dividend_meta WHERE ticker = ANY($1) AND fetched_at > NOW() - INTERVAL '24 hours'",
+        tickers,
+    )
+    cached = {r["ticker"]: dict(r) for r in rows}
+    stale  = [t for t in tickers if t not in cached]
+
+    if stale:
+        import asyncio as _asyncio
+        sem = _asyncio.Semaphore(5)
+        async def _fetch_one(t):
+            async with sem:
+                return t, await _div_fetch_yahoo(t)
+        results = await _asyncio.gather(*[_fetch_one(t) for t in stale], return_exceptions=True)
+
+        for res in results:
+            if isinstance(res, Exception):
+                continue
+            ticker, meta = res
+            if not meta:
+                cached[ticker] = {}
+                continue
+            try:
+                await pool.execute("""
+                    INSERT INTO dividend_meta
+                        (ticker, fetched_at, ex_date, pay_date, amount_per_share, frequency,
+                         forward_annual_rate, forward_yield_pct, sector, industry,
+                         payout_ratio, five_yr_avg_yield_pct, raw)
+                    VALUES ($1, NOW(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                    ON CONFLICT (ticker) DO UPDATE SET
+                        fetched_at=NOW(), ex_date=EXCLUDED.ex_date, pay_date=EXCLUDED.pay_date,
+                        amount_per_share=EXCLUDED.amount_per_share, frequency=EXCLUDED.frequency,
+                        forward_annual_rate=EXCLUDED.forward_annual_rate, forward_yield_pct=EXCLUDED.forward_yield_pct,
+                        sector=EXCLUDED.sector, industry=EXCLUDED.industry,
+                        payout_ratio=EXCLUDED.payout_ratio, five_yr_avg_yield_pct=EXCLUDED.five_yr_avg_yield_pct,
+                        raw=EXCLUDED.raw
+                """,
+                    ticker,
+                    _div_parse_date(meta.get("ex_date")),
+                    _div_parse_date(meta.get("pay_date")),
+                    meta.get("amount_per_share"),
+                    meta.get("frequency"),
+                    meta.get("forward_annual_rate"),
+                    meta.get("forward_yield_pct"),
+                    meta.get("sector"),
+                    meta.get("industry"),
+                    meta.get("payout_ratio"),
+                    meta.get("five_yr_avg_yield_pct"),
+                    json.dumps(meta.get("raw", {})),
+                )
+            except Exception as e:
+                log.warning("dividend_meta_upsert_failed", ticker=ticker, error=str(e))
+            cached[ticker] = meta
+    return cached
+
+
+def _div_project_payments(positions_flat: list[dict], months: list[str]) -> dict:
+    """
+    Project dividend income for each calendar month.
+    positions_flat: list of {symbol, qty, forward_annual_rate, amount_per_share,
+                              frequency, ex_date, sector, account_label, projected_annual_income}
+    months: ['2026-04', '2026-05', …] (12 items)
+    Returns {month_key: {symbol: income, …}, …}
+    """
+    from datetime import date as _date, timedelta as _td
+    monthly: dict[str, dict] = {m: {} for m in months}
+
+    for p in positions_flat:
+        far  = float(p.get("forward_annual_rate") or 0)
+        qty  = float(p.get("qty") or 0)
+        freq = int(p.get("frequency") or 4)
+        aps  = float(p.get("amount_per_share") or 0)
+        sym  = p["symbol"]
+        if far <= 0 or qty <= 0 or freq <= 0:
+            continue
+        if not aps:
+            aps = far / freq
+
+        # Determine first projected payment date
+        ex_str = p.get("ex_date")
+        try:
+            ex = _date.fromisoformat(ex_str) if ex_str else _date.today()
+        except Exception:
+            ex = _date.today()
+        interval = int(365 / freq)
+
+        # Advance to a future ex_date
+        today = _date.today()
+        while ex < today - _td(days=interval):
+            ex += _td(days=interval)
+
+        # Project freq payments across the 12-month window
+        pay_lag = 14  # typical ex→pay lag in days
+        for _ in range(freq + 2):
+            pay_dt = ex + _td(days=pay_lag)
+            mk = pay_dt.strftime("%Y-%m")
+            if mk in monthly:
+                monthly[mk][sym] = monthly[mk].get(sym, 0) + qty * aps
+            ex += _td(days=interval)
+
+    return monthly
+
+
+def _div_account_display_names() -> dict[str, str]:
+    """Return {label: display_name} using connector env vars (LABEL_DISPLAY_NAME)."""
+    try:
+        import toml as _toml
+        cfg = _toml.load(os.getenv("ACCOUNTS_CONFIG", "/app/config/accounts.toml"))
+        result = {}
+        for a in cfg.get("accounts", []):
+            label = a.get("label")
+            if not label:
+                continue
+            dn_key = label.upper().replace("-", "_") + "_DISPLAY_NAME"
+            display = os.getenv(dn_key) or a.get("notes") or label
+            result[label] = display
+        return result
+    except Exception:
+        return {}
+
+
+@app.get("/api/dividends/holdings")
+async def div_holdings(token: str = ""):
+    check_token(token)
+
+    # Reuse the existing broker positions helper — it already handles display names
+    # from env vars (e.g. TRADIER_SANDBOX_DISPLAY_NAME) and normalises position fields.
+    broker_data = await get_broker_positions()
+
+    # Collect all unique tickers across every account
+    all_tickers: list[str] = []
+    for acct in broker_data.get("accounts", []):
+        for p in acct.get("positions", []):
+            sym = (p.get("symbol") or "").upper().strip()
+            if sym and sym not in all_tickers:
+                all_tickers.append(sym)
+
+    # Enrich with dividend metadata (DB cache + yfinance)
+    meta = await _div_get_meta(all_tickers)
+
+    total_value = 0.0
+    total_annual = 0.0
+    total_payers = 0
+    accounts_out = []
+
+    for acct in broker_data.get("accounts", []):
+        lbl          = acct["label"]
+        display_name = acct.get("display_name") or lbl
+        positions_out = []
+
+        for p in acct.get("positions", []):
+            sym  = (p.get("symbol") or "").upper().strip()
+            if not sym:
+                continue
+            qty  = float(p.get("qty") or p.get("quantity") or p.get("shares") or 0)
+            cost = float(p.get("cost_basis") or p.get("cost") or 0)
+            price= float(p.get("current_price") or p.get("last_price") or p.get("mark") or 0)
+            mval = float(p.get("market_value") or (qty * price))
+            total_value += mval
+            m = meta.get(sym, {})
+            far  = float(m.get("forward_annual_rate") or 0)
+            fyp  = float(m.get("forward_yield_pct") or 0)
+            aps  = float(m.get("amount_per_share") or 0)
+            freq = int(m.get("frequency") or 4)
+            is_payer = far > 0
+            ann_income = qty * far if is_payer else 0.0
+            if is_payer:
+                total_payers += 1
+                total_annual  += ann_income
+            positions_out.append({
+                "symbol":                sym,
+                "qty":                   qty,
+                "cost_basis":            cost,
+                "market_value":          mval,
+                "ex_date":               str(m.get("ex_date") or "") or None,
+                "pay_date":              str(m.get("pay_date") or "") or None,
+                "amount_per_share":      aps,
+                "frequency":             freq,
+                "forward_annual_rate":   far,
+                "forward_yield_pct":     fyp,
+                "sector":                m.get("sector") or p.get("sector"),
+                "industry":              m.get("industry"),
+                "is_dividend_payer":     is_payer,
+                "projected_annual_income":  ann_income,
+                "projected_monthly_income": ann_income / 12,
+            })
+        accounts_out.append({
+            "label":        lbl,
+            "display_name": display_name,
+            "positions":    positions_out,
+        })
+
+    fwd_yield = (total_annual / total_value * 100) if total_value > 0 else 0.0
+    return {
+        "accounts": accounts_out,
+        "summary": {
+            "total_holdings":               sum(len(a["positions"]) for a in accounts_out),
+            "dividend_payers":              total_payers,
+            "annual_projected_income":      round(total_annual, 2),
+            "forward_yield_on_portfolio_pct": round(fwd_yield, 4),
+            "total_portfolio_value":        round(total_value, 2),
+        },
+    }
+
+
+@app.get("/api/dividends/forecast")
+async def div_forecast(token: str = ""):
+    check_token(token)
+    redis = await get_redis()
+    cached = await redis.get("dividend:forecast:cache")
+    if cached:
+        return json.loads(cached)
+
+    # Build from holdings
+    holdings = await div_holdings(token=token)
+    from datetime import date as _date
+    today = _date.today()
+    months = [(today.replace(day=1) if i == 0
+               else (_date(today.year + (today.month + i - 1) // 12,
+                           (today.month + i - 1) % 12 + 1, 1)))
+              for i in range(12)]
+    month_keys   = [m.strftime("%Y-%m") for m in months]
+    month_labels = [m.strftime("%b %Y") for m in months]
+
+    # Flatten all positions
+    positions_flat = []
+    for acct in holdings["accounts"]:
+        for p in acct["positions"]:
+            if p["is_dividend_payer"]:
+                positions_flat.append({**p, "account_label": acct["label"]})
+
+    monthly_raw = _div_project_payments(positions_flat, month_keys)
+
+    # Reshape monthly
+    monthly_out = []
+    for mk, lbl in zip(month_keys, month_labels):
+        month_total = sum(monthly_raw[mk].values())
+        monthly_out.append({
+            "month":            mk,
+            "label":            lbl,
+            "projected_income": round(month_total, 2),
+            "breakdown":        [{"symbol": s, "income": round(v, 2)}
+                                 for s, v in sorted(monthly_raw[mk].items(), key=lambda x:-x[1])],
+        })
+
+    # by_ticker (annual)
+    ticker_totals: dict[str, float] = {}
+    ticker_yield:  dict[str, float] = {}
+    for p in positions_flat:
+        sym = p["symbol"]
+        ticker_totals[sym] = ticker_totals.get(sym, 0) + p["projected_annual_income"]
+        fyp = float(p.get("forward_yield_pct") or 0)
+        if fyp > ticker_yield.get(sym, 0):
+            ticker_yield[sym] = fyp
+    total_annual = sum(ticker_totals.values()) or 1
+    by_ticker = sorted(
+        [{"symbol": s, "annual_income": round(v, 2), "pct_of_total": round(v/total_annual*100, 2),
+          "forward_yield_pct": round(ticker_yield.get(s, 0), 2)}
+         for s, v in ticker_totals.items()], key=lambda x: -x["annual_income"])
+
+    # by_yield — top tickers ranked by forward dividend yield %
+    by_yield = sorted(
+        [{"symbol": s, "forward_yield_pct": round(fyp, 2)}
+         for s, fyp in ticker_yield.items() if fyp > 0],
+        key=lambda x: -x["forward_yield_pct"])[:12]
+
+    # by_sector
+    sector_totals: dict[str, float] = {}
+    for p in positions_flat:
+        sec = p.get("sector") or "Unknown"
+        sector_totals[sec] = sector_totals.get(sec, 0) + p["projected_annual_income"]
+    by_sector = sorted(
+        [{"sector": s, "annual_income": round(v, 2), "pct_of_total": round(v/total_annual*100, 2)}
+         for s, v in sector_totals.items()], key=lambda x: -x["annual_income"])
+
+    # by_account — include display_name for friendly pie chart labels
+    acct_totals: dict[str, float] = {}
+    acct_display: dict[str, str] = {a["label"]: a.get("display_name") or a["label"]
+                                     for a in holdings["accounts"]}
+    for p in positions_flat:
+        lbl = p.get("account_label", "unknown")
+        acct_totals[lbl] = acct_totals.get(lbl, 0) + p["projected_annual_income"]
+    by_account = sorted(
+        [{"label": lbl, "display_name": acct_display.get(lbl, lbl),
+          "annual_income": round(v, 2), "pct_of_total": round(v/total_annual*100, 2)}
+         for lbl, v in acct_totals.items()], key=lambda x: -x["annual_income"])
+
+    result = {
+        "monthly":             monthly_out,
+        "by_ticker":           by_ticker,
+        "by_sector":           by_sector,
+        "by_account":          by_account,
+        "by_yield":            by_yield,
+        "total_projected_12mo": round(sum(m["projected_income"] for m in monthly_out), 2),
+    }
+    await redis.set("dividend:forecast:cache", json.dumps(result), ex=3600)
+    return result
+
+
+@app.get("/api/dividends/history")
+async def div_history(token: str = "", account_label: str = "", ticker: str = "", limit: int = 100):
+    check_token(token)
+    await _div_ensure_tables()
+    if not DB_URL:
+        return {"records": [], "total_received": 0}
+    pool = await _get_db_pool()
+    filters, vals = ["TRUE"], []
+    if account_label:
+        vals.append(account_label); filters.append(f"account_label = ${len(vals)}")
+    if ticker:
+        vals.append(ticker.upper()); filters.append(f"ticker = ${len(vals)}")
+    vals.append(limit)
+    rows = await pool.fetch(
+        f"SELECT * FROM dividend_history WHERE {' AND '.join(filters)} ORDER BY pay_date DESC LIMIT ${len(vals)}",
+        *vals,
+    )
+    records = [dict(r) for r in rows]
+    for rec in records:
+        for k, v in rec.items():
+            if hasattr(v, "isoformat"):
+                rec[k] = v.isoformat()
+    total = sum(float(r.get("total_received", 0)) for r in records)
+    return {"records": records, "total_received": round(total, 2)}
+
+
+@app.post("/api/dividends/history")
+async def div_history_add(body: _DivHistoryCreate, token: str = ""):
+    check_token(token)
+    await _div_ensure_tables()
+    if not DB_URL:
+        raise HTTPException(status_code=503, detail="No database configured")
+    pool = await _get_db_pool()
+    from datetime import date as _date
+    await pool.execute("""
+        INSERT INTO dividend_history
+            (account_label, ticker, pay_date, amount_per_share, qty, total_received, broker, source)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (account_label, ticker, pay_date) DO UPDATE
+            SET amount_per_share=EXCLUDED.amount_per_share,
+                qty=EXCLUDED.qty,
+                total_received=EXCLUDED.total_received
+    """,
+        body.account_label, body.ticker.upper(),
+        _date.fromisoformat(body.pay_date),
+        body.amount_per_share, body.qty, body.total_received,
+        body.broker, body.source,
+    )
+    return {"ok": True}
+
+
+@app.post("/api/dividends/refresh")
+async def div_refresh(token: str = ""):
+    check_token(token)
+    redis = await get_redis()
+    await redis.delete("dividend:forecast:cache", "dividend:holdings:cache")
+    if DB_URL:
+        try:
+            pool = await _get_db_pool()
+            await pool.execute("DELETE FROM dividend_meta WHERE fetched_at < NOW()")
+        except Exception:
+            pass
+    return {"ok": True}
+
+
+@app.post("/api/dividends/backfill")
+async def div_backfill(token: str = ""):
+    """
+    Fetch 18 months of actual dividend payment history from yfinance for every
+    ticker held in every broker account and save to dividend_history.
+    Uses current qty as the held quantity for each account/ticker pair.
+    """
+    check_token(token)
+    if not DB_URL:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    # Get all current holdings
+    broker_data = await get_broker_positions()
+    pool = await _get_db_pool()
+
+    # Build {ticker: {account_label: qty}} map
+    ticker_accounts: dict[str, dict[str, float]] = {}
+    for acct in broker_data.get("accounts", []):
+        lbl = acct["label"]
+        for p in acct.get("positions", []):
+            sym = (p.get("symbol") or "").upper().strip()
+            if not sym:
+                continue
+            qty = float(p.get("qty") or p.get("quantity") or 0)
+            if qty <= 0:
+                continue
+            if sym not in ticker_accounts:
+                ticker_accounts[sym] = {}
+            ticker_accounts[sym][lbl] = qty
+
+    if not ticker_accounts:
+        return {"ok": True, "saved": 0, "tickers": 0}
+
+    import asyncio as _asyncio
+    from datetime import date as _date, datetime as _dt, timedelta as _td, timezone as _tz
+    import pandas as _pd
+
+    cutoff = _pd.Timestamp.now(tz="America/New_York") - _pd.Timedelta(days=548)
+
+    def _fetch_history_sync(ticker: str) -> list[tuple]:
+        """Return list of (pay_date_str, amount_per_share) for last 18 months."""
+        try:
+            import yfinance as yf
+            t = yf.Ticker(ticker)
+            divs = t.dividends
+            if divs is None or len(divs) == 0:
+                return []
+            # Ensure index is tz-aware for comparison
+            if divs.index.tz is None:
+                divs.index = divs.index.tz_localize("America/New_York")
+            recent = divs[divs.index >= cutoff]
+            results = []
+            for dt_idx, amt in recent.items():
+                try:
+                    d = dt_idx.date() if hasattr(dt_idx, 'date') else _pd.Timestamp(dt_idx).date()
+                    results.append((str(d), float(amt)))
+                except Exception:
+                    pass
+            return results
+        except Exception as e:
+            log.warning("div_backfill.fetch_failed", ticker=ticker, error=str(e))
+            return []
+
+    loop = _asyncio.get_event_loop()
+    sem = _asyncio.Semaphore(5)
+
+    async def _fetch_one(ticker):
+        async with sem:
+            return ticker, await loop.run_in_executor(None, _fetch_history_sync, ticker)
+
+    results = await _asyncio.gather(*[_fetch_one(t) for t in ticker_accounts], return_exceptions=True)
+
+    total_saved = 0
+    for res in results:
+        if isinstance(res, Exception):
+            continue
+        ticker, payments = res
+        if not payments:
+            continue
+        for pay_date_str, aps in payments:
+            pay_date = _date.fromisoformat(pay_date_str)
+            for acct_label, qty in ticker_accounts[ticker].items():
+                try:
+                    await pool.execute("""
+                        INSERT INTO dividend_history
+                            (account_label, ticker, pay_date, amount_per_share, qty,
+                             total_received, source)
+                        VALUES ($1, $2, $3, $4, $5, $6, 'backfill')
+                        ON CONFLICT (account_label, ticker, pay_date) DO NOTHING
+                    """,
+                        acct_label, ticker, pay_date,
+                        aps, qty, round(aps * qty, 4),
+                    )
+                    total_saved += 1
+                except Exception as e:
+                    log.warning("div_backfill.insert_failed",
+                                ticker=ticker, acct=acct_label, error=str(e))
+
+    log.info("div_backfill.done", tickers=len(ticker_accounts), saved=total_saved)
+    return {"ok": True, "saved": total_saved, "tickers": len(ticker_accounts)}
+
 
 _db_pool = None
 async def _get_db_pool():
