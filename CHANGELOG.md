@@ -3,6 +3,25 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.21] - 2026-04-10
+
+### Added
+- Webull MCP server: new `ot-mcp-webull` container (`mcp/webull-mcp/`) using `webull-openapi-mcp==0.1.0` with streamable-HTTP transport; named volume `webull-token` for OAuth token persistence
+- Webull MCP: `WEBULL_APP_KEY`, `WEBULL_APP_SECRET`, `WEBULL_ENVIRONMENT`, `WEBULL_REGION_ID` added to `.env.sample` and compose env
+- Webull MCP: added to chat-agent `MCP_SERVERS`, topology (node + 3 edges), Agents page, Logs dropdown, Service Connectors config panel
+- Active Positions: server-side positions cache (`_positions_cache`, 120s TTL) — serves cached data instantly then refreshes in background; first load from broker takes ~20s, subsequent loads ~26ms
+- Active Positions: `?force=true` query param on `/api/broker/positions` to bypass cache and force live fetch
+- Active Positions: cache age badge ("cached Xs ago" / "live") and "↻ Refresh" button in page header
+
+### Changed
+- Alpaca MCP (`mcp/alpaca-mcp-server/Dockerfile`): now builds from `alpaca-mcp-server==2.0.0` via pip (was pulling external image)
+- `get_broker_positions()` refactored: core fetch extracted to `_fetch_positions_from_gateway()`, cache logic in endpoint wrapper
+
+### Fixed
+- Agents page: `mcp-unusualwhales` and `mcp-webull` were missing from `KNOWN_AGENTS`, `PODMAN_HEALTH_ONLY`, `CONTAINER_MAP`
+- Library page: table/grid view toggle (`_libSetView`) was not calling `_libRender()` — table was empty on switch
+- Trading Dashboard breadth indicator: not called on page navigation (only on WS ticks); retry was blocked for 15s on fetch error
+
 ## [3.5.20] - 2026-04-09
 
 ### Added

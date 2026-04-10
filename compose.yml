@@ -13,6 +13,7 @@ volumes:
   vault-data:
   prometheus-data:
   grafana-data:
+  webull-token:
 
 services:
 
@@ -283,7 +284,9 @@ services:
         condition: service_healthy
 
   mcp-alpaca:
-    image: localhost/ot-mcp-alpaca:latest
+    build:
+      context: ./mcp/alpaca-mcp-server
+      dockerfile: Dockerfile
     container_name: ot-mcp-alpaca
     restart: unless-stopped
     environment:
@@ -326,6 +329,24 @@ services:
       FASTMCP_HOST: "0.0.0.0"
       FASTMCP_PORT: "8000"
       MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}
+    networks: [trading-net]
+
+  mcp-webull:
+    build:
+      context: ./mcp/webull-mcp
+      dockerfile: Dockerfile
+    container_name: ot-mcp-webull
+    restart: unless-stopped
+    environment:
+      FASTMCP_HOST: "0.0.0.0"
+      FASTMCP_PORT: "8000"
+      WEBULL_APP_KEY: ${WEBULL_APP_KEY:-}
+      WEBULL_APP_SECRET: ${WEBULL_APP_SECRET:-}
+      WEBULL_ENVIRONMENT: ${WEBULL_ENVIRONMENT:-prod}
+      WEBULL_REGION_ID: ${WEBULL_REGION_ID:-us}
+      WEBULL_TOKEN_DIR: /app/conf
+    volumes:
+      - webull-token:/app/conf
     networks: [trading-net]
 
   scraper-yahoo:
@@ -510,7 +531,7 @@ services:
     environment:
       SERVICE_NAME: chat-agent
       # MCP servers — comma-separated name=url pairs
-      MCP_SERVERS: "yahoo=http://ot-mcp-yahoo:8000/mcp,alpaca=http://ot-mcp-alpaca:8000/mcp,tradingview=http://ot-mcp-tradingview:8000/mcp,massive=http://ot-mcp-massive:8000/mcp"
+      MCP_SERVERS: "yahoo=http://ot-mcp-yahoo:8000/mcp,alpaca=http://ot-mcp-alpaca:8000/mcp,tradingview=http://ot-mcp-tradingview:8000/mcp,massive=http://ot-mcp-massive:8000/mcp,webull=http://ot-mcp-webull:8000/mcp"
       # AI agent model (OpenRouter model ID)
       CHAT_AGENT_MODEL: ${CHAT_AGENT_MODEL:-anthropic/claude-3-5-haiku}
     env_file: [.env]
@@ -525,6 +546,8 @@ services:
       mcp-tradingview:
         condition: service_started
       mcp-massive:
+        condition: service_started
+      mcp-webull:
         condition: service_started
 
   # ── Command Center WebUI ────────────────────────────────────────────────────

@@ -526,6 +526,7 @@ select option{background:var(--surface2)}
               <option value="mcp-tradingview">mcp-tradingview</option>
               <option value="mcp-massive">mcp-massive</option>
               <option value="mcp-unusualwhales">mcp-unusualwhales</option>
+              <option value="mcp-webull">mcp-webull</option>
               <option value="chat-agent">chat-agent</option>
             </select>
             <select class="select-input" id="logs-lines-select">
@@ -1092,6 +1093,12 @@ select option{background:var(--surface2)}
       </div>
 
       <!-- Combined Positions Table -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)">Active Positions</span>
+        <div style="flex:1;height:1px;background:var(--border)"></div>
+        <span id="positions-cache-badge" style="font-size:10px;color:var(--dim);display:none"></span>
+        <button class="btn btn-ghost btn-xs" id="positions-refresh-btn" onclick="loadUnifiedPositions(true)" title="Force refresh from broker">&#8635; Refresh</button>
+      </div>
       <div id="unified-container">
         <div class="empty-state">Loading positions…</div>
       </div>
@@ -2348,7 +2355,7 @@ function navigate(pageId) {
     case 'page-platform-scheduler': _initSchedThead(); loadSchedulerPage(); break;
     case 'page-platform-system':    _ctRenderThead();  loadSystemPage();   break;
     case 'page-platform-config':    loadConfigPage();    break;
-    case 'page-trading-dashboard':  _initTdHeaders(); loadOvtlyrMarketSignals(); ovtlyrSelectList(_ovtlyrCurrentList); loadTotalPositions(); break;
+    case 'page-trading-dashboard':  _initTdHeaders(); loadOvtlyrMarketSignals(); ovtlyrSelectList(_ovtlyrCurrentList); loadTotalPositions(); _refreshBreadth(); break;
     case 'page-trading-unified':    loadUnifiedPositions(); break;
 
     case 'page-trading-trades':     loadTradesPage();    break;
@@ -2554,6 +2561,7 @@ const TOPO_NODES = [
   { id: 'mcp-tradingview',  label: 'MCP TradingView',  x: 555, y: 230, group: 'mcp'      },
   { id: 'mcp-massive',         label: 'MCP Massive',        x: 280, y: 390, group: 'mcp'      },
   { id: 'mcp-unusualwhales',   label: 'MCP Unusual Whales', x: 90,  y: 460, group: 'mcp'      },
+  { id: 'mcp-webull',          label: 'MCP Webull',         x: 735, y: 400, group: 'mcp'      },
   // Chat agent
   { id: 'chat-agent',       label: 'Chat Agent',       x: 930, y: 140, group: 'interface'},
 ];
@@ -2617,6 +2625,10 @@ const TOPO_EDGES = [
   { from: 'mcp-unusualwhales',   to: 'predictor',         label: 'options flow',   color: '#f97316', markerId: 'arrow-orange', dashed: false },
   { from: 'chat-agent',          to: 'mcp-unusualwhales', label: 'queries',        color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
   { from: 'mcp-unusualwhales',   to: 'orchestrator',      label: 'heartbeat',      color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  // MCP Webull — trading and real-time data for broker-gateway
+  { from: 'mcp-webull',          to: 'broker-gateway',    label: 'mcp/tools',      color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
+  { from: 'chat-agent',          to: 'mcp-webull',        label: 'queries',        color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
+  { from: 'mcp-webull',          to: 'orchestrator',      label: 'heartbeat',      color: '#334155', markerId: 'arrow-gray',   dashed: true  },
 ];
 
 function healthColor(health) {
@@ -2665,6 +2677,7 @@ function resetTopoLayout() {
     'mcp-yahoo':15,'mcp-yahoo_y':375, 'mcp-alpaca':735,'mcp-alpaca_y':310,
     'mcp-massive':280,'mcp-massive_y':390,
     'mcp-unusualwhales':90,'mcp-unusualwhales_y':460,
+    'mcp-webull':735,'mcp-webull_y':400,
     'chat-agent':930,'chat-agent_y':140,
   };
   TOPO_NODES.forEach(n => {
@@ -3846,7 +3859,11 @@ async function _refreshBreadth() {
   try {
     const d = await apiFetch('/api/ovtlyr/breadth');
     _renderBreadth(d);
-  } catch(e) {}
+  } catch(e) {
+    // Clear timer so the next WS tick can retry
+    clearTimeout(_breadthTimer);
+    _breadthTimer = null;
+  }
 }
 
 function _renderBreadth(d) {
@@ -4962,20 +4979,38 @@ async function mentorSaveToServer() {
   }
 }
 
-async function loadUnifiedPositions() {
-  const container = document.getElementById('unified-container');
+async function loadUnifiedPositions(force = false) {
+  const container  = document.getElementById('unified-container');
+  const badge      = document.getElementById('positions-cache-badge');
+  const refreshBtn = document.getElementById('positions-refresh-btn');
+  if (refreshBtn) refreshBtn.disabled = true;
   container.innerHTML = '<div class="empty-state">Loading positions…</div>';
   try {
+    const url = force ? '/api/broker/positions?force=true' : '/api/broker/positions';
     const [posData, sigData, sentData, sectorMap] = await Promise.all([
-      apiFetch('/api/broker/positions'),
+      apiFetch(url),
       apiFetch('/api/positions/signals').catch(() => ({ positions: [] })),
       apiFetch('/api/sentiment').catch(() => ({})),
       apiFetch('/api/positions/sector-map').catch(() => ({})),
     ]);
 
+    // Show cache status badge
+    if (badge) {
+      if (posData.cached && posData.cache_age_s != null) {
+        const age = posData.cache_age_s;
+        const label = age < 60 ? `${age}s ago` : `${Math.round(age/60)}m ago`;
+        badge.textContent = `cached ${label}`;
+        badge.style.display = '';
+      } else {
+        badge.textContent = 'live';
+        badge.style.display = '';
+      }
+    }
+
     const accounts = posData.accounts || [];
     if (!accounts.length) {
       container.innerHTML = '<div class="empty-state">No active accounts — broker gateway may be offline or no positions held</div>';
+      if (refreshBtn) refreshBtn.disabled = false;
       return;
     }
 
@@ -4993,9 +5028,11 @@ async function loadUnifiedPositions() {
 
     // Render tables (always show all accounts regardless of paper filter)
     container.innerHTML = accounts.map(a => _renderUnifiedCard(a, signalMap, sentData, sectorMap)).join('');
+    if (refreshBtn) refreshBtn.disabled = false;
 
   } catch(e) {
     container.innerHTML = `<div class="empty-state">Error: ${e.message}</div>`;
+    if (refreshBtn) refreshBtn.disabled = false;
   }
 }
 
@@ -5313,13 +5350,49 @@ const CFG_META = {
         hint: 'Default: http://ot-mcp-unusualwhales:8000/mcp (auto-set)' },
     ],
   },
+  alpaca_mcp: {
+    label: 'Alpaca MCP', letter: 'A', bg: '#FCEC37', fg: '#111', logo: 'logo-alpaca.png',
+    fields: [
+      { type: 'separator', label: 'API Credentials' },
+      { key: 'ALPACA_API_KEY',    label: 'API Key',    type: 'password', required: true, mono: true,
+        hint: 'app.alpaca.markets → API Keys — shared with broker gateway' },
+      { key: 'ALPACA_SECRET_KEY', label: 'Secret Key', type: 'password', required: true, mono: true,
+        hint: 'ALPACA_SECRET_KEY environment variable read by the MCP server' },
+      { type: 'separator', label: 'Trading Mode' },
+      { key: 'ALPACA_PAPER_TRADE', label: 'Paper Trading', type: 'select', options: ['true', 'false'],
+        hint: 'true = paper mode  ·  false = live — controls which account the MCP server targets' },
+      { type: 'separator', label: 'MCP Server' },
+      { key: 'ALPACA_MCP_URL', label: 'MCP URL', type: 'text',
+        hint: 'Default: http://ot-mcp-alpaca:8000/mcp (auto-set)' },
+    ],
+  },
+  webull_mcp: {
+    label: 'Webull MCP', letter: 'W', bg: '#E82F3E', fg: '#fff', logo: 'logo-webull.png',
+    fields: [
+      { type: 'separator', label: 'OpenAPI Credentials' },
+      { key: 'WEBULL_APP_KEY',    label: 'App Key',    type: 'password', required: true, mono: true,
+        hint: 'From developer.webull.com — separate from your broker API key / secret' },
+      { key: 'WEBULL_APP_SECRET', label: 'App Secret', type: 'password', required: true, mono: true,
+        hint: 'OpenAPI App Secret from developer.webull.com' },
+      { type: 'separator', label: 'Settings' },
+      { key: 'WEBULL_ENVIRONMENT', label: 'Environment', type: 'select', options: ['prod', 'uat'],
+        hint: 'prod = live trading  ·  uat = sandbox / paper' },
+      { key: 'WEBULL_REGION_ID',   label: 'Region',      type: 'select', options: ['us', 'hk'],
+        hint: 'us = United States  ·  hk = Hong Kong' },
+      { type: 'separator', label: 'MCP Server' },
+      { key: 'WEBULL_MCP_URL', label: 'MCP URL', type: 'text',
+        hint: 'Default: http://ot-mcp-webull:8000/mcp (auto-set)' },
+    ],
+  },
 };
 
 let _cfgCurrentService = null;
 
 function _cfgLogoHtml(svc) {
+  const m = CFG_META[svc];
+  const src = m.logo ? `/static/${m.logo}` : `/static/logo-${svc}.png`;
   return `<div style="width:34px;height:34px;border-radius:8px;overflow:hidden;flex-shrink:0;background:transparent">
-    <img src="/static/logo-${svc}.png" style="width:100%;height:100%;object-fit:contain" onerror="this.parentElement.innerHTML='<div style=\'width:34px;height:34px;border-radius:8px;background:${CFG_META[svc].bg};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:${CFG_META[svc].fg}\'>${CFG_META[svc].letter}</div>'">
+    <img src="${src}" style="width:100%;height:100%;object-fit:contain" onerror="this.parentElement.innerHTML='<div style=\'width:34px;height:34px;border-radius:8px;background:${m.bg};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:${m.fg}\'>${m.letter}</div>'">
   </div>`;
 }
 
@@ -8716,6 +8789,7 @@ function _libSetView(view) {
   tileBtn.style.color       = view === 'tile'  ? '#60a5fa' : 'var(--muted)';
   tableBtn.style.background = view === 'table' ? 'rgba(59,130,246,.2)' : 'transparent';
   tableBtn.style.color      = view === 'table' ? '#60a5fa' : 'var(--muted)';
+  _libRender();
 }
 
 function _libStars(rating, size = 14) {

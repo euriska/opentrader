@@ -123,11 +123,11 @@ KNOWN_AGENTS = [
     "scraper-yahoo-sentiment",
     "aggregator", "review-agent", "broker-gateway",
     # MCP servers & chat agent — health derived from Podman (no heartbeat)
-    "mcp-yahoo", "mcp-alpaca", "mcp-tradingview", "mcp-massive", "chat-agent",
+    "mcp-yahoo", "mcp-alpaca", "mcp-tradingview", "mcp-massive", "mcp-unusualwhales", "mcp-webull", "chat-agent",
 ]
 
 # Containers that don't publish heartbeats — health is read from Podman status
-PODMAN_HEALTH_ONLY = {"mcp-yahoo", "mcp-alpaca", "mcp-tradingview", "mcp-massive", "chat-agent"}
+PODMAN_HEALTH_ONLY = {"mcp-yahoo", "mcp-alpaca", "mcp-tradingview", "mcp-massive", "mcp-unusualwhales", "mcp-webull", "chat-agent"}
 
 CONTAINER_MAP = {
     "orchestrator":    "ot-orchestrator",
@@ -143,11 +143,13 @@ CONTAINER_MAP = {
     "aggregator":      "ot-aggregator",
     "review-agent":    "ot-review-agent",
     "broker-gateway":  "ot-broker-gateway",
-    "mcp-yahoo":        "ot-mcp-yahoo",
-    "mcp-alpaca":       "ot-mcp-alpaca",
-    "mcp-tradingview":  "ot-mcp-tradingview",
-    "mcp-massive":      "ot-mcp-massive",
-    "chat-agent":      "ot-chat-agent",
+    "mcp-yahoo":          "ot-mcp-yahoo",
+    "mcp-alpaca":         "ot-mcp-alpaca",
+    "mcp-tradingview":    "ot-mcp-tradingview",
+    "mcp-massive":        "ot-mcp-massive",
+    "mcp-unusualwhales":  "ot-mcp-unusualwhales",
+    "mcp-webull":         "ot-mcp-webull",
+    "chat-agent":         "ot-chat-agent",
     "redis":           "ot-redis",
     "timescaledb":     "ot-timescaledb",
     "grafana":         "ot-grafana",
@@ -1348,12 +1350,15 @@ async def get_broker_status():
     }
 
 
-@app.get("/api/broker/positions")
-async def get_broker_positions():
-    """
-    Fetch live positions and balances for all enabled accounts via the broker gateway.
-    Sends get_positions + get_balances commands to Redis and blpops replies.
-    """
+# ── Positions cache — avoids 20-second broker-gateway wait on every page load ──
+import time as _time
+
+_positions_cache: dict = {"data": None, "ts": 0.0, "refreshing": False}
+_POSITIONS_CACHE_TTL = 120  # serve cache for up to 2 minutes
+
+
+async def _fetch_positions_from_gateway() -> dict:
+    """Core broker-gateway fetch — no caching logic here."""
     import uuid as _uuid, json as _json
 
     try:
@@ -1421,10 +1426,8 @@ async def get_broker_positions():
     sector_lookup: dict = {}
     try:
         _sr = await get_redis()
-        # Redis sector cache (populated by sector-map endpoint)
         cached_sectors = await _sr.hgetall("ticker:sectors")
         sector_lookup.update(cached_sectors)
-        # OVTLYR position intel
         for key in ("ovtlyr:position_intel", "scanner:ovtlyr:latest"):
             raw = await _sr.hgetall(key)
             for sym, val in raw.items():
@@ -1437,12 +1440,10 @@ async def get_broker_positions():
                     pass
     except Exception:
         pass
-    # Static fallback for anything still missing
     for sym, sec in _SECTOR_STATIC.items():
         if sym not in sector_lookup:
             sector_lookup[sym] = sec
 
-    # Also get sentiment close prices for value estimation
     sent_prices: dict = {}
     try:
         sent_raw = await get_redis()
@@ -1463,20 +1464,16 @@ async def get_broker_positions():
     for label in all_labels:
         bal = dict(balances.get(label, {}))
         pos = positions.get(label, [])
-        # Some brokers embed positions in balances (Tradier/Alpaca)
         if not pos and "positions" in bal:
             pos = bal.pop("positions", [])
-        bal.pop("raw", None)   # strip verbose raw field
+        bal.pop("raw", None)
 
-        # Enrich each position with sector + resolved market_value
         enriched_pos = []
         for p in pos:
             p = dict(p)
             sym = (p.get("symbol") or "").upper().strip()
-            # Inject sector
             if sym and "sector" not in p:
                 p["sector"] = sector_lookup.get(sym)
-            # Inject market_value when broker doesn't provide it
             if not p.get("market_value"):
                 qty  = abs(float(p.get("qty") or p.get("quantity") or 0))
                 last = float(p.get("current_price") or p.get("last_price") or 0)
@@ -1486,7 +1483,6 @@ async def get_broker_positions():
                     p["market_value"] = round(qty * last, 2)
                 elif not p.get("market_value"):
                     p["market_value"] = abs(float(p.get("cost_basis") or 0))
-            # Inject current_price when missing
             if not p.get("current_price") and not p.get("last_price"):
                 if sym in sent_prices:
                     p["current_price"] = sent_prices[sym]
@@ -1503,6 +1499,60 @@ async def get_broker_positions():
         })
 
     return {"accounts": accounts}
+
+
+async def _refresh_positions_cache():
+    """Background task: fetch positions and update the module-level cache."""
+    global _positions_cache
+    if _positions_cache["refreshing"]:
+        return
+    _positions_cache["refreshing"] = True
+    try:
+        data = await _fetch_positions_from_gateway()
+        _positions_cache["data"] = data
+        _positions_cache["ts"]   = _time.monotonic()
+    except Exception:
+        pass
+    finally:
+        _positions_cache["refreshing"] = False
+
+
+@app.get("/api/broker/positions")
+async def get_broker_positions(force: bool = False):
+    """
+    Fetch live positions and balances for all enabled accounts via the broker gateway.
+    Returns cached data (≤ 2 min old) immediately; refreshes in background when stale.
+    Pass ?force=true to bypass cache and wait for a fresh fetch.
+    """
+    global _positions_cache
+    now = _time.monotonic()
+    age = now - _positions_cache["ts"]
+
+    if not force and _positions_cache["data"] is not None and age < _POSITIONS_CACHE_TTL:
+        # Fresh cache — return immediately
+        data = dict(_positions_cache["data"])
+        data["cached"] = True
+        data["cache_age_s"] = int(age)
+        return data
+
+    if not force and _positions_cache["data"] is not None:
+        # Stale cache — return what we have and kick off a background refresh
+        if not _positions_cache["refreshing"]:
+            asyncio.create_task(_refresh_positions_cache())
+        data = dict(_positions_cache["data"])
+        data["cached"] = True
+        data["cache_age_s"] = int(age)
+        return data
+
+    # No cache (first load) or forced refresh — wait for live fetch
+    data = await _fetch_positions_from_gateway()
+    _positions_cache["data"] = data
+    _positions_cache["ts"]   = _time.monotonic()
+    _positions_cache["refreshing"] = False
+    result = dict(data)
+    result["cached"] = False
+    result["cache_age_s"] = 0
+    return result
 
 
 @app.get("/api/broker/orders")
@@ -1728,7 +1778,7 @@ async def _restart_broker_gateway() -> None:
     await asyncio.sleep(1)  # let the HTTP response return first
     dependents = [
         "ot-trader-equity", "ot-trader-options", "ot-chat-agent",
-        "ot-mcp-tradingview", "ot-mcp-alpaca", "ot-mcp-yahoo",
+        "ot-mcp-tradingview", "ot-mcp-alpaca", "ot-mcp-yahoo", "ot-mcp-webull",
     ]
     restart_order = dependents + ["ot-broker-gateway"]
     try:
@@ -1980,6 +2030,49 @@ async def test_config_connector(service: str, body: CfgTestBody = CfgTestBody())
                     plan = data.get("queryCount", "?")
                     return {"ok": True, "message": f"Massive API key valid — market data accessible"}
                 raise HTTPException(status_code=400, detail=f"Massive API returned HTTP {resp.status}")
+
+            elif service == "alpaca_mcp":
+                api_key    = ev("ALPACA_API_KEY")
+                secret_key = ev("ALPACA_SECRET_KEY") or ev("ALPACA_API_SECRET")
+                if not api_key or not secret_key:
+                    raise HTTPException(status_code=400, detail="ALPACA_API_KEY and ALPACA_SECRET_KEY are required")
+                paper = ev("ALPACA_PAPER_TRADE") or "true"
+                endpoint = "https://paper-api.alpaca.markets/v2" if paper.lower() == "true" else "https://api.alpaca.markets/v2"
+                resp = await s.get(
+                    f"{endpoint}/account",
+                    headers={"APCA-API-KEY-ID": api_key, "APCA-API-SECRET-KEY": secret_key},
+                    timeout=_aiohttp.ClientTimeout(total=10),
+                )
+                if resp.status == 401:
+                    raise HTTPException(status_code=400, detail="Invalid Alpaca credentials")
+                if resp.status == 403:
+                    raise HTTPException(status_code=400, detail="Alpaca account access forbidden — check subscription")
+                if resp.status == 200:
+                    data = await resp.json()
+                    acct = data.get("account_number", "")
+                    status = data.get("status", "")
+                    mode = "paper" if paper.lower() == "true" else "live"
+                    return {"ok": True, "message": f"Alpaca {mode} account {acct} — status: {status}"}
+                raise HTTPException(status_code=400, detail=f"Alpaca API returned HTTP {resp.status}")
+
+            elif service == "webull_mcp":
+                app_key    = ev("WEBULL_APP_KEY")
+                app_secret = ev("WEBULL_APP_SECRET")
+                if not app_key or not app_secret:
+                    raise HTTPException(status_code=400, detail="WEBULL_APP_KEY and WEBULL_APP_SECRET are required")
+                environment = ev("WEBULL_ENVIRONMENT") or "prod"
+                region      = ev("WEBULL_REGION_ID") or "us"
+                # Ping the MCP server health endpoint (internal container network)
+                mcp_url = ev("WEBULL_MCP_URL") or "http://ot-mcp-webull:8000"
+                base = mcp_url.rstrip("/").removesuffix("/mcp")
+                try:
+                    resp = await s.get(f"{base}/", timeout=_aiohttp.ClientTimeout(total=5))
+                    reachable = resp.status < 500
+                except Exception:
+                    reachable = False
+                if reachable:
+                    return {"ok": True, "message": f"Webull MCP server reachable — env: {environment}, region: {region}. Run 'webull-openapi-mcp auth' in the container if not yet authenticated."}
+                raise HTTPException(status_code=400, detail="Webull MCP container not reachable — ensure ot-mcp-webull is running and credentials are set")
 
             else:
                 raise HTTPException(status_code=404, detail=f"Unknown service: {service}")
