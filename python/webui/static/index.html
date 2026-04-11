@@ -11155,30 +11155,17 @@ async function _optDrawPriceChart(pos, canvasEl) {
   const lo = Math.min(...allPrices) - pad;
   const hi = Math.max(...allPrices) + pad;
   const toY = p => PT + chartH - ((p - lo) / (hi - lo) * chartH);
-  const toX = i => PL + (i / Math.max(ohlcv.length - 1, 1)) * chartW * 0.72; // history uses 72% width
+  // History occupies left 70%, right 30% is the levels panel
+  const histFrac = 0.70;
+  const toX = i => PL + (i / Math.max(ohlcv.length - 1, 1)) * chartW * histFrac;
+  const sepX = PL + chartW * histFrac + 10; // separator x between history and levels panel
+  const levPanelX = sepX + 6;              // where level lines start on the right
 
-  // Background
+  // Background — solid dark, no transparency
   ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, W, H);
-
-  // Level lines extend across full chart width (including right "target zone")
-  for (const lv of levels) {
-    const y = toY(Number(lv.price));
-    ctx.save();
-    ctx.strokeStyle = lv.color;
-    ctx.lineWidth = lv.lw;
-    if (lv.dash.length) ctx.setLineDash(lv.dash);
-    ctx.globalAlpha = 0.85;
-    ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(W - PR + 8, y); ctx.stroke();
-    ctx.setLineDash([]);
-    // Dollar label on left
-    ctx.globalAlpha = 1; ctx.fillStyle = lv.color;
-    ctx.font = '10px monospace'; ctx.textAlign = 'right';
-    ctx.fillText(`$${Number(lv.price).toFixed(2)}`, PL - 4, y + 3);
-    // Name label on right
-    ctx.font = `${lv.lw >= 2.5 ? 'bold ' : ''}11px sans-serif`; ctx.textAlign = 'left';
-    ctx.fillText(lv.label, W - PR + 14, y + 4);
-    ctx.restore();
-  }
+  // Levels panel background (slightly lighter)
+  ctx.fillStyle = '#111820';
+  ctx.fillRect(sepX, PT, W - sepX, chartH);
 
   // Price history line (close prices)
   if (ohlcv.length > 1) {
@@ -11193,8 +11180,8 @@ async function _optDrawPriceChart(pos, canvasEl) {
 
     // Gradient fill under line
     const grad = ctx.createLinearGradient(0, PT, 0, PT + chartH);
-    grad.addColorStop(0, 'rgba(88,166,255,0.18)');
-    grad.addColorStop(1, 'rgba(88,166,255,0)');
+    grad.addColorStop(0, 'rgba(88,166,255,0.25)');
+    grad.addColorStop(1, 'rgba(88,166,255,0.02)');
     ctx.fillStyle = grad;
     ctx.lineTo(toX(ohlcv.length - 1), PT + chartH);
     ctx.lineTo(toX(0), PT + chartH);
@@ -11210,18 +11197,37 @@ async function _optDrawPriceChart(pos, canvasEl) {
       const lbl = c.time ? new Date(c.time * 1000).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : `D${i}`;
       ctx.fillText(lbl, toX(i), H - 6);
     }
+  }
 
-    // Vertical separator: history | target zone
-    const sepX = toX(ohlcv.length - 1) + 10;
-    ctx.save(); ctx.strokeStyle = '#30363d'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
-    ctx.beginPath(); ctx.moveTo(sepX, PT); ctx.lineTo(sepX, PT + chartH); ctx.stroke();
+  // Vertical separator line
+  ctx.save(); ctx.strokeStyle = '#30363d'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(sepX - 4, PT); ctx.lineTo(sepX - 4, PT + chartH); ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = '#8b949e'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('Levels', levPanelX + 2, PT + 10);
+
+  // Level lines — only in the right panel (levPanelX → W - PR + 8)
+  for (const lv of levels) {
+    const y = toY(Number(lv.price));
+    const lineEnd = W - PR + 4;
+    ctx.save();
+    ctx.strokeStyle = lv.color; ctx.lineWidth = lv.lw;
+    if (lv.dash.length) ctx.setLineDash(lv.dash);
+    ctx.globalAlpha = 0.95;
+    ctx.beginPath(); ctx.moveTo(levPanelX, y); ctx.lineTo(lineEnd, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1; ctx.fillStyle = lv.color;
+    // Dollar label on left of levels panel
+    ctx.font = '10px monospace'; ctx.textAlign = 'left';
+    ctx.fillText(`$${Number(lv.price).toFixed(2)}`, levPanelX, y - 3);
+    // Name label on right
+    ctx.font = `${lv.lw >= 2.5 ? 'bold ' : ''}10px sans-serif`; ctx.textAlign = 'left';
+    ctx.fillText(lv.label, lineEnd + 6, y + 4);
     ctx.restore();
-    ctx.fillStyle = '#8b949e'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
-    ctx.fillText('Levels →', sepX + 4, PT + 11);
   }
 
   // Chart border
-  ctx.strokeStyle = '#21262d'; ctx.lineWidth = 1;
+  ctx.strokeStyle = '#30363d'; ctx.lineWidth = 1;
   ctx.strokeRect(PL, PT, W - PL - PR, chartH);
 }
 

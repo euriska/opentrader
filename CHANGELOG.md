@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.28] - 2026-04-11
+
+### Changed
+- Options chart: solid opaque dark background (#0d1117); levels panel slightly lighter (#111820)
+- Options chart: Exit/Roll/Emergency/Entry levels now draw only in the right "Levels" panel — price history occupies the left 70%, levels are confined to the right 30%
+
 ## [3.5.27] - 2026-04-11
 
 ### Fixed
