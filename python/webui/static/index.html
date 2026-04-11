@@ -1381,6 +1381,33 @@ select option{background:var(--surface2)}
         <span id="opt-count-badge" style="margin-left:auto;font-size:11px;color:var(--muted)"></span>
       </div>
 
+      <!-- Sort controls -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+        <span style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em">Sort:</span>
+        <div style="display:flex;align-items:center;gap:5px">
+          <span style="font-size:10px;color:var(--muted)">1st</span>
+          <select id="opt-sort1-key" onchange="_optRender()" style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:11px">
+            <option value="underlying">Ticker</option>
+            <option value="account">Account</option>
+            <option value="qty">Qty</option>
+            <option value="dte" selected>DTE</option>
+          </select>
+          <button id="opt-sort1-dir" data-dir="asc" onclick="_optToggleSortDir(1)"
+            style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">▲ Asc</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px">
+          <span style="font-size:10px;color:var(--muted)">2nd</span>
+          <select id="opt-sort2-key" onchange="_optRender()" style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:11px">
+            <option value="underlying" selected>Ticker</option>
+            <option value="account">Account</option>
+            <option value="qty">Qty</option>
+            <option value="dte">DTE</option>
+          </select>
+          <button id="opt-sort2-dir" data-dir="asc" onclick="_optToggleSortDir(2)"
+            style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">▲ Asc</button>
+        </div>
+      </div>
+
       <!-- Watchlist groups (by broker: account) -->
       <div id="opt-watchlists" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px"></div>
 
@@ -10882,14 +10909,53 @@ function _optUpdateAccountFilter() {
   const sel = document.getElementById('opt-filter-account');
   if (!sel) return;
   const current = sel.value;
-  const accounts = [...new Set(_optPositions.map(p => p.account_label))].sort();
+  // Build unique account list keyed by account_label, displayed as friendly account_name
+  const seen = new Map();
+  for (const p of _optPositions) {
+    if (!seen.has(p.account_label)) seen.set(p.account_label, p.account_name || p.account_label);
+  }
+  const accounts = [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   sel.innerHTML = '<option value="">All Accounts</option>' +
-    accounts.map(a => `<option value="${a}" ${a===current?'selected':''}>${a}</option>`).join('');
+    accounts.map(([label, name]) => `<option value="${label}" ${label===current?'selected':''}>${name}</option>`).join('');
+}
+
+function _optToggleSortDir(tier) {
+  const btn = document.getElementById(`opt-sort${tier}-dir`);
+  if (!btn) return;
+  const next = btn.dataset.dir === 'asc' ? 'desc' : 'asc';
+  btn.dataset.dir = next;
+  btn.textContent = next === 'asc' ? '▲ Asc' : '▼ Desc';
+  _optRender();
+}
+
+function _optSortRows(rows) {
+  const sortKey = (p, key) => {
+    switch (key) {
+      case 'underlying': return (p.underlying || '').toLowerCase();
+      case 'account':    return (p.account_name || '').toLowerCase();
+      case 'qty':        return p.qty != null ? Number(p.qty) : Infinity;
+      case 'dte':        return p.days_to_exp != null ? Number(p.days_to_exp) : Infinity;
+      default:           return '';
+    }
+  };
+  const k1  = (document.getElementById('opt-sort1-key') || {}).value || 'dte';
+  const d1  = ((document.getElementById('opt-sort1-dir') || {}).dataset || {}).dir || 'asc';
+  const k2  = (document.getElementById('opt-sort2-key') || {}).value || 'underlying';
+  const d2  = ((document.getElementById('opt-sort2-dir') || {}).dataset || {}).dir || 'asc';
+  return [...rows].sort((a, b) => {
+    const v1a = sortKey(a, k1), v1b = sortKey(b, k1);
+    const c1 = v1a < v1b ? -1 : v1a > v1b ? 1 : 0;
+    if (c1 !== 0) return d1 === 'asc' ? c1 : -c1;
+    const v2a = sortKey(a, k2), v2b = sortKey(b, k2);
+    const c2 = v2a < v2b ? -1 : v2a > v2b ? 1 : 0;
+    return d2 === 'asc' ? c2 : -c2;
+  });
 }
 
 function _optRender() {
   const filterAcct = (document.getElementById('opt-filter-account') || {}).value || '';
-  const rows = filterAcct ? _optPositions.filter(p => p.account_label === filterAcct) : _optPositions;
+  let rows = filterAcct ? _optPositions.filter(p => p.account_label === filterAcct) : _optPositions;
+  rows = _optSortRows(rows);
 
   // Update stat cards
   const now = new Date();
@@ -11055,19 +11121,87 @@ function _optModalTab(tab) {
   else if (tab === 'levels') _optRenderLevels();
 }
 
+function _optDrawLevelsChart(pos) {
+  const entry = Number(pos.underlying_entry || 0);
+  const levels = [
+    { label: 'Roll 3',      price: pos.level_roll_3,     color: '#cae8ff', lw: 1.5, dash: '6,4' },
+    { label: 'Roll 2',      price: pos.level_roll_2,     color: '#a5d6ff', lw: 1.5, dash: '6,4' },
+    { label: 'Roll 1',      price: pos.level_roll_1,     color: '#79c0ff', lw: 1.5, dash: '6,4' },
+    { label: 'Entry / Buy', price: entry || null,        color: '#3fb950', lw: 2.5, dash: '' },
+    { label: 'Exit Alert',  price: pos.level_exit_alert, color: '#d29922', lw: 1.5, dash: '4,3' },
+    { label: 'Emergency',   price: pos.level_emergency,  color: '#f85149', lw: 2,   dash: '' },
+  ].filter(l => l.price != null && l.price !== 0);
+
+  if (!levels.length) return '<div style="color:var(--muted);padding:20px">No level data available for this position.</div>';
+
+  const W = 700, H = 320, PL = 90, PR = 130, PT = 28, PB = 28;
+  const chartH = H - PT - PB;
+  const prices = levels.map(l => l.price);
+  const minP = Math.min(...prices), maxP = Math.max(...prices);
+  const pad  = (maxP - minP) * 0.12 || 1;
+  const lo = minP - pad, hi = maxP + pad;
+  const toY = p => PT + chartH - ((p - lo) / (hi - lo) * chartH);
+
+  // Background zone: emergency→exit alert (red tint), entry→roll3 (green tint)
+  const emgY  = pos.level_emergency  ? toY(pos.level_emergency)  : null;
+  const exitY = pos.level_exit_alert ? toY(pos.level_exit_alert) : null;
+  const entY  = entry ? toY(entry) : null;
+  const r3Y   = pos.level_roll_3 ? toY(pos.level_roll_3) : null;
+
+  let zones = '';
+  if (emgY != null && exitY != null)
+    zones += `<rect x="${PL}" y="${emgY}" width="${W-PL-PR}" height="${exitY - emgY}" fill="#f85149" opacity="0.07"/>`;
+  if (entY != null && r3Y != null)
+    zones += `<rect x="${PL}" y="${r3Y}" width="${W-PL-PR}" height="${entY - r3Y}" fill="#3fb950" opacity="0.06"/>`;
+
+  const linesSvg = levels.map(l => {
+    const y = toY(l.price);
+    const dash = l.dash ? `stroke-dasharray="${l.dash}"` : '';
+    return `
+      <line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}"
+            stroke="${l.color}" stroke-width="${l.lw}" ${dash} opacity="0.9"/>
+      <text x="${PL-6}" y="${y+4}" text-anchor="end" font-size="11" fill="${l.color}"
+            font-family="monospace">$${Number(l.price).toFixed(2)}</text>
+      <text x="${W-PR+10}" y="${y+4}" font-size="11" fill="${l.color}"
+            font-family="sans-serif" font-weight="${l.lw >= 2.5 ? 700 : 500}">${l.label}</text>`;
+  }).join('');
+
+  // Ticker label + atr info
+  const info = `${pos.underlying}  •  Strike $${pos.strike ?? '—'}  •  ATR ${pos.atr_14 != null ? Number(pos.atr_14).toFixed(2) : '—'}  •  DTE ${pos.days_to_exp ?? '—'}d`;
+
+  return `<div style="padding:8px 0">
+    <div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:8px">${info}</div>
+    <svg width="${W}" height="${H}" style="max-width:100%;background:#0d1117;border-radius:8px;display:block;margin:0 auto"
+         viewBox="0 0 ${W} ${H}">
+      ${zones}
+      <!-- chart area border -->
+      <rect x="${PL}" y="${PT}" width="${W-PL-PR}" height="${chartH}"
+            fill="none" stroke="#21262d" stroke-width="1"/>
+      ${linesSvg}
+    </svg>
+  </div>`;
+}
+
 async function _optLoadChart() {
   const panel = document.getElementById('opt-panel-chart');
   panel.innerHTML = '<span style="color:var(--muted)">Loading chart…</span>';
+
+  // Try server-side matplotlib chart first
   try {
     const data = await apiFetch(`/api/options/chart/${_optCurrentId}`);
     if (data.chart_b64) {
       panel.innerHTML = `<img src="data:image/png;base64,${data.chart_b64}"
         style="max-width:100%;border-radius:6px;display:block;margin:0 auto" alt="Position chart">`;
-    } else {
-      panel.innerHTML = '<span style="color:var(--muted)">Chart not yet generated. Run a scan first.</span>';
+      return;
     }
-  } catch(e) {
-    panel.innerHTML = `<span style="color:var(--muted)">${e.message === '404' ? 'Chart not yet generated — run a scan first.' : 'Chart unavailable'}</span>`;
+  } catch(_) { /* fall through to client-side chart */ }
+
+  // Client-side SVG levels chart using position data already loaded
+  const pos = _optPositions.find(p => p.id === _optCurrentId);
+  if (pos) {
+    panel.innerHTML = _optDrawLevelsChart(pos);
+  } else {
+    panel.innerHTML = '<span style="color:var(--muted)">Position data not found.</span>';
   }
 }
 

@@ -3,6 +3,15 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.26] - 2026-04-11
+
+### Added
+- Options dashboard: 1st-tier and 2nd-tier sort controls — sortable by Ticker, Account, Qty, DTE with Asc/Desc toggle per tier
+- Options dashboard: client-side SVG levels chart in position modal — shows Entry/Buy, Roll 1/2/3, Exit Alert, Emergency levels with color-coded zones; no server dependency (falls back from server-side matplotlib chart if unavailable)
+
+### Fixed
+- Options dashboard: account filter dropdown now shows friendly account names (e.g. "Webull IRA 1 Account") instead of raw account labels
+
 ## [3.5.25] - 2026-04-11
 
 ### Fixed
