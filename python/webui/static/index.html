@@ -6330,8 +6330,6 @@ const BROKER_META = {
       { type:'separator', label:'API Credentials' },
       { key:'WEBULL_API_KEY',          label:'API Key',        type:'password', required:true, hint:'From Webull developer portal → API credentials' },
       { key:'WEBULL_SECRET_KEY',       label:'Secret Key',     type:'password', required:true, hint:'From Webull developer portal → API credentials' },
-      { type:'separator', label:'Paper Account' },
-      { key:'WEBULL_PAPER_ACCOUNT_ID', label:'Account Number', type:'text',     hint:'From Webull paper trading account', name_key:'WEBULL_PAPER_DISPLAY_NAME' },
       { type:'webull_discover' },
       { type:'separator', label:'Live Accounts' },
       { key:'WEBULL_LIVE_ACCOUNT_1',   label:'Account 1',      type:'text',     hint:'Webull live account number',            ira:'WEBULL_LIVE_ACCOUNT_1_IRA', name_key:'WEBULL_LIVE_1_DISPLAY_NAME' },
@@ -6827,7 +6825,7 @@ async function wbDiscoverAccounts(btn) {
       html += `<tr style="background:${bg}" title="Click account number to use it">
         <td style="padding:5px 8px">
           <span style="font-family:monospace;cursor:pointer;color:var(--blue);text-decoration:underline dotted"
-                onclick="document.getElementById('bkf_WEBULL_PAPER_ACCOUNT_ID').value='${num}';toast('success','Copied','${num} → Account Number field')">${num}</span>
+                onclick="document.getElementById('bkf_WEBULL_LIVE_ACCOUNT_1').value='${num}';toast('success','Copied','${num} → Account 1 field')">${num}</span>
         </td>
         <td style="padding:5px 8px;font-family:monospace;color:var(--muted);font-size:11px;word-break:break-all">${aid}</td>
         <td style="padding:5px 8px;font-family:monospace;color:var(--dim);font-size:11px">${sid}</td>

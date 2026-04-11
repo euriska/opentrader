@@ -59,16 +59,6 @@ notes          = "Production account 4 (IRA)"
 # ── Webull accounts ───────────────────────────────────────────────────────────
 
 [[accounts]]
-id             = "${WEBULL_PAPER_ACCOUNT_ID}"
-broker         = "webull"
-mode           = "paper"
-label          = "webull-paper"
-enabled        = true
-strategy_tags  = ["equity", "etf", "options"]
-max_position_usd = 5000
-notes          = "Webull paper trading"
-
-[[accounts]]
 id             = "${WEBULL_LIVE_ACCOUNT_1}"
 broker         = "webull"
 mode           = "live"

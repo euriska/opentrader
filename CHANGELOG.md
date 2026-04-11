@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.31] - 2026-04-11
+
+### Removed
+- Webull paper trading account — not supported by the Webull Official API; removed from accounts.toml, accounts.toml.sample, strategies.toml, webui connector config panel, .env.sample, and broker connection-check requirements
+
 ## [3.5.30] - 2026-04-11
 
 ### Added

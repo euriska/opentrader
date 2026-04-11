@@ -1244,7 +1244,6 @@ async def get_broker_status():
         ("tradier", "live"):     ["TRADIER_PRODUCTION_API_KEY"],
         ("alpaca",  "paper"):    ["ALPACA_API_SECRET"],
         ("alpaca",  "live"):     ["ALPACA_LIVE_API_SECRET"],
-        ("webull",  "paper"):    ["WEBULL_API_KEY", "WEBULL_SECRET_KEY"],
         ("webull",  "live"):     ["WEBULL_API_KEY", "WEBULL_SECRET_KEY"],
     }
 
@@ -1335,7 +1334,6 @@ async def get_broker_status():
                 "env": {
                     "WEBULL_API_KEY":              _masked(w_api_key),
                     "WEBULL_SECRET_KEY":           _masked(ev("WEBULL_SECRET_KEY")),
-                    "WEBULL_PAPER_ACCOUNT_ID":     ev("WEBULL_PAPER_ACCOUNT_ID"),
                     "WEBULL_LIVE_ACCOUNT_1":       ev("WEBULL_LIVE_ACCOUNT_1"),
                     "WEBULL_LIVE_ACCOUNT_1_IRA":   ev("WEBULL_LIVE_ACCOUNT_1_IRA"),
                     "WEBULL_LIVE_ACCOUNT_2":       ev("WEBULL_LIVE_ACCOUNT_2"),
