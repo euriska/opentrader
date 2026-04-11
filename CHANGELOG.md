@@ -3,6 +3,14 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.27] - 2026-04-11
+
+### Fixed
+- Options dashboard: expiry resolution now skips expiry dates that would have been < 14 DTE when the position was entered — prevents ITM calls (e.g. SAN $10 call) from matching near-weekly expiries whose price is indistinguishable due to intrinsic-value dominance
+
+### Changed
+- Options dashboard: position chart now shows 21 days of underlying price history (canvas line chart with gradient fill) with Exit Alert, Emergency, Entry, and Roll levels overlaid as horizontal lines extending into a "Levels →" target zone on the right
+
 ## [3.5.26] - 2026-04-11
 
 ### Added

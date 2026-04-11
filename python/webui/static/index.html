@@ -11121,65 +11121,108 @@ function _optModalTab(tab) {
   else if (tab === 'levels') _optRenderLevels();
 }
 
-function _optDrawLevelsChart(pos) {
-  const entry = Number(pos.underlying_entry || 0);
+async function _optDrawPriceChart(pos, canvasEl) {
+  // Fetch 21 days of daily OHLCV
+  let ohlcv = [];
+  try {
+    const d = await apiFetch(`/api/charts/data?symbol=${pos.underlying}&timeframe=1d&bars=21`);
+    ohlcv = (d.ohlcv || []).slice(-21);
+  } catch(_) {}
+
+  const ctx = canvasEl.getContext('2d');
+  const W = canvasEl.width, H = canvasEl.height;
+  const PL = 72, PR = 130, PT = 16, PB = 28;
+  const chartW = W - PL - PR, chartH = H - PT - PB;
+
+  // Gather all prices (OHLC + levels) for Y scale
+  const closes = ohlcv.map(c => c.close).filter(Boolean);
   const levels = [
-    { label: 'Roll 3',      price: pos.level_roll_3,     color: '#cae8ff', lw: 1.5, dash: '6,4' },
-    { label: 'Roll 2',      price: pos.level_roll_2,     color: '#a5d6ff', lw: 1.5, dash: '6,4' },
-    { label: 'Roll 1',      price: pos.level_roll_1,     color: '#79c0ff', lw: 1.5, dash: '6,4' },
-    { label: 'Entry / Buy', price: entry || null,        color: '#3fb950', lw: 2.5, dash: '' },
-    { label: 'Exit Alert',  price: pos.level_exit_alert, color: '#d29922', lw: 1.5, dash: '4,3' },
-    { label: 'Emergency',   price: pos.level_emergency,  color: '#f85149', lw: 2,   dash: '' },
-  ].filter(l => l.price != null && l.price !== 0);
+    { label: 'Roll 3',      price: pos.level_roll_3,     color: '#cae8ff', lw: 1.5, dash: [6,4] },
+    { label: 'Roll 2',      price: pos.level_roll_2,     color: '#a5d6ff', lw: 1.5, dash: [6,4] },
+    { label: 'Roll 1',      price: pos.level_roll_1,     color: '#79c0ff', lw: 1.5, dash: [6,4] },
+    { label: 'Entry / Buy', price: pos.underlying_entry, color: '#3fb950', lw: 2.5, dash: [] },
+    { label: 'Exit Alert',  price: pos.level_exit_alert, color: '#d29922', lw: 1.5, dash: [4,3] },
+    { label: 'Emergency',   price: pos.level_emergency,  color: '#f85149', lw: 2,   dash: [] },
+  ].filter(l => l.price != null && Number(l.price) !== 0);
 
-  if (!levels.length) return '<div style="color:var(--muted);padding:20px">No level data available for this position.</div>';
-
-  const W = 700, H = 320, PL = 90, PR = 130, PT = 28, PB = 28;
-  const chartH = H - PT - PB;
-  const prices = levels.map(l => l.price);
-  const minP = Math.min(...prices), maxP = Math.max(...prices);
-  const pad  = (maxP - minP) * 0.12 || 1;
-  const lo = minP - pad, hi = maxP + pad;
+  const allPrices = [...closes, ...levels.map(l => Number(l.price))].filter(Boolean);
+  if (!allPrices.length) {
+    ctx.fillStyle = '#8b949e'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('No price data available', W/2, H/2);
+    return;
+  }
+  const pad = (Math.max(...allPrices) - Math.min(...allPrices)) * 0.1 || 1;
+  const lo = Math.min(...allPrices) - pad;
+  const hi = Math.max(...allPrices) + pad;
   const toY = p => PT + chartH - ((p - lo) / (hi - lo) * chartH);
+  const toX = i => PL + (i / Math.max(ohlcv.length - 1, 1)) * chartW * 0.72; // history uses 72% width
 
-  // Background zone: emergency→exit alert (red tint), entry→roll3 (green tint)
-  const emgY  = pos.level_emergency  ? toY(pos.level_emergency)  : null;
-  const exitY = pos.level_exit_alert ? toY(pos.level_exit_alert) : null;
-  const entY  = entry ? toY(entry) : null;
-  const r3Y   = pos.level_roll_3 ? toY(pos.level_roll_3) : null;
+  // Background
+  ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, W, H);
 
-  let zones = '';
-  if (emgY != null && exitY != null)
-    zones += `<rect x="${PL}" y="${emgY}" width="${W-PL-PR}" height="${exitY - emgY}" fill="#f85149" opacity="0.07"/>`;
-  if (entY != null && r3Y != null)
-    zones += `<rect x="${PL}" y="${r3Y}" width="${W-PL-PR}" height="${entY - r3Y}" fill="#3fb950" opacity="0.06"/>`;
+  // Level lines extend across full chart width (including right "target zone")
+  for (const lv of levels) {
+    const y = toY(Number(lv.price));
+    ctx.save();
+    ctx.strokeStyle = lv.color;
+    ctx.lineWidth = lv.lw;
+    if (lv.dash.length) ctx.setLineDash(lv.dash);
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(W - PR + 8, y); ctx.stroke();
+    ctx.setLineDash([]);
+    // Dollar label on left
+    ctx.globalAlpha = 1; ctx.fillStyle = lv.color;
+    ctx.font = '10px monospace'; ctx.textAlign = 'right';
+    ctx.fillText(`$${Number(lv.price).toFixed(2)}`, PL - 4, y + 3);
+    // Name label on right
+    ctx.font = `${lv.lw >= 2.5 ? 'bold ' : ''}11px sans-serif`; ctx.textAlign = 'left';
+    ctx.fillText(lv.label, W - PR + 14, y + 4);
+    ctx.restore();
+  }
 
-  const linesSvg = levels.map(l => {
-    const y = toY(l.price);
-    const dash = l.dash ? `stroke-dasharray="${l.dash}"` : '';
-    return `
-      <line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}"
-            stroke="${l.color}" stroke-width="${l.lw}" ${dash} opacity="0.9"/>
-      <text x="${PL-6}" y="${y+4}" text-anchor="end" font-size="11" fill="${l.color}"
-            font-family="monospace">$${Number(l.price).toFixed(2)}</text>
-      <text x="${W-PR+10}" y="${y+4}" font-size="11" fill="${l.color}"
-            font-family="sans-serif" font-weight="${l.lw >= 2.5 ? 700 : 500}">${l.label}</text>`;
-  }).join('');
+  // Price history line (close prices)
+  if (ohlcv.length > 1) {
+    ctx.save();
+    ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ohlcv.forEach((c, i) => {
+      const x = toX(i), y = toY(c.close);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
 
-  // Ticker label + atr info
-  const info = `${pos.underlying}  •  Strike $${pos.strike ?? '—'}  •  ATR ${pos.atr_14 != null ? Number(pos.atr_14).toFixed(2) : '—'}  •  DTE ${pos.days_to_exp ?? '—'}d`;
+    // Gradient fill under line
+    const grad = ctx.createLinearGradient(0, PT, 0, PT + chartH);
+    grad.addColorStop(0, 'rgba(88,166,255,0.18)');
+    grad.addColorStop(1, 'rgba(88,166,255,0)');
+    ctx.fillStyle = grad;
+    ctx.lineTo(toX(ohlcv.length - 1), PT + chartH);
+    ctx.lineTo(toX(0), PT + chartH);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
 
-  return `<div style="padding:8px 0">
-    <div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:8px">${info}</div>
-    <svg width="${W}" height="${H}" style="max-width:100%;background:#0d1117;border-radius:8px;display:block;margin:0 auto"
-         viewBox="0 0 ${W} ${H}">
-      ${zones}
-      <!-- chart area border -->
-      <rect x="${PL}" y="${PT}" width="${W-PL-PR}" height="${chartH}"
-            fill="none" stroke="#21262d" stroke-width="1"/>
-      ${linesSvg}
-    </svg>
-  </div>`;
+    // Date labels (first, mid, last)
+    ctx.fillStyle = '#8b949e'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+    const labelIdxs = [0, Math.floor(ohlcv.length / 2), ohlcv.length - 1];
+    for (const i of labelIdxs) {
+      const c = ohlcv[i];
+      if (!c) continue;
+      const lbl = c.time ? new Date(c.time * 1000).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : `D${i}`;
+      ctx.fillText(lbl, toX(i), H - 6);
+    }
+
+    // Vertical separator: history | target zone
+    const sepX = toX(ohlcv.length - 1) + 10;
+    ctx.save(); ctx.strokeStyle = '#30363d'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(sepX, PT); ctx.lineTo(sepX, PT + chartH); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = '#8b949e'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText('Levels →', sepX + 4, PT + 11);
+  }
+
+  // Chart border
+  ctx.strokeStyle = '#21262d'; ctx.lineWidth = 1;
+  ctx.strokeRect(PL, PT, W - PL - PR, chartH);
 }
 
 async function _optLoadChart() {
@@ -11196,13 +11239,17 @@ async function _optLoadChart() {
     }
   } catch(_) { /* fall through to client-side chart */ }
 
-  // Client-side SVG levels chart using position data already loaded
   const pos = _optPositions.find(p => p.id === _optCurrentId);
-  if (pos) {
-    panel.innerHTML = _optDrawLevelsChart(pos);
-  } else {
-    panel.innerHTML = '<span style="color:var(--muted)">Position data not found.</span>';
-  }
+  if (!pos) { panel.innerHTML = '<span style="color:var(--muted)">Position data not found.</span>'; return; }
+
+  const info = `${pos.underlying}  •  Strike $${pos.strike ?? '—'}  •  ${pos.option_type?.toUpperCase() ?? '—'}  •  DTE ${pos.days_to_exp ?? '—'}d  •  ATR ${pos.atr_14 != null ? Number(pos.atr_14).toFixed(2) : '—'}`;
+  panel.innerHTML = `
+    <div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:6px">${info}</div>
+    <canvas id="opt-price-canvas" width="820" height="340"
+      style="max-width:100%;display:block;margin:0 auto;border-radius:8px"></canvas>`;
+
+  const canvas = document.getElementById('opt-price-canvas');
+  await _optDrawPriceChart(pos, canvas);
 }
 
 async function _optLoadLog() {

@@ -192,6 +192,7 @@ async def _fetch_option_chain_details(
     current_option_price: float,
     hint_option_type: str = "unknown",
     current_underlying_price: float = 0.0,
+    entry_date: Optional[date] = None,
 ) -> Optional[dict]:
     """
     Look up option contract details (strike, type, expiry, delta) via Yahoo Finance.
@@ -199,6 +200,8 @@ async def _fetch_option_chain_details(
     - Delta is computed via Black-Scholes from the chain's impliedVolatility field.
     - When current_option_price > 0, matches by lastPrice proximity.
     - When current_option_price == 0, matches by nearest-ATM strike.
+    - entry_date: if provided, skips expiry dates that would have been < 14 DTE when
+      the position was opened (prevents ITM calls from matching near-weekly expiries).
     Returns dict with strike, option_type, expiration_date, delta — or None.
     """
     raw_dates = await call_mcp_tool(
@@ -240,6 +243,12 @@ async def _fetch_option_chain_details(
                 exp_d = date.fromisoformat(str(exp_date_str)[:10])
             except Exception:
                 exp_d = None
+
+            # Skip expiries that would have given < 14 DTE on the entry date.
+            # Prevents ITM calls from matching near-weekly expiries whose price
+            # is close due to intrinsic value dominance.
+            if entry_date and exp_d and (exp_d - entry_date).days < 14:
+                continue
 
             raw_chain = await call_mcp_tool(
                 YAHOO_MCP_URL, "get_option_chain",
@@ -778,6 +787,7 @@ class OptionsMonitor(BaseAgent):
             chain_details = await _fetch_option_chain_details(
                 underlying, float(price_ref or 0), hint_option_type=option_type,
                 current_underlying_price=float(current_underlying or 0),
+                entry_date=entry_date,
             )
             if chain_details:
                 if option_type == "unknown" and chain_details.get("option_type"):
