@@ -3,6 +3,20 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.22] - 2026-04-11
+
+### Added
+- Options dashboard: **Qty** column showing number of contracts per position
+- Options dashboard: **Delta** column — computed via Black-Scholes from Yahoo Finance implied volatility
+- Options dashboard: automatic resolution of Webull option contract details (type/strike/expiry/delta) via Yahoo Finance option chain lookup on each scan
+- Options dashboard: `delta` column added to `option_positions` DB table
+
+### Fixed
+- Options dashboard: type column now shows **UNK** (not PUT) for unresolved Webull contracts
+- Options dashboard: strike column now shows **—** (not $0.00) when strike is null
+- Options dashboard: Yahoo Finance chain API called with correct `option_type='calls'/'puts'` parameter
+- Options monitor: `_normalise_option_position` now extracts option-specific fields (type/strike/expiry) from Webull raw API response fields when present
+
 ## [3.5.21] - 2026-04-10
 
 ### Added
