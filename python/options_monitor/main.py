@@ -611,7 +611,11 @@ def _parse_occ_symbol(symbol: str) -> Optional[dict]:
 # ── Account name mapping ──────────────────────────────────────────────────────
 
 def _load_account_names() -> dict[str, str]:
-    """Load account label → friendly name from accounts.toml."""
+    """
+    Load account label → friendly display name.
+    Priority: {LABEL_UPPER}_DISPLAY_NAME env var → accounts.toml notes → formatted label.
+    Matches the same convention used by the webui broker/positions pages.
+    """
     try:
         import tomllib
         with open("/app/config/accounts.toml", "rb") as f:
@@ -619,8 +623,16 @@ def _load_account_names() -> dict[str, str]:
         mapping = {}
         for acct in cfg.get("accounts", []):
             label = acct.get("label", "")
-            notes = acct.get("notes", "")
-            # Use notes as display name if set, otherwise format the label
+            if not label:
+                continue
+            # Check env var first: WEBULL_LIVE_2_DISPLAY_NAME etc.
+            env_key = label.upper().replace("-", "_") + "_DISPLAY_NAME"
+            env_name = os.getenv(env_key, "").strip()
+            if env_name:
+                mapping[label] = env_name
+                continue
+            # Fall back to notes field
+            notes = acct.get("notes", "").strip()
             if notes:
                 name = notes.split("—")[0].strip() if "—" in notes else notes
             else:

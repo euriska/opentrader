@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.24] - 2026-04-11
+
+### Fixed
+- Options dashboard: account name in watchlist chips and account column now uses `{LABEL}_DISPLAY_NAME` env vars (e.g. `WEBULL_LIVE_2_DISPLAY_NAME`) for friendly display names — previously fell through to accounts.toml notes field
+
 ## [3.5.23] - 2026-04-11
 
 ### Fixed
