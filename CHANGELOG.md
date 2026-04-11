@@ -3,6 +3,13 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.23] - 2026-04-11
+
+### Fixed
+- Options dashboard: watchlist chip headers and account column subtext now show "Webull", "Alpaca", "Tradier" instead of raw broker IDs
+- Options dashboard: Webull non-OCC positions now default to `call` type (env `WEBULL_DEFAULT_OPTION_TYPE`); prevents misidentification as put
+- Options monitor: chain lookup now only queries calls when hint is "call" — eliminates cross-side mismatches like NEM showing as PUT
+
 ## [3.5.22] - 2026-04-11
 
 ### Added
