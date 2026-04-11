@@ -230,8 +230,12 @@ async def _fetch_option_chain_details(
     best: Optional[dict] = None
     best_score = float("inf")
 
+    # Scan up to 16 expiry dates (~4 months of weeklies) to cover LEAPS and
+    # longer-dated positions.  Do NOT break early on a "good enough" score —
+    # deep-ITM calls have similar intrinsic value across expiries, so we must
+    # compare all candidates globally and pick the closest price match.
     for yahoo_type, opt_type in side_order:
-        for exp_date_str in exp_dates[:4]:
+        for exp_date_str in exp_dates[:16]:
             try:
                 exp_d = date.fromisoformat(str(exp_date_str)[:10])
             except Exception:
@@ -285,9 +289,6 @@ async def _fetch_option_chain_details(
                         "expiration_date": exp_d,
                         "delta":           delta,
                     }
-
-            if best and best_score < 0.10:
-                break   # good enough match for this side
 
         if best:
             break   # found a match, don't try the other side

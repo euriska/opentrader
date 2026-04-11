@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.25] - 2026-04-11
+
+### Fixed
+- Options dashboard: DTE now resolves correctly for longer-dated positions — chain lookup now scans up to 16 expiry dates (was 4) and picks the global best price match across all dates without early-exit; prevents deep-ITM calls from matching the nearest-expiry contract
+
 ## [3.5.24] - 2026-04-11
 
 ### Fixed
