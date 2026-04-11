@@ -78,6 +78,8 @@ ALTER TABLE scheduler_jobs ADD COLUMN IF NOT EXISTS intraday_start        TEXT;
 ALTER TABLE scheduler_jobs ADD COLUMN IF NOT EXISTS intraday_end          TEXT;
 ALTER TABLE scheduler_jobs ADD COLUMN IF NOT EXISTS intraday_interval_min INT;
 ALTER TABLE scheduler_jobs ADD COLUMN IF NOT EXISTS intraday_days         TEXT;
+-- option_positions delta column (added 2026-04-11)
+ALTER TABLE option_positions ADD COLUMN IF NOT EXISTS delta NUMERIC;
 
 CREATE TABLE IF NOT EXISTS ovtlyr_intel (
     id           UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -179,3 +181,95 @@ CREATE TABLE IF NOT EXISTS library_categories (
 INSERT INTO library_categories (name)
     SELECT DISTINCT category FROM library_books WHERE category IS NOT NULL
     ON CONFLICT (name) DO NOTHING;
+
+-- ── Options position tracker ──────────────────────────────────────────────────
+-- Tracks open option contracts imported from broker accounts at EOD.
+-- Retained for 18 months (managed by option_trade_log retention policy).
+CREATE TABLE IF NOT EXISTS option_positions (
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Contract identity
+    contract_symbol     TEXT        NOT NULL,   -- e.g. AAPL250418C00200000
+    underlying          TEXT        NOT NULL,   -- e.g. AAPL
+    option_type         TEXT        NOT NULL CHECK (option_type IN ('call','put','unknown')),
+    strike              NUMERIC,                   -- NULL for non-OCC symbols (e.g. Webull)
+    expiration_date     DATE,                      -- NULL for non-OCC symbols
+    -- Account
+    account_label       TEXT        NOT NULL,
+    account_name        TEXT,                   -- human-friendly display name
+    broker              TEXT        NOT NULL,
+    mode                TEXT        NOT NULL DEFAULT 'live',
+    -- Position details
+    qty                 NUMERIC     NOT NULL,
+    entry_price         NUMERIC,                -- option premium per share at entry
+    underlying_entry    NUMERIC,                -- underlying stock price at entry (ATR anchor)
+    entry_date          DATE        NOT NULL,
+    -- ATR data (14-period daily ATR on the underlying)
+    atr_14              NUMERIC,
+    atr_calculated_at   TIMESTAMPTZ,
+    -- ATR price levels (based on underlying_entry ± n * atr_14)
+    level_emergency     NUMERIC,                -- underlying_entry - 3 * ATR  (Emergency Exit)
+    level_exit_alert    NUMERIC,                -- underlying_entry - 2 * ATR  (Exit Alert)
+    level_roll_1        NUMERIC,                -- underlying_entry + 0.5 * ATR (1st Roll)
+    level_roll_2        NUMERIC,                -- underlying_entry + 1 * ATR  (2nd Roll)
+    level_roll_3        NUMERIC,                -- underlying_entry + 2 * ATR  (3rd Roll)
+    -- Additional dynamic roll levels stored as JSONB: [{label,price}, ...]
+    extra_roll_levels   JSONB       DEFAULT '[]',
+    -- Alert state (which levels have been triggered)
+    alerts_fired        JSONB       DEFAULT '{}', -- {"emergency":false,"exit_alert":false,"roll_1":false,...}
+    -- Earnings & expiration metadata
+    next_earnings_date  DATE,
+    -- Lifecycle
+    status              TEXT        NOT NULL DEFAULT 'active'
+                            CHECK (status IN ('active','closed','rolled','expired')),
+    closed_at           TIMESTAMPTZ,
+    close_reason        TEXT,
+    last_scan_at        TIMESTAMPTZ,
+    -- Greeks (updated each scan from option chain)
+    delta               NUMERIC,
+    -- Raw broker snapshot
+    raw                 JSONB
+);
+CREATE UNIQUE INDEX IF NOT EXISTS option_positions_contract_account
+    ON option_positions (contract_symbol, account_label) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS option_positions_underlying
+    ON option_positions (underlying, status);
+CREATE INDEX IF NOT EXISTS option_positions_expiry
+    ON option_positions (expiration_date) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS option_positions_account
+    ON option_positions (account_label, status);
+
+-- ── Option position event log ─────────────────────────────────────────────────
+-- One row per scan/alert/close event. Retained 18 months via TimescaleDB retention.
+CREATE TABLE IF NOT EXISTS option_trade_log (
+    id               UUID        NOT NULL DEFAULT gen_random_uuid(),
+    ts               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    position_id      UUID        NOT NULL,
+    contract_symbol  TEXT        NOT NULL,
+    underlying       TEXT        NOT NULL,
+    -- Event
+    event_type       TEXT        NOT NULL,
+        -- scan | alert_emergency | alert_exit | alert_roll_1 | alert_roll_2
+        -- | alert_roll_3 | alert_roll_extra | closed | imported
+    -- Prices at event time
+    underlying_price NUMERIC,
+    contract_price   NUMERIC,
+    atr_value        NUMERIC,
+    -- Distance from levels at scan time
+    distance_emergency  NUMERIC,   -- underlying_price - level_emergency
+    distance_exit_alert NUMERIC,
+    distance_roll_1     NUMERIC,
+    -- Misc
+    notes            TEXT,
+    payload          JSONB,
+    PRIMARY KEY (ts, id)
+);
+SELECT create_hypertable('option_trade_log', 'ts', if_not_exists => TRUE);
+-- 18-month retention
+SELECT add_retention_policy('option_trade_log',
+    INTERVAL '18 months', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS option_trade_log_position
+    ON option_trade_log (position_id, ts DESC);
+CREATE INDEX IF NOT EXISTS option_trade_log_underlying
+    ON option_trade_log (underlying, ts DESC);

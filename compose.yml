@@ -224,6 +224,40 @@ services:
       mcp-tradingview:
         condition: service_started
 
+  options-monitor:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    container_name: ot-options-monitor
+    restart: unless-stopped
+    command: python -m options_monitor.main
+    environment:
+      REDIS_URL: redis://ot-redis:6379
+      DB_URL: postgresql://trading:${DB_PASSWORD:-trading_secret}@ot-timescaledb/trading
+      SERVICE_NAME: options-monitor
+      TRADINGVIEW_MCP_URL: http://ot-mcp-tradingview:8000/mcp
+      YAHOO_MCP_URL: http://ot-mcp-yahoo:8000/mcp
+      BROKER_GATEWAY_TIMEOUT_SEC: "20"
+      OPTIONS_SCAN_INTERVAL_MIN: "5"
+    env_file: [.env]
+    volumes:
+      - ./logs/python:/app/logs
+      - ./config:/app/config:ro
+      - ./secrets:/app/secrets:ro
+      - ./python/options_monitor:/app/options_monitor  # live-reload without rebuild
+    networks: [trading-net]
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      broker-gateway:
+        condition: service_started
+      mcp-tradingview:
+        condition: service_started
+      mcp-yahoo:
+        condition: service_started
+
   scraper-ovtlyr:
     build:
       context: ./python

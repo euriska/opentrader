@@ -13,7 +13,7 @@ import re
 import socket
 import uuid
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -118,10 +118,10 @@ def _write_env_file(updates: dict):
 
 KNOWN_AGENTS = [
     "orchestrator", "scheduler", "predictor",
-    "trader-equity", "trader-options",
+    "trader-equity", "trader-options", "options-monitor",
     "scraper-ovtlyr", "scraper-wsb", "scraper-seekalpha", "scraper-yahoo",
     "scraper-yahoo-sentiment",
-    "aggregator", "review-agent", "broker-gateway",
+    "aggregator", "review-agent", "broker-gateway", "directive-agent",
     # MCP servers & chat agent — health derived from Podman (no heartbeat)
     "mcp-yahoo", "mcp-alpaca", "mcp-tradingview", "mcp-massive", "mcp-unusualwhales", "mcp-webull", "chat-agent",
 ]
@@ -135,6 +135,7 @@ CONTAINER_MAP = {
     "predictor":       "ot-predictor",
     "trader-equity":   "ot-trader-equity",
     "trader-options":  "ot-trader-options",
+    "options-monitor": "ot-options-monitor",
     "scraper-ovtlyr":  "ot-scraper-ovtlyr",
     "scraper-wsb":     "ot-scraper-wsb",
     "scraper-seekalpha":"ot-scraper-seekalpha",
@@ -143,6 +144,7 @@ CONTAINER_MAP = {
     "aggregator":      "ot-aggregator",
     "review-agent":    "ot-review-agent",
     "broker-gateway":  "ot-broker-gateway",
+    "directive-agent": "ot-directive-agent",
     "mcp-yahoo":          "ot-mcp-yahoo",
     "mcp-alpaca":         "ot-mcp-alpaca",
     "mcp-tradingview":    "ot-mcp-tradingview",
@@ -5341,6 +5343,165 @@ async def _get_db_pool():
         min_size=1, max_size=5,
     )
     return _db_pool
+
+
+# ── Options Dashboard API ─────────────────────────────────────────────────────
+
+def _days_between(d1, d2=None) -> int:
+    """Return integer days between two dates (or d1 and today)."""
+    if d2 is None:
+        d2 = date.today()
+    if d1 is None:
+        return 0
+    if isinstance(d1, str):
+        d1 = date.fromisoformat(d1[:10])
+    if isinstance(d2, str):
+        d2 = date.fromisoformat(d2[:10])
+    return (d1 - d2).days
+
+
+@app.get("/api/options/positions")
+async def get_option_positions(status: str = "active"):
+    """Return all option positions with computed ATR levels and enriched fields."""
+    pool = await _get_db_pool()
+    rows = await pool.fetch(
+        """SELECT id, created_at, updated_at,
+                  contract_symbol, underlying, option_type, strike, expiration_date,
+                  account_label, account_name, broker, mode,
+                  qty, entry_price, underlying_entry, entry_date,
+                  atr_14, atr_calculated_at,
+                  level_emergency, level_exit_alert, level_roll_1, level_roll_2, level_roll_3,
+                  extra_roll_levels, alerts_fired, next_earnings_date,
+                  delta, status, closed_at, close_reason, last_scan_at,
+                  raw::text as raw_text
+           FROM option_positions
+           WHERE status = $1
+           ORDER BY underlying, account_label""",
+        status,
+    )
+    today = date.today()
+    results = []
+    for r in rows:
+        exp_date   = r["expiration_date"]
+        entry_date = r["entry_date"]
+        dte        = (exp_date - today).days if exp_date else None
+        dit        = (today - entry_date).days if entry_date else 0
+        ded        = (r["next_earnings_date"] - today).days if r["next_earnings_date"] else None
+
+        raw_obj = {}
+        try:
+            raw_obj = json.loads(r["raw_text"] or "{}")
+        except Exception:
+            pass
+
+        extra_rolls = []
+        try:
+            extra_rolls = json.loads(r["extra_roll_levels"] or "[]")
+        except Exception:
+            pass
+
+        alerts_fired = {}
+        try:
+            alerts_fired = json.loads(r["alerts_fired"] or "{}")
+        except Exception:
+            pass
+
+        results.append({
+            "id":               str(r["id"]),
+            "contract_symbol":  r["contract_symbol"],
+            "underlying":       r["underlying"],
+            "option_type":      r["option_type"],
+            "strike":           float(r["strike"]) if r["strike"] else None,
+            "expiration_date":  exp_date.isoformat() if exp_date else None,
+            "account_label":    r["account_label"],
+            "account_name":     r["account_name"] or r["account_label"],
+            "broker":           r["broker"],
+            "mode":             r["mode"],
+            "qty":              float(r["qty"]) if r["qty"] else 0,
+            "entry_price":      float(r["entry_price"]) if r["entry_price"] else None,
+            "underlying_entry": float(r["underlying_entry"]) if r["underlying_entry"] else None,
+            "entry_date":       entry_date.isoformat() if entry_date else None,
+            "atr_14":           float(r["atr_14"]) if r["atr_14"] else None,
+            "level_emergency":  float(r["level_emergency"]) if r["level_emergency"] else None,
+            "level_exit_alert": float(r["level_exit_alert"]) if r["level_exit_alert"] else None,
+            "level_roll_1":     float(r["level_roll_1"]) if r["level_roll_1"] else None,
+            "level_roll_2":     float(r["level_roll_2"]) if r["level_roll_2"] else None,
+            "level_roll_3":     float(r["level_roll_3"]) if r["level_roll_3"] else None,
+            "extra_roll_levels": extra_rolls,
+            "alerts_fired":     alerts_fired,
+            "next_earnings_date": r["next_earnings_date"].isoformat() if r["next_earnings_date"] else None,
+            "days_in_trade":    dit,
+            "days_to_exp":      dte,
+            "days_to_earnings": ded,
+            "delta":            float(r["delta"]) if r["delta"] is not None else None,
+            "status":           r["status"],
+            "last_scan_at":     r["last_scan_at"].isoformat() if r["last_scan_at"] else None,
+            "has_chart":        bool(raw_obj.get("chart_b64")),
+        })
+    return results
+
+
+@app.get("/api/options/positions/{position_id}/log")
+async def get_option_position_log(position_id: str, limit: int = 100):
+    """Return event log for a specific option position."""
+    pool = await _get_db_pool()
+    rows = await pool.fetch(
+        """SELECT ts, event_type, underlying_price, contract_price, atr_value,
+                  distance_emergency, distance_exit_alert, distance_roll_1, notes
+           FROM option_trade_log
+           WHERE position_id = $1
+           ORDER BY ts DESC
+           LIMIT $2""",
+        uuid.UUID(position_id), limit,
+    )
+    return [
+        {
+            "ts":                 r["ts"].isoformat(),
+            "event_type":         r["event_type"],
+            "underlying_price":   float(r["underlying_price"]) if r["underlying_price"] else None,
+            "contract_price":     float(r["contract_price"]) if r["contract_price"] else None,
+            "atr_value":          float(r["atr_value"]) if r["atr_value"] else None,
+            "distance_emergency": float(r["distance_emergency"]) if r["distance_emergency"] else None,
+            "distance_exit_alert":float(r["distance_exit_alert"]) if r["distance_exit_alert"] else None,
+            "distance_roll_1":    float(r["distance_roll_1"]) if r["distance_roll_1"] else None,
+            "notes":              r["notes"],
+        }
+        for r in rows
+    ]
+
+
+@app.get("/api/options/chart/{position_id}")
+async def get_option_chart(position_id: str):
+    """Return base64-encoded PNG chart for an option position."""
+    pool = await _get_db_pool()
+    row = await pool.fetchrow(
+        "SELECT raw::text FROM option_positions WHERE id=$1",
+        uuid.UUID(position_id),
+    )
+    if not row:
+        raise HTTPException(404, "Position not found")
+    try:
+        raw = json.loads(row["raw"] or "{}")
+        chart_b64 = raw.get("chart_b64")
+    except Exception:
+        chart_b64 = None
+    if not chart_b64:
+        raise HTTPException(404, "Chart not yet generated")
+    return {"chart_b64": chart_b64}
+
+
+@app.post("/api/options/scan")
+async def trigger_options_scan(token: str = ""):
+    """Manually trigger an options position scan."""
+    if token != WEBUI_TOKEN:
+        raise HTTPException(403, "Forbidden")
+    redis = await get_redis()
+    await redis.xadd(
+        "system.commands",
+        {"command": "trigger", "job": "options_scan", "issued_by": "webui"},
+        maxlen=1_000,
+    )
+    return {"ok": True, "message": "Options scan triggered"}
 
 
 # ── Serve frontend ────────────────────────────────────────────────────────────
