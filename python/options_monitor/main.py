@@ -773,15 +773,22 @@ class OptionsMonitor(BaseAgent):
         else:
             earnings_date = await _fetch_earnings_date(underlying)
 
+        # Initialise entry_date early (needed by chain lookup below).
+        # Will be overridden below if an existing DB row is found.
+        entry_date = existing["entry_date"] if existing else today
+
         # ── Enrich contract details via Yahoo option chain ─────────────────────
         # Runs whenever: type unknown, strike missing, expiry missing, or no delta yet
         delta = None
         current_opt_price = bp["current_price"]
         # Use entry_price as reference when market is closed and current price is 0
         price_ref = current_opt_price if current_opt_price > 0 else bp.get("entry_price", 0)
+        expiry_locked = bool(existing and existing.get("expiry_locked"))
         needs_enrichment = (
-            option_type == "unknown" or strike is None or expiration_date is None
-            or (existing is None or (existing and existing.get("delta") is None))
+            not expiry_locked and (
+                option_type == "unknown" or strike is None or expiration_date is None
+                or existing is None or existing.get("delta") is None
+            )
         )
         if needs_enrichment:
             chain_details = await _fetch_option_chain_details(

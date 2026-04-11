@@ -3,6 +3,17 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.29] - 2026-04-11
+
+### Added
+- Options dashboard: **Edit & Lock** button in position modal — lets user correct strike, expiry date, and option type; locked values are never overwritten by automated scans
+- Options monitor: `expiry_locked` column — when `true`, chain enrichment skips that position entirely
+
+### Fixed
+- Options monitor: `entry_date` was referenced before assignment causing all positions to fail enrichment (UnboundLocalError) — initialized before chain lookup
+- Options chart: separate Y-axis scales for price history (left panel) and levels (right panel) — extreme strikes/levels no longer compress price history; levels panel shows all 6 levels with even spacing, dollar amount, and name label
+- Options chart: level labels no longer overlap (evenly distributed across panel height)
+
 ## [3.5.28] - 2026-04-11
 
 ### Changed

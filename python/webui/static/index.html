@@ -1457,8 +1457,39 @@ select option{background:var(--surface2)}
             <span id="opt-modal-title" style="font-size:15px;font-weight:700;color:var(--fg)">—</span>
             <span id="opt-modal-subtitle" style="margin-left:10px;font-size:11px;color:var(--muted)">—</span>
           </div>
-          <button onclick="document.getElementById('opt-chart-modal').style.display='none'"
-                  style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1">✕</button>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button onclick="_optToggleEditPanel()"
+              style="background:var(--card);border:1px solid var(--border);color:var(--muted);font-size:11px;padding:4px 10px;border-radius:5px;cursor:pointer">✏ Edit</button>
+            <button onclick="document.getElementById('opt-chart-modal').style.display='none'"
+                    style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1">✕</button>
+          </div>
+        </div>
+        <!-- Edit panel (hidden by default) -->
+        <div id="opt-edit-panel" style="display:none;padding:12px 20px;background:#161b22;border-bottom:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:8px;font-weight:600">Correct contract details — values you set here are locked and won't be overwritten by scans.</div>
+          <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+            <div>
+              <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Option Type</div>
+              <select id="opt-edit-type" style="background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:12px">
+                <option value="call">Call</option>
+                <option value="put">Put</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Strike</div>
+              <input id="opt-edit-strike" type="number" step="0.5" placeholder="e.g. 150"
+                style="background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:12px;width:90px">
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Expiry Date</div>
+              <input id="opt-edit-expiry" type="date"
+                style="background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:12px">
+            </div>
+            <button onclick="_optSaveEdit()"
+              style="background:var(--blue);color:#fff;border:none;border-radius:5px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer">Save &amp; Lock</button>
+            <button onclick="_optToggleEditPanel()"
+              style="background:var(--card-header);color:var(--muted);border:1px solid var(--border);border-radius:5px;padding:6px 10px;font-size:12px;cursor:pointer">Cancel</button>
+          </div>
         </div>
         <!-- Tabs -->
         <div style="display:flex;gap:0;border-bottom:1px solid var(--border)">
@@ -11099,7 +11130,38 @@ async function _optOpenModal(posId) {
   document.getElementById('opt-modal-subtitle').textContent =
     `${pos.contract_symbol} · ${pos.account_name} · DTE: ${pos.days_to_exp ?? '—'}d · DIT: ${pos.days_in_trade ?? '—'}d`;
   document.getElementById('opt-chart-modal').style.display = '';
+  // Pre-fill edit fields with current values
+  const editType   = document.getElementById('opt-edit-type');
+  const editStrike = document.getElementById('opt-edit-strike');
+  const editExpiry = document.getElementById('opt-edit-expiry');
+  if (editType)   editType.value   = pos.option_type || 'call';
+  if (editStrike) editStrike.value = pos.strike ?? '';
+  if (editExpiry) editExpiry.value = pos.expiration_date || '';
+  document.getElementById('opt-edit-panel').style.display = 'none';
   _optModalTab('chart');
+}
+
+function _optToggleEditPanel() {
+  const panel = document.getElementById('opt-edit-panel');
+  if (!panel) return;
+  panel.style.display = panel.style.display === 'none' ? '' : 'none';
+}
+
+async function _optSaveEdit() {
+  if (!_optCurrentId) return;
+  const body = {
+    option_type:     document.getElementById('opt-edit-type')?.value,
+    strike:          parseFloat(document.getElementById('opt-edit-strike')?.value) || null,
+    expiration_date: document.getElementById('opt-edit-expiry')?.value || null,
+  };
+  try {
+    await apiFetch(`/api/options/positions/${_optCurrentId}`, { method: 'PATCH', body: JSON.stringify(body) });
+    toast('success', 'Saved', 'Contract details locked. Reload to see updated DTE.');
+    document.getElementById('opt-edit-panel').style.display = 'none';
+    await loadOptionsPositions();
+  } catch(e) {
+    toast('error', 'Save failed', e.message);
+  }
 }
 
 function _optModalTab(tab) {
@@ -11131,44 +11193,57 @@ async function _optDrawPriceChart(pos, canvasEl) {
 
   const ctx = canvasEl.getContext('2d');
   const W = canvasEl.width, H = canvasEl.height;
-  const PL = 72, PR = 130, PT = 16, PB = 28;
-  const chartW = W - PL - PR, chartH = H - PT - PB;
 
-  // Gather all prices (OHLC + levels) for Y scale
-  const closes = ohlcv.map(c => c.close).filter(Boolean);
-  const levels = [
-    { label: 'Roll 3',      price: pos.level_roll_3,     color: '#cae8ff', lw: 1.5, dash: [6,4] },
-    { label: 'Roll 2',      price: pos.level_roll_2,     color: '#a5d6ff', lw: 1.5, dash: [6,4] },
-    { label: 'Roll 1',      price: pos.level_roll_1,     color: '#79c0ff', lw: 1.5, dash: [6,4] },
+  // Layout: left price history panel | right levels panel
+  const PL = 68, PT = 18, PB = 26;
+  const levPanelW = 180;                     // fixed right panel width
+  const histW = W - PL - levPanelW;          // history panel width
+  const chartH = H - PT - PB;
+  const sepX = PL + histW;                   // x of separator
+  const levX = sepX + 10;                    // levels panel content start
+
+  // Level definitions — ordered top→bottom (high→low price)
+  const levDefs = [
+    { label: 'Roll 3',      price: pos.level_roll_3,     color: '#cae8ff', lw: 1.5, dash: [5,4] },
+    { label: 'Roll 2',      price: pos.level_roll_2,     color: '#a5d6ff', lw: 1.5, dash: [5,4] },
+    { label: 'Roll 1',      price: pos.level_roll_1,     color: '#79c0ff', lw: 1.5, dash: [5,4] },
     { label: 'Entry / Buy', price: pos.underlying_entry, color: '#3fb950', lw: 2.5, dash: [] },
     { label: 'Exit Alert',  price: pos.level_exit_alert, color: '#d29922', lw: 1.5, dash: [4,3] },
     { label: 'Emergency',   price: pos.level_emergency,  color: '#f85149', lw: 2,   dash: [] },
   ].filter(l => l.price != null && Number(l.price) !== 0);
 
-  const allPrices = [...closes, ...levels.map(l => Number(l.price))].filter(Boolean);
-  if (!allPrices.length) {
-    ctx.fillStyle = '#8b949e'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('No price data available', W/2, H/2);
-    return;
-  }
-  const pad = (Math.max(...allPrices) - Math.min(...allPrices)) * 0.1 || 1;
-  const lo = Math.min(...allPrices) - pad;
-  const hi = Math.max(...allPrices) + pad;
-  const toY = p => PT + chartH - ((p - lo) / (hi - lo) * chartH);
-  // History occupies left 70%, right 30% is the levels panel
-  const histFrac = 0.70;
-  const toX = i => PL + (i / Math.max(ohlcv.length - 1, 1)) * chartW * histFrac;
-  const sepX = PL + chartW * histFrac + 10; // separator x between history and levels panel
-  const levPanelX = sepX + 6;              // where level lines start on the right
-
-  // Background — solid dark, no transparency
+  // ── Background ────────────────────────────────────────────────────────────
   ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, W, H);
-  // Levels panel background (slightly lighter)
-  ctx.fillStyle = '#111820';
-  ctx.fillRect(sepX, PT, W - sepX, chartH);
+  ctx.fillStyle = '#10161f';
+  ctx.fillRect(sepX, PT, levPanelW, chartH);
 
-  // Price history line (close prices)
-  if (ohlcv.length > 1) {
+  // ── Left panel: price history ─────────────────────────────────────────────
+  const closes = ohlcv.map(c => c.close).filter(Boolean);
+  if (closes.length > 1) {
+    // Y scale based solely on price closes (levels don't distort it)
+    const minC = Math.min(...closes), maxC = Math.max(...closes);
+    const padC = (maxC - minC) * 0.12 || minC * 0.05 || 1;
+    const lo = minC - padC, hi = maxC + padC;
+    const toY = p => PT + chartH - ((p - lo) / (hi - lo) * chartH);
+    const toX = i => PL + (i / Math.max(ohlcv.length - 1, 1)) * (histW - 8);
+
+    // Gradient fill
+    ctx.save();
+    const grad = ctx.createLinearGradient(0, PT, 0, PT + chartH);
+    grad.addColorStop(0, 'rgba(88,166,255,0.22)');
+    grad.addColorStop(1, 'rgba(88,166,255,0.01)');
+    ctx.beginPath();
+    ohlcv.forEach((c, i) => {
+      const x = toX(i), y = toY(c.close);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.lineTo(toX(ohlcv.length - 1), PT + chartH);
+    ctx.lineTo(toX(0), PT + chartH);
+    ctx.closePath();
+    ctx.fillStyle = grad; ctx.fill();
+    ctx.restore();
+
+    // Price line
     ctx.save();
     ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -11176,59 +11251,70 @@ async function _optDrawPriceChart(pos, canvasEl) {
       const x = toX(i), y = toY(c.close);
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
-    ctx.stroke();
+    ctx.stroke(); ctx.restore();
 
-    // Gradient fill under line
-    const grad = ctx.createLinearGradient(0, PT, 0, PT + chartH);
-    grad.addColorStop(0, 'rgba(88,166,255,0.25)');
-    grad.addColorStop(1, 'rgba(88,166,255,0.02)');
-    ctx.fillStyle = grad;
-    ctx.lineTo(toX(ohlcv.length - 1), PT + chartH);
-    ctx.lineTo(toX(0), PT + chartH);
-    ctx.closePath(); ctx.fill();
-    ctx.restore();
+    // Y-axis price labels (4 ticks)
+    ctx.fillStyle = '#8b949e'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
+    for (let t = 0; t <= 3; t++) {
+      const p = lo + (hi - lo) * (t / 3);
+      const y = toY(p);
+      ctx.fillText(`$${p.toFixed(2)}`, PL - 4, y + 3);
+      ctx.save(); ctx.strokeStyle = '#1e2530'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(PL + histW - 8, y); ctx.stroke(); ctx.restore();
+    }
 
-    // Date labels (first, mid, last)
+    // Date labels
     ctx.fillStyle = '#8b949e'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
-    const labelIdxs = [0, Math.floor(ohlcv.length / 2), ohlcv.length - 1];
-    for (const i of labelIdxs) {
-      const c = ohlcv[i];
-      if (!c) continue;
+    [0, Math.floor(ohlcv.length / 2), ohlcv.length - 1].forEach(i => {
+      const c = ohlcv[i]; if (!c) return;
       const lbl = c.time ? new Date(c.time * 1000).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : `D${i}`;
       ctx.fillText(lbl, toX(i), H - 6);
-    }
+    });
+  } else {
+    ctx.fillStyle = '#8b949e'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('Price data unavailable', PL + histW / 2, H / 2);
   }
 
-  // Vertical separator line
-  ctx.save(); ctx.strokeStyle = '#30363d'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
-  ctx.beginPath(); ctx.moveTo(sepX - 4, PT); ctx.lineTo(sepX - 4, PT + chartH); ctx.stroke();
+  // ── Separator ─────────────────────────────────────────────────────────────
+  ctx.save(); ctx.strokeStyle = '#2a3040'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(sepX, PT); ctx.lineTo(sepX, PT + chartH); ctx.stroke();
   ctx.restore();
-  ctx.fillStyle = '#8b949e'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText('Levels', levPanelX + 2, PT + 10);
 
-  // Level lines — only in the right panel (levPanelX → W - PR + 8)
-  for (const lv of levels) {
-    const y = toY(Number(lv.price));
-    const lineEnd = W - PR + 4;
-    ctx.save();
-    ctx.strokeStyle = lv.color; ctx.lineWidth = lv.lw;
-    if (lv.dash.length) ctx.setLineDash(lv.dash);
-    ctx.globalAlpha = 0.95;
-    ctx.beginPath(); ctx.moveTo(levPanelX, y); ctx.lineTo(lineEnd, y); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 1; ctx.fillStyle = lv.color;
-    // Dollar label on left of levels panel
-    ctx.font = '10px monospace'; ctx.textAlign = 'left';
-    ctx.fillText(`$${Number(lv.price).toFixed(2)}`, levPanelX, y - 3);
-    // Name label on right
-    ctx.font = `${lv.lw >= 2.5 ? 'bold ' : ''}10px sans-serif`; ctx.textAlign = 'left';
-    ctx.fillText(lv.label, lineEnd + 6, y + 4);
-    ctx.restore();
+  // ── Right panel: levels (evenly spaced, ordered high→low) ────────────────
+  ctx.fillStyle = '#8b949e'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('Price Levels', levX, PT + 10);
+
+  if (levDefs.length) {
+    // Sort high→low so Roll3 is at top, Emergency at bottom
+    const sorted = [...levDefs].sort((a, b) => Number(b.price) - Number(a.price));
+    const rowH = chartH / (sorted.length + 1);
+    sorted.forEach((lv, idx) => {
+      const y = PT + rowH * (idx + 1);
+      const lineX1 = levX, lineX2 = W - 8;
+
+      // Horizontal rule
+      ctx.save();
+      ctx.strokeStyle = lv.color; ctx.lineWidth = lv.lw;
+      if (lv.dash.length) ctx.setLineDash(lv.dash);
+      ctx.beginPath(); ctx.moveTo(lineX1, y); ctx.lineTo(lineX2, y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+
+      // Dollar amount above line
+      ctx.fillStyle = lv.color;
+      ctx.font = `${lv.lw >= 2.5 ? 'bold ' : ''}9px monospace`;
+      ctx.textAlign = 'left';
+      ctx.fillText(`$${Number(lv.price).toFixed(2)}`, lineX1, y - 2);
+
+      // Label below line
+      ctx.font = `${lv.lw >= 2.5 ? 'bold ' : ''}9px sans-serif`;
+      ctx.fillText(lv.label, lineX1, y + 10);
+    });
   }
 
   // Chart border
-  ctx.strokeStyle = '#30363d'; ctx.lineWidth = 1;
-  ctx.strokeRect(PL, PT, W - PL - PR, chartH);
+  ctx.strokeStyle = '#2a3040'; ctx.lineWidth = 1;
+  ctx.strokeRect(PL, PT, histW, chartH);
 }
 
 async function _optLoadChart() {

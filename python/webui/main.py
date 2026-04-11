@@ -5490,6 +5490,48 @@ async def get_option_chart(position_id: str):
     return {"chart_b64": chart_b64}
 
 
+@app.patch("/api/options/positions/{position_id}")
+async def patch_option_position(position_id: str, body: dict):
+    """
+    Manually correct strike, expiry, and/or option_type for a position.
+    Sets expiry_locked=true so the scan won't overwrite the values.
+    Body: { strike?: number, expiration_date?: "YYYY-MM-DD", option_type?: "call"|"put" }
+    """
+    pool = await _get_db_pool()
+    row = await pool.fetchrow(
+        "SELECT id FROM option_positions WHERE id=$1",
+        uuid.UUID(position_id),
+    )
+    if not row:
+        raise HTTPException(404, "Position not found")
+
+    sets, params = [], [uuid.UUID(position_id)]
+
+    if "expiration_date" in body and body["expiration_date"]:
+        from datetime import date as _date
+        params.append(_date.fromisoformat(str(body["expiration_date"])))
+        sets.append(f"expiration_date = ${len(params)}")
+        sets.append("expiry_locked = TRUE")
+
+    if "strike" in body and body["strike"] is not None:
+        params.append(float(body["strike"]))
+        sets.append(f"strike = ${len(params)}")
+
+    if "option_type" in body and body["option_type"] in ("call", "put"):
+        params.append(body["option_type"])
+        sets.append(f"option_type = ${len(params)}")
+
+    if not sets:
+        raise HTTPException(400, "Nothing to update")
+
+    sets.append("updated_at = NOW()")
+    await pool.execute(
+        f"UPDATE option_positions SET {', '.join(sets)} WHERE id=$1",
+        *params,
+    )
+    return {"ok": True}
+
+
 @app.post("/api/options/scan")
 async def trigger_options_scan(token: str = ""):
     """Manually trigger an options position scan."""

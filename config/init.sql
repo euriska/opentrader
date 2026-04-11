@@ -80,6 +80,8 @@ ALTER TABLE scheduler_jobs ADD COLUMN IF NOT EXISTS intraday_interval_min INT;
 ALTER TABLE scheduler_jobs ADD COLUMN IF NOT EXISTS intraday_days         TEXT;
 -- option_positions delta column (added 2026-04-11)
 ALTER TABLE option_positions ADD COLUMN IF NOT EXISTS delta NUMERIC;
+-- option_positions expiry_locked flag (added 2026-04-11)
+ALTER TABLE option_positions ADD COLUMN IF NOT EXISTS expiry_locked BOOLEAN DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS ovtlyr_intel (
     id           UUID NOT NULL DEFAULT gen_random_uuid(),
