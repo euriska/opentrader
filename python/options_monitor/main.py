@@ -817,6 +817,7 @@ class OptionsMonitor(BaseAgent):
                     level_roll_3        = $8::NUMERIC,
                     extra_roll_levels   = $9::JSONB,
                     next_earnings_date  = $10,
+                    account_name        = $17,
                     last_scan_at        = NOW(),
                     raw                 = $11::JSONB,
                     delta               = $13::NUMERIC,
@@ -841,6 +842,7 @@ class OptionsMonitor(BaseAgent):
                 option_type if option_type != "unknown" else None,  # $14
                 strike,             # $15
                 expiration_date,    # $16
+                account_name,       # $17 — always refresh from accounts.toml
             )
         else:
             # New position
