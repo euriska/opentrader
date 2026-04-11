@@ -10921,12 +10921,17 @@ function _optRender() {
   _optRenderTable(rows);
 }
 
+function _optBrokerLabel(b) {
+  const map = {webull:'Webull', alpaca:'Alpaca', tradier:'Tradier', interactive:'Interactive Brokers', td:'TD Ameritrade'};
+  return map[b] || (b ? b.charAt(0).toUpperCase() + b.slice(1) : b);
+}
+
 function _optRenderWatchlists(rows) {
   const el = document.getElementById('opt-watchlists');
   if (!el) return;
   const groups = {};
   for (const p of rows) {
-    const key  = `${p.broker}: ${p.account_name}`;
+    const key  = `${_optBrokerLabel(p.broker)}: ${p.account_name}`;
     if (!groups[key]) groups[key] = [];
     groups[key].push(p.underlying);
   }
@@ -10998,7 +11003,7 @@ function _optRenderTable(rows) {
         ${p.has_chart ? '<span style="font-size:9px;color:var(--muted)" title="Chart available">📊</span>' : ''}
       </td>
       <td style="padding:7px 10px;font-family:monospace;font-size:10px;color:var(--muted);white-space:nowrap">${p.contract_symbol}</td>
-      <td style="padding:7px 10px;white-space:nowrap;font-size:11px">${p.account_name}<br><span style="color:var(--muted);font-size:10px">${p.broker}</span></td>
+      <td style="padding:7px 10px;white-space:nowrap;font-size:11px">${p.account_name}<br><span style="color:var(--muted);font-size:10px">${_optBrokerLabel(p.broker)}</span></td>
       <td style="padding:7px 6px;text-align:center"><span style="color:${typeColor};font-weight:700;font-size:11px">${typeTxt}</span></td>
       <td style="padding:7px 6px;text-align:right;font-weight:600">${p.strike != null ? '$'+Number(p.strike).toFixed(2) : '—'}</td>
       <td style="padding:7px 6px;text-align:right;font-weight:600">${p.qty != null ? Number(p.qty) : '—'}</td>

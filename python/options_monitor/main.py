@@ -44,6 +44,9 @@ SCAN_INTERVAL_MIN    = int(os.getenv("OPTIONS_SCAN_INTERVAL_MIN", "5"))
 ATR_PERIOD           = 14
 # Maximum extra roll levels to pre-compute beyond roll_3
 MAX_EXTRA_ROLLS      = 7   # gives rolls at +3 … +9 ATR
+# Default option type for Webull non-OCC positions where type isn't in raw data.
+# Set to "put" if you hold puts, or "unknown" to search both (may misidentify).
+WEBULL_DEFAULT_OPTION_TYPE = os.getenv("WEBULL_DEFAULT_OPTION_TYPE", "call")
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -214,23 +217,26 @@ async def _fetch_option_chain_details(
     if not exp_dates:
         return None
 
-    # Yahoo uses 'calls'/'puts' (not 'call'/'put')
-    query_types: list[tuple[str, str]] = []
-    if hint_option_type in ("call", "unknown"):
-        query_types.append(("calls", "call"))
-    if hint_option_type in ("put", "unknown"):
-        query_types.append(("puts", "put"))
+    # Yahoo uses 'calls'/'puts' (not 'call'/'put').
+    # When hint is "unknown" or "call", always check calls first.
+    # Only fall back to puts if hint is explicitly "put" or calls return no match.
+    if hint_option_type == "put":
+        side_order = [("puts", "put")]
+    else:
+        # call (or unknown) — calls only; unknown never reaches here since
+        # WEBULL_DEFAULT_OPTION_TYPE defaults to "call"
+        side_order = [("calls", "call")]
 
     best: Optional[dict] = None
     best_score = float("inf")
 
-    for exp_date_str in exp_dates[:4]:
-        try:
-            exp_d = date.fromisoformat(str(exp_date_str)[:10])
-        except Exception:
-            exp_d = None
+    for yahoo_type, opt_type in side_order:
+        for exp_date_str in exp_dates[:4]:
+            try:
+                exp_d = date.fromisoformat(str(exp_date_str)[:10])
+            except Exception:
+                exp_d = None
 
-        for yahoo_type, opt_type in query_types:
             raw_chain = await call_mcp_tool(
                 YAHOO_MCP_URL, "get_option_chain",
                 {"ticker": underlying, "expiration_date": str(exp_date_str),
@@ -256,7 +262,7 @@ async def _fetch_option_chain_details(
                     delta = _bs_delta(current_underlying_price, contract_strike,
                                       T, iv, option_type=opt_type)
 
-                # Score: match by price or by ATM proximity
+                # Score: match by price or by nearest-ATM strike
                 if current_option_price > 0:
                     last = float(c.get("lastPrice") or c.get("bid") or 0)
                     if last <= 0:
@@ -280,8 +286,11 @@ async def _fetch_option_chain_details(
                         "delta":           delta,
                     }
 
-        if best and best_score < 0.10:
-            break   # good enough, stop searching more expiries
+            if best and best_score < 0.10:
+                break   # good enough match for this side
+
+        if best:
+            break   # found a match, don't try the other side
 
     return best
 
@@ -463,7 +472,8 @@ def _normalise_option_position(pos: dict, acct_label: str, broker: str, mode: st
         elif str(raw_otype).upper() in ("PUT", "P"):
             option_type = "put"
         else:
-            option_type = "unknown"
+            # Default to WEBULL_DEFAULT_OPTION_TYPE when not in raw data
+            option_type = WEBULL_DEFAULT_OPTION_TYPE
 
         raw_strike = (
             raw.get("strike_price") or raw.get("strikePrice") or
