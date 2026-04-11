@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.30] - 2026-04-11
+
+### Added
+- Options dashboard: inline DTE editor — click the ✏ pencil next to any DTE cell to open a date picker directly in the table row; press Enter or click away to save and lock; updates immediately without page reload
+
 ## [3.5.29] - 2026-04-11
 
 ### Added

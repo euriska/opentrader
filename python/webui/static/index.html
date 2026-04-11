@@ -11063,11 +11063,66 @@ function _optAlertBadge(alertsFired) {
                        : '<span style="color:var(--muted);font-size:11px">—</span>';
 }
 
-function _optDteCell(dte) {
-  if (dte === null || dte === undefined) return '<td style="padding:7px 6px;text-align:center;color:var(--muted)">—</td>';
-  if (dte <= 0) return `<td style="padding:7px 6px;text-align:center;color:#f85149;font-weight:700">${dte}d</td>`;
-  if (dte <= 7) return `<td style="padding:7px 6px;text-align:center;color:#f97316;font-weight:700">${dte}d</td>`;
-  return `<td style="padding:7px 6px;text-align:center;color:var(--fg)">${dte}d</td>`;
+function _optDteCell(dte, posId, expirationDate) {
+  const color = dte === null ? 'var(--muted)' : dte <= 0 ? '#f85149' : dte <= 7 ? '#f97316' : 'var(--fg)';
+  const dteTxt = dte !== null && dte !== undefined ? `${dte}d` : '—';
+  const dateVal = expirationDate || '';
+  // Pencil opens an inline date input; Esc cancels, Enter/blur saves
+  return `<td style="padding:4px 6px;text-align:center;white-space:nowrap">
+    <span id="dte-disp-${posId}" style="color:${color};font-weight:${dte<=7?700:400}">${dteTxt}</span>
+    <button onclick="_optDteEdit('${posId}','${dateVal}')"
+      title="Edit expiry" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:10px;padding:0 2px;vertical-align:middle">✏</button>
+    <span id="dte-inp-${posId}" style="display:none">
+      <input type="date" value="${dateVal}"
+        style="background:var(--card);color:var(--fg);border:1px solid var(--blue);border-radius:4px;padding:2px 4px;font-size:10px;width:108px"
+        onkeydown="if(event.key==='Enter')_optDteSave('${posId}',this.value);if(event.key==='Escape')_optDteCancel('${posId}')"
+        onblur="_optDteSave('${posId}',this.value)">
+    </span>
+  </td>`;
+}
+
+function _optDteEdit(posId, current) {
+  document.getElementById(`dte-disp-${posId}`).style.display = 'none';
+  const wrap = document.getElementById(`dte-inp-${posId}`);
+  wrap.style.display = 'inline';
+  const inp = wrap.querySelector('input');
+  inp.value = current;
+  inp.focus();
+}
+
+function _optDteCancel(posId) {
+  document.getElementById(`dte-disp-${posId}`).style.display = '';
+  document.getElementById(`dte-inp-${posId}`).style.display = 'none';
+}
+
+async function _optDteSave(posId, dateVal) {
+  // blur fires after Enter keydown — guard against double-fire
+  const wrap = document.getElementById(`dte-inp-${posId}`);
+  if (!wrap || wrap.style.display === 'none') return;
+  wrap.style.display = 'none';
+  if (!dateVal) { _optDteCancel(posId); return; }
+  try {
+    await apiFetch(`/api/options/positions/${posId}`, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ expiration_date: dateVal })
+    });
+    // Update local data and re-render
+    const today = new Date(); today.setHours(0,0,0,0);
+    const exp   = new Date(dateVal + 'T00:00:00');
+    const dte   = Math.round((exp - today) / 86400000);
+    const pos   = _optPositions.find(p => p.id === posId);
+    if (pos) { pos.days_to_exp = dte; pos.expiration_date = dateVal; }
+    _optRenderTable(_optSortRows(
+      ((document.getElementById('opt-filter-account')||{}).value
+        ? _optPositions.filter(p=>p.account_label===(document.getElementById('opt-filter-account')||{}).value)
+        : _optPositions)
+    ));
+    toast('success', 'Expiry saved', `${dateVal} locked (${dte}d DTE)`);
+  } catch(e) {
+    toast('error', 'Save failed', e.message);
+    _optDteCancel(posId);
+  }
 }
 
 function _optRenderTable(rows) {
@@ -11114,7 +11169,7 @@ function _optRenderTable(rows) {
       <td style="padding:7px 6px;text-align:right;color:#cae8ff">${fmt(p.level_roll_3)}</td>
       <td style="padding:7px 10px">${_optAlertBadge(p.alerts_fired)}</td>
       <td style="padding:7px 6px;text-align:center;color:var(--muted)">${p.days_in_trade != null ? p.days_in_trade+'d' : '—'}</td>
-      ${_optDteCell(dte)}
+      ${_optDteCell(dte, p.id, p.expiration_date)}
       <td style="padding:7px 6px;text-align:center;color:${dEarnColor};font-size:11px">${dEarnStr}</td>
       <td style="padding:7px 6px;text-align:center"><span style="font-size:10px;color:var(--muted)">${p.status}</span></td>
     </tr>`;
