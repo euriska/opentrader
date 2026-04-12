@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.41] - 2026-04-12
+
+### Fixed
+- Trading Dashboard: Options Trades and Equity Trades counts now use a dedicated 30-day rolling fetch (`/api/trades?limit=500`) instead of the 5-entry WebSocket feed — trades made on Friday (or any day) persist across weekends and holidays until they age out of the 30-day window; the WS feed continues to drive the Recent Activity table only
+
 ## [3.5.40] - 2026-04-12
 
 ### Added

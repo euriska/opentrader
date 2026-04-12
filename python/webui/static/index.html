@@ -2581,7 +2581,7 @@ function navigate(pageId) {
     case 'page-platform-scheduler': _initSchedThead(); loadSchedulerPage(); break;
     case 'page-platform-system':    _ctRenderThead();  loadSystemPage();   break;
     case 'page-platform-config':    loadConfigPage();    break;
-    case 'page-trading-dashboard':  _initTdHeaders(); loadOvtlyrMarketSignals(); ovtlyrSelectList(_ovtlyrCurrentList); loadTotalPositions(); _refreshBreadth(); break;
+    case 'page-trading-dashboard':  _initTdHeaders(); loadOvtlyrMarketSignals(); ovtlyrSelectList(_ovtlyrCurrentList); loadTotalPositions(); _loadTdTradeStats(); _refreshBreadth(); break;
     case 'page-trading-unified':    loadUnifiedPositions(); break;
 
     case 'page-trading-trades':     loadTradesPage();    break;
@@ -3917,7 +3917,8 @@ function _initTdHeaders() {
 // ══════════════════════════════════════════════════════════════════════════════
 // ── Live / Paper toggle state ────────────────────────────────────────────────
 let _tdMode = 'live';
-let _tdLastTradesData = null;
+let _tdLastTradesData = null;       // last 5 entries from WS — used for Recent Activity table only
+let _tdTradesFull = [];             // 30-day rolling window — used for trade count stats
 let _tdLastPositionsData = null;
 
 function _tdSetMode(mode) {
@@ -3956,13 +3957,25 @@ function _updateTdStats() {
     if (optEl) optEl.textContent = optionSymbols.size;
   }
 
-  // Trade stats — split equity vs options, win rate from equity fills only
-  if (_tdLastTradesData) {
-    const fills   = (_tdLastTradesData.trades || []).filter(t => t.event_type === 'fill');
+  // Trade stats — use full 30-day window (not the 5-entry WS feed)
+  // 30d cutoff: trades persist across weekends/holidays until they age out
+  if (_tdTradesFull.length > 0 || _tdLastTradesData) {
+    const source  = _tdTradesFull.length > 0 ? _tdTradesFull : (_tdLastTradesData?.trades || []);
+    const cutoff  = Date.now() - 30 * 86400000;
     const modeMap = { live: ['live'], paper: ['paper', 'sandbox', ''] };
-    const modeFills = fills.filter(t => (modeMap[_tdMode] || []).includes(t.mode));
-    const eqFills  = modeFills.filter(t => !_optAC.has((t.asset_class || '').toLowerCase()));
-    const optFills = modeFills.filter(t =>  _optAC.has((t.asset_class || '').toLowerCase()));
+    const fills   = source.filter(t => {
+      if (t.event_type !== 'fill') return false;
+      if (!(modeMap[_tdMode] || []).includes(t.mode)) return false;
+      // Parse timestamp — stream ID carries ms if ts field absent
+      const ms = (() => {
+        if (t.ts) { const p = Date.parse(t.ts); if (!isNaN(p)) return p; }
+        const m = parseInt((t.id || '').split('-')[0]);
+        return isNaN(m) ? 0 : m;
+      })();
+      return ms >= cutoff;
+    });
+    const eqFills  = fills.filter(t => !_optAC.has((t.asset_class || '').toLowerCase()));
+    const optFills = fills.filter(t =>  _optAC.has((t.asset_class || '').toLowerCase()));
     const winners  = eqFills.filter(t => parseFloat(t.pnl || 0) > 0);
     const wr       = eqFills.length ? Math.round(winners.length / eqFills.length * 100) : 0;
     const eqTEl  = document.getElementById('td-equity-trades');
@@ -4021,6 +4034,18 @@ async function loadTotalPositions() {
       if (el) el.textContent = '—';
     });
   }
+}
+
+async function _loadTdTradeStats() {
+  // Fetch 30-day trade window for the dashboard stat counters.
+  // The WS feed only carries the last 5 entries (for the Recent Activity table),
+  // so trades made on Friday (or any day) would vanish from the count once 5+
+  // newer events arrive. This fetch gives the full rolling window.
+  try {
+    const trades = await apiFetch('/api/trades?limit=500');
+    _tdTradesFull = Array.isArray(trades) ? trades : [];
+    _updateTdStats();
+  } catch(_) {}
 }
 
 function renderTradingDashboard(data) {
