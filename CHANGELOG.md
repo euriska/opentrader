@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.40] - 2026-04-12
+
+### Added
+- Library: reader rank banner — 15-tier achievement system based on books-read count, from "Wall-Starer" (0 books) to "Oracle of Page Street" (200+); shows tier icon, title, witty subtitle, books-read badge, and progress bar to next rank
+
 ## [3.5.39] - 2026-04-12
 
 ### Changed

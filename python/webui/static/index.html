@@ -2151,6 +2151,9 @@ select option{background:var(--surface2)}
         </div>
       </div>
 
+      <!-- Reader Rank Banner -->
+      <div id="lib-reader-rank-wrap" style="margin-bottom:14px"></div>
+
       <!-- Controls -->
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <div style="display:flex;gap:4px">
@@ -9037,6 +9040,94 @@ async function loadLibraryResourcePage() {
   await Promise.all([_libLoadStats(), _libLoad()]);
 }
 
+const _LIB_READER_TIERS = [
+  { min:   0, max:   0, icon: '😴', title: 'Wall-Starer',
+    sub: 'Your bookshelf is purely decorative. Even the dust has more chapters than your read list.',
+    color: '#6b7280' },
+  { min:   1, max:   1, icon: '🌱', title: 'First Page Turner',
+    sub: 'One down. The journey of a thousand insights begins with a single cracked spine.',
+    color: '#4ade80' },
+  { min:   2, max:   3, icon: '👀', title: 'Curious Capitalist',
+    sub: 'Ideas are compounding faster than your regret over that one bad trade. Keep going.',
+    color: '#34d399' },
+  { min:   4, max:   5, icon: '📖', title: 'Avid Accumulator',
+    sub: 'Buffett started somewhere. This might be your somewhere. Probably not — read more.',
+    color: '#60a5fa' },
+  { min:   6, max:   9, icon: '🧠', title: 'Chapter Champion',
+    sub: 'You\'ve officially read more books than most people own. The bar is low, but you cleared it.',
+    color: '#38bdf8' },
+  { min:  10, max:  14, icon: '💡', title: 'Knowledge Compounder',
+    sub: 'You\'re reading like it\'s a tax-advantaged account. Every page, another basis point of edge.',
+    color: '#f59e0b' },
+  { min:  15, max:  19, icon: '📊', title: 'Margin of Safety Reader',
+    sub: 'Graham would approve. Your mental model portfolio is finally better diversified than your actual one.',
+    color: '#fb923c' },
+  { min:  20, max:  24, icon: '🏛️', title: 'Bibliophile Investor',
+    sub: 'Your brain is better diversified than most hedge funds. The library card is your alpha.',
+    color: '#a78bfa' },
+  { min:  25, max:  34, icon: '⚡', title: 'Library Luminary',
+    sub: 'Most people buy courses. You buy books. In twenty years, you\'ll know exactly who was right.',
+    color: '#c084fc' },
+  { min:  35, max:  49, icon: '🦅', title: 'Voracious Volume Trader',
+    sub: 'Trading ideas, not just shares. At this pace your bookshelves need a risk manager.',
+    color: '#f472b6' },
+  { min:  50, max:  74, icon: '🏆', title: 'Buffett Bibliographer',
+    sub: 'Warren reads 500 pages a day. You\'re in the same sentence now. Different paragraph, but same sentence.',
+    color: '#fbbf24' },
+  { min:  75, max:  99, icon: '👑', title: 'Paper Baron',
+    sub: 'More books read than most traders have had profitable years. Statistically speaking. Roughly.',
+    color: '#f59e0b' },
+  { min: 100, max: 149, icon: '🌟', title: 'Legendary Learner',
+    sub: 'Triple digits. The market respects you. Your bookshelf definitely does. Your eyes probably don\'t.',
+    color: '#fde68a' },
+  { min: 150, max: 199, icon: '🔮', title: 'Grand Tome Master',
+    sub: 'At this point we\'re genuinely concerned. Are you sleeping? Please eat something.',
+    color: '#6ee7b7' },
+  { min: 200, max: Infinity, icon: '🧙', title: 'Oracle of Page Street',
+    sub: 'Charlie Munger called. He wants his reading list back. We told him you\'d already moved on.',
+    color: '#a5f3fc' },
+];
+
+function _libRenderReaderRank(readCount) {
+  const wrap = document.getElementById('lib-reader-rank-wrap');
+  if (!wrap) return;
+  const n = readCount || 0;
+  const tierIdx = _LIB_READER_TIERS.findIndex(t => n >= t.min && n <= t.max);
+  const tier = _LIB_READER_TIERS[tierIdx] || _LIB_READER_TIERS[_LIB_READER_TIERS.length - 1];
+  const next = _LIB_READER_TIERS[tierIdx + 1] || null;
+
+  // Progress within current tier
+  let pctBar = '', nextLabel = '';
+  if (next) {
+    const span  = next.min - tier.min;
+    const prog  = n - tier.min;
+    const pct   = span > 0 ? Math.round(prog / span * 100) : 100;
+    const left  = next.min - n;
+    nextLabel = `<span style="font-size:11px;color:var(--muted)">${left} book${left!==1?'s':''} until <strong style="color:${next.color}">${next.title}</strong> ${next.icon}</span>`;
+    pctBar = `
+      <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
+        <div style="flex:1;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${tier.color};border-radius:2px;transition:width .4s"></div>
+        </div>
+        ${nextLabel}
+      </div>`;
+  }
+
+  const bookWord = n === 1 ? 'book' : 'books';
+  wrap.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid ${tier.color};border-radius:10px;padding:14px 20px;display:flex;align-items:flex-start;gap:16px">
+      <div style="font-size:40px;line-height:1;flex-shrink:0;filter:drop-shadow(0 0 8px ${tier.color}44)">${tier.icon}</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-size:17px;font-weight:800;color:${tier.color}">${tier.title}</span>
+          <span style="font-size:11px;font-weight:600;background:${tier.color}22;color:${tier.color};border:1px solid ${tier.color}44;border-radius:20px;padding:2px 10px">${n} ${bookWord} read</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px;font-style:italic;line-height:1.4">${tier.sub}</div>
+        ${pctBar}
+      </div>
+    </div>`;
+}
+
 async function _libLoadStats() {
   try {
     const r = await fetch('/api/library/stats');
@@ -9052,6 +9143,7 @@ async function _libLoadStats() {
     if (costEl) costEl.textContent = '$' + cost.toFixed(2);
     const badge = document.getElementById('lib-count-badge');
     if (badge) badge.textContent = total + ' book' + (total !== 1 ? 's' : '');
+    _libRenderReaderRank(d.read ?? 0);
     // Populate category filter
     const sel = document.getElementById('lib-filter-category');
     const cur = sel.value;
