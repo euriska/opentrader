@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.32] - 2026-04-12
+
+### Added
+- Webull positions v2 enrichment: broker gateway now calls `/openapi/assets/positions` (x-version: v2) using `WEBULL_APP_KEY`/`WEBULL_APP_SECRET` to extract `strikePrice`, `expiryDate`, and `right` (call/put) from each option position's `legs[]` array; falls back silently to v1 if unconfigured or unavailable
+- v2 leg data injected directly into the raw position dict so options monitor can resolve expiry/strike/type without Yahoo Finance chain lookup
+
 ## [3.5.31] - 2026-04-11
 
 ### Removed

@@ -25,6 +25,8 @@ log = logging.getLogger(__name__)
 API_BASE    = "https://api.webull.com"
 API_KEY     = os.getenv("WEBULL_API_KEY", "")
 SECRET_KEY  = os.getenv("WEBULL_SECRET_KEY", "")
+APP_KEY     = os.getenv("WEBULL_APP_KEY", "")
+APP_SECRET  = os.getenv("WEBULL_APP_SECRET", "")
 MAX_RETRIES = int(os.getenv("WEBULL_MAX_RETRIES", "3"))
 
 # Module-level cache: account_number → internal account_id
@@ -115,6 +117,10 @@ class WebullClient:
     async def get(self, path: str, params: Optional[dict] = None) -> dict:
         return await self._request("GET", path, params=params)
 
+    async def get_v2(self, path: str, params: Optional[dict] = None) -> dict:
+        """Call the v2 OpenAPI endpoint using APP_KEY/APP_SECRET with x-version: v2 header."""
+        return await self._request("GET", path, params=params, use_app_key=True, api_version="v2")
+
     async def post(self, path: str, body: Optional[dict] = None) -> dict:
         return await self._request("POST", path, body=body)
 
@@ -127,13 +133,19 @@ class WebullClient:
         path:   str,
         params: Optional[dict] = None,
         body:   Optional[dict] = None,
+        use_app_key:  bool = False,
+        api_version:  Optional[str] = None,
     ) -> dict:
         url = f"{API_BASE}{path}"
+        key    = APP_KEY    if use_app_key and APP_KEY    else API_KEY
+        secret = APP_SECRET if use_app_key and APP_SECRET else SECRET_KEY
 
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                headers = _build_auth_headers(API_KEY, SECRET_KEY, method, path,
+                headers = _build_auth_headers(key, secret, method, path,
                                               params=params, body=body)
+                if api_version:
+                    headers["x-version"] = api_version
                 async with aiohttp.ClientSession() as session:
                     async with session.request(
                         method, url,
