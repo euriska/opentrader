@@ -934,12 +934,32 @@ select option{background:var(--surface2)}
         </div>
       <div class="stat-grid" style="flex:1">
         <div class="stat-card">
-          <div class="stat-label">Total Positions</div>
-          <div class="stat-value" id="td-total-positions" style="color:var(--text)">—</div>
+          <div class="stat-label">Positions</div>
+          <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:1px">
+              <div class="stat-value" id="td-equity-positions" style="color:var(--text)">—</div>
+              <div style="font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Equity</div>
+            </div>
+            <div style="color:var(--border);font-size:20px;line-height:1;align-self:center">/</div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:1px">
+              <div class="stat-value" id="td-option-positions" style="color:#a855f7">—</div>
+              <div style="font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Options</div>
+            </div>
+          </div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Total Trades</div>
-          <div class="stat-value" id="td-total-trades" style="color:var(--text)">—</div>
+          <div class="stat-label">Trades <span style="font-size:9px;font-weight:400;color:var(--dim)">30d</span></div>
+          <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:1px">
+              <div class="stat-value" id="td-equity-trades" style="color:var(--text)">—</div>
+              <div style="font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Equity</div>
+            </div>
+            <div style="color:var(--border);font-size:20px;line-height:1;align-self:center">/</div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:1px">
+              <div class="stat-value" id="td-option-trades" style="color:#a855f7">—</div>
+              <div style="font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Options</div>
+            </div>
+          </div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Unrealized P&amp;L</div>
@@ -3911,29 +3931,41 @@ function _tdSetMode(mode) {
 }
 
 function _updateTdStats() {
-  // Positions count
+  const _optAC = new Set(['option', 'options', 'us_option']);
+
+  // Positions count — split equity vs options
   if (_tdLastPositionsData) {
-    const uniqueTickers = new Set();
+    const equitySymbols = new Set();
+    const optionSymbols = new Set();
     for (const acct of (_tdLastPositionsData.accounts || [])) {
       const m = acct.mode || '';
       if (_tdMode === 'live'  && m !== 'live') continue;
       if (_tdMode === 'paper' && m !== 'paper' && m !== 'sandbox') continue;
       for (const p of (acct.positions || [])) {
-        if (p.symbol) uniqueTickers.add(p.symbol.toUpperCase());
+        if (!p.symbol) continue;
+        if (_isEquityPosition(p)) equitySymbols.add(p.symbol.toUpperCase());
+        else                      optionSymbols.add(p.symbol.toUpperCase());
       }
     }
-    const posEl = document.getElementById('td-total-positions');
-    if (posEl) posEl.textContent = uniqueTickers.size || '0';
+    const eqEl  = document.getElementById('td-equity-positions');
+    const optEl = document.getElementById('td-option-positions');
+    if (eqEl)  eqEl.textContent  = equitySymbols.size;
+    if (optEl) optEl.textContent = optionSymbols.size;
   }
 
-  // Trade stats (counts + win rate from fills)
+  // Trade stats — split equity vs options, win rate from equity fills only
   if (_tdLastTradesData) {
-    const fills = (_tdLastTradesData.trades || []).filter(t => t.event_type === 'fill');
+    const fills   = (_tdLastTradesData.trades || []).filter(t => t.event_type === 'fill');
     const modeMap = { live: ['live'], paper: ['paper', 'sandbox', ''] };
     const modeFills = fills.filter(t => (modeMap[_tdMode] || []).includes(t.mode));
-    const winners = modeFills.filter(t => parseFloat(t.pnl || 0) > 0);
-    const wr      = modeFills.length ? Math.round(winners.length / modeFills.length * 100) : 0;
-    document.getElementById('td-total-trades').textContent = modeFills.length;
+    const eqFills  = modeFills.filter(t => !_optAC.has((t.asset_class || '').toLowerCase()));
+    const optFills = modeFills.filter(t =>  _optAC.has((t.asset_class || '').toLowerCase()));
+    const winners  = eqFills.filter(t => parseFloat(t.pnl || 0) > 0);
+    const wr       = eqFills.length ? Math.round(winners.length / eqFills.length * 100) : 0;
+    const eqTEl  = document.getElementById('td-equity-trades');
+    const optTEl = document.getElementById('td-option-trades');
+    if (eqTEl)  eqTEl.textContent  = eqFills.length;
+    if (optTEl) optTEl.textContent = optFills.length;
     document.getElementById('td-winrate').textContent = wr + '%';
   }
 
@@ -3981,8 +4013,10 @@ async function loadTotalPositions() {
     _tdLastPositionsData = await apiFetch('/api/broker/positions');
     _updateTdStats();
   } catch(e) {
-    const el = document.getElementById('td-total-positions');
-    if (el) el.textContent = '—';
+    ['td-equity-positions','td-option-positions'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = '—';
+    });
   }
 }
 

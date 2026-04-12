@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.39] - 2026-04-12
+
+### Changed
+- Trading Dashboard: "Total Positions" and "Total Trades" stat cards now show equity / options split — each card displays two values side by side (equity in white, options in purple) with labels beneath; Win Rate is computed from equity fills only
+
 ## [3.5.38] - 2026-04-12
 
 ### Fixed
