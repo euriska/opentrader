@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.36] - 2026-04-12
+
+### Fixed
+- Equity trader: `reject_reason` now captures Alpaca/broker error text correctly — `r.get("error", default)` was silently returning `""` when the key existed but was empty; changed to `r.get("error") or "gateway error"` so empty strings fall back to the default
+
 ## [3.5.35] - 2026-04-12
 
 ### Added

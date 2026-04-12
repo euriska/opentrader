@@ -301,7 +301,7 @@ class EquityTrader(BaseAgent):
             mode   = r.get("mode", trade_mode)
 
             if r.get("status") == "error":
-                reject_reason = r.get("error", "gateway error")
+                reject_reason = r.get("error") or "gateway error"
                 log.warning("trader-equity.order_rejected",
                             ticker=ticker, error=reject_reason)
                 await self.redis.xadd(
