@@ -16,13 +16,18 @@ An AI-driven algorithmic trading platform built on a microservices architecture 
 - **Real-time WebUI** — Dark-themed SPA dashboard with live WebSocket updates
 - **TradingView Charts** — Embedded charts with EMA/SMA/BB/RSI/MACD overlays and live position picker
 - **Market Breadth** — OVTLYR bull/bear breadth gauge with crossover detection and sparkline history
+- **Equity / Options separation** — Active Positions, Trades, and Dividends pages show equity-only data; Options Dashboard is a dedicated section
+- **Options Dashboard** — Live options position tracker with DTE, strike, delta, ATR levels, and Yahoo Finance chain enrichment
 - **Strategy Engineer** — AI-assisted strategy builder with version control and real Backtrader backtesting
 - **Backtrader Engine** — EMA 10/21 crossover strategy with stop-loss/take-profit, full trade log, PDF + CSV exports, and equity/chart tabs
 - **Trade Directives** — Natural-language GTC directives evaluated every 5 minutes by an LLM agent and executed automatically
 - **Market Intelligence** — Per-ticker intelligence pipeline: WSB sentiment, SeekingAlpha, Yahoo Finance news, analyst ratings, earnings proximity, and Unusual Whales options flow + dark pool data
 - **Unusual Whales MCP** — Real-time options flow, dark pool prints, market tide, greek exposure, and short interest via MCP server
+- **Webull MCP** — Webull account data, positions, and order management via Webull OpenAPI MCP server
 - **Scheduler** — Market-hours-aware job runner with DB-persisted configuration
-- **MCP Agents** — Model Context Protocol servers for Yahoo Finance, Alpaca, TradingView, Massive, and Unusual Whales
+- **MCP Agents** — Model Context Protocol servers for Yahoo Finance, Alpaca, TradingView, Webull, and Unusual Whales
+- **Dividends** — Dividend tracking with yield, history, and per-account breakdown (equity positions only)
+- **Library** — Trading book library with ISBN lookup, cover art, ratings, and reader rank achievement system
 - **Notifications** — Telegram, Discord, and AgentMail alerts
 - **EOD Review** — Automated end-of-day trade analysis and recommendations
 - **Self-healing** — Orchestrator watchdog with circuit breaker and auto-restart
@@ -61,7 +66,7 @@ An AI-driven algorithmic trading platform built on a microservices architecture 
 │  job + intel cache  │
 └─────────────────────┘
 
-MCP Layer: Yahoo Finance · Alpaca · TradingView · Massive · Unusual Whales
+MCP Layer: Yahoo Finance · Alpaca · TradingView · Webull · Unusual Whales
 ```
 
 ---
@@ -71,28 +76,25 @@ MCP Layer: Yahoo Finance · Alpaca · TradingView · Massive · Unusual Whales
 | Container | Description | Port |
 |---|---|---|
 | `ot-webui` | Command Center dashboard | 8080 |
-| `ot-orchestrator` | Watchdog + circuit breaker | — |
 | `ot-scheduler` | APScheduler job runner | — |
-| `ot-predictor` | LLM signal generator | — |
+| `ot-broker-gateway` | Multi-broker position/order router | — |
+| `ot-directive-agent` | LLM-evaluated GTC trade directives | — |
 | `ot-trader-equity` | Equity order executor | — |
 | `ot-trader-options` | Options order executor | — |
-| `ot-broker-gateway` | Multi-broker router | — |
-| `ot-directive-agent` | LLM-evaluated GTC trade directives | — |
-| `ot-scraper-ovtlyr` | OVTLYR market scanner + breadth | — |
-| `ot-scraper-wsb` | Reddit WSB sentiment | — |
-| `ot-scraper-seekalpha` | SeekAlpha news scraper | — |
-| `ot-scraper-yahoo` | Yahoo Finance OHLCV data | — |
-| `ot-scraper-yahoo-sentiment` | Yahoo Finance sentiment | — |
-| `ot-aggregator` | Signal aggregator + market intelligence | — |
+| `ot-options-monitor` | Options position tracker + ATR level manager | — |
+| `ot-chat-agent` | AI chat with MCP tool access | — |
 | `ot-review-agent` | EOD trade review | — |
-| `ot-chat-agent` | Telegram/Discord bot | — |
+| `ot-sentiment-agent` | WSB/SeekingAlpha/Yahoo sentiment aggregator | — |
+| `ot-dividend-agent` | Dividend tracking and DB population | — |
+| `ot-ovtlyr-agent` | OVTLYR market intelligence integration | — |
+| `ot-strategy-engine` | Strategy execution engine | — |
 | `ot-mcp-yahoo` | Yahoo Finance MCP server | — |
 | `ot-mcp-alpaca` | Alpaca MCP server | — |
 | `ot-mcp-tradingview` | TradingView MCP server | — |
-| `ot-mcp-massive` | Massive MCP server | — |
+| `ot-mcp-webull` | Webull OpenAPI MCP server | — |
 | `ot-mcp-unusualwhales` | Unusual Whales MCP server | — |
 | `ot-redis` | Redis 7 | — |
-| `ot-timescaledb` | TimescaleDB pg16 | — |
+| `ot-timescaledb` | TimescaleDB (PostgreSQL) | — |
 | `ot-vault` | HashiCorp Vault (secrets) | — |
 | `ot-prometheus` | Metrics collection | — |
 | `ot-grafana` | Metrics dashboard | 3000 |
@@ -140,14 +142,13 @@ cp .env.sample .env && nano .env
 cp config/accounts.toml.sample config/accounts.toml
 
 # Pull images (replace X.Y.Z with the release version)
-export OT_VERSION=3.5.19
+export OT_VERSION=3.5.41
 podman pull ghcr.io/euriska/ot-webui:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-python:${OT_VERSION}
-podman pull ghcr.io/euriska/ot-scraper:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-mcp-yahoo:${OT_VERSION}
-podman pull ghcr.io/euriska/ot-mcp-massive:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-mcp-tradingview:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-mcp-unusualwhales:${OT_VERSION}
+podman pull ghcr.io/euriska/ot-mcp-webull:${OT_VERSION}
 
 podman-compose up -d
 ```
@@ -186,8 +187,9 @@ The script bumps `VERSION`, opens `CHANGELOG.md` for release notes, commits, tag
 | `ALPACA_LIVE_API_SECRET` | Alpaca live API secret |
 | `WEBULL_API_KEY` | Webull API key |
 | `WEBULL_SECRET_KEY` | Webull secret key |
+| `WEBULL_APP_KEY` | Webull app key (for OpenAPI MCP server) |
+| `WEBULL_APP_SECRET` | Webull app secret (for OpenAPI MCP server) |
 | `UNUSUAL_WHALES_API_KEY` | Unusual Whales API key (options flow + dark pool) |
-| `MASSIVE_API_KEY` | Massive AI API key (optional) |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token (optional) |
 | `DISCORD_WEBHOOK_URL` | Discord webhook (optional) |
 | `AGENTMAIL_API_KEY` | AgentMail key for email reports (optional) |
@@ -201,24 +203,51 @@ Copy from `config/accounts.toml.sample`. All account IDs reference `${ENV_VAR}` 
 
 ---
 
-## WebUI Sections
+## WebUI Navigation
 
-| Section | Description |
+The dashboard is organized into six sections:
+
+### Trading
+| Page | Description |
 |---|---|
-| Overview | Market clock, agent health, Fear & Greed, live signal feed |
-| Agents | Per-container CPU/mem/uptime, log viewer, restart |
-| Scheduler | Job manager — create, edit, enable/disable, run now |
-| Trades | P&L summary and fill history per account |
-| Active Positions | Live open positions across all broker accounts |
+| Trading Dashboard | Live stat cards (equity/options split), market breadth, recent activity |
 | Trade Directives | Natural-language GTC directives with LLM evaluation and order execution |
 | Charts | TradingView charts with indicator overlays and position picker |
-| Signals | Signal table with ticker, direction, confidence |
-| Sentiment | WSB/news sentiment scores and Fear & Greed trend |
-| Logs | Live container log viewer |
-| System | Circuit breaker, halt/resume, container table, topology diagram |
+| Broker | Broker credential configuration and account management |
+
+### Equities
+| Page | Description |
+|---|---|
+| Trades | Equity fills and open orders grouped by week, with per-account tally and friendly reject reasons |
+| Active Positions | Live equity positions across all broker accounts with heatmaps, P&L, and liquidate action |
+| Dividends | Dividend tracking with yield, history charts, and per-account breakdown |
+
+### Options
+| Page | Description |
+|---|---|
+| Options Dashboard | Live options positions with DTE, strike, delta, ATR levels, and Yahoo Finance chain enrichment |
+
+### Trading Plan
+| Page | Description |
+|---|---|
 | Strategy Engineer | AI-assisted strategy builder with version history and Backtrader backtesting |
-| Brokers | Broker credential configuration and account management |
-| Risk Controls | Slippage %, minimum volume, and position size limits |
+| Strategy Library | All saved strategy versions with backtest results |
+| Strategy Assignment | Assign strategies to tickers for live execution |
+
+### Resources
+| Page | Description |
+|---|---|
+| Library | Trading book library with ISBN lookup, cover art, star ratings, and reader rank achievement system |
+
+### Platform
+| Page | Description |
+|---|---|
+| Platform Dashboard | Agent health, topology diagram, job error counts |
+| Agents | Per-container status, log viewer, and health indicators |
+| Configuration | Connector credentials, sector/stock exclusions, risk controls |
+| Logs | Live container log viewer |
+| Scheduler | Job manager — create, edit, enable/disable, run now |
+| System | Circuit breaker, halt/resume, container table |
 
 ---
 
@@ -227,7 +256,7 @@ Copy from `config/accounts.toml.sample`. All account IDs reference `${ENV_VAR}` 
 The Strategy Engineer includes a real **Backtrader** backtesting engine:
 
 - **EMA 10/21 crossover** strategy with configurable stop-loss and take-profit
-- **Benchmark ticker** saved per strategy (default: SPY) — no prompts
+- **Benchmark ticker** saved per strategy (default: SPY)
 - **Full trade log** — entry/exit dates, prices, qty, P&L, exit reason
 - **Exports** — PDF and CSV trade reports available from the Trades tab
 - **Charts** — price + EMA lines with trade markers, volume panel, equity curve
