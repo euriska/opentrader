@@ -275,12 +275,22 @@ async def _fetch_option_chain_details(
                     delta = _bs_delta(current_underlying_price, contract_strike,
                                       T, iv, option_type=opt_type)
 
-                # Score: match by price or by nearest-ATM strike
+                # Score: match by price or by nearest-ATM strike.
+                # Use bid/ask midpoint as the reference price — it reflects the CURRENT
+                # market (not a stale last-trade price that could equal the old entry cost).
                 if current_option_price > 0:
-                    last = float(c.get("lastPrice") or c.get("bid") or 0)
-                    if last <= 0:
-                        continue
-                    score = abs(last - current_option_price) / current_option_price
+                    bid  = float(c.get("bid") or 0)
+                    ask  = float(c.get("ask") or 0)
+                    last = float(c.get("lastPrice") or 0)
+                    if bid > 0 and ask > 0:
+                        ref = (bid + ask) / 2.0
+                    elif bid > 0:
+                        ref = bid
+                    elif last > 0:
+                        ref = last
+                    else:
+                        continue  # no usable price — skip
+                    score = abs(ref - current_option_price) / current_option_price
                     threshold = 0.40
                 elif current_underlying_price > 0 and contract_strike > 0:
                     score = abs(contract_strike - current_underlying_price) / current_underlying_price
@@ -290,7 +300,11 @@ async def _fetch_option_chain_details(
                     score = 1.0 / max(oi, 1)
                     threshold = 1.0
 
-                if score < best_score and score < threshold:
+                # Require a meaningfully better score to displace the current best.
+                # A 10% improvement threshold means ties (and near-ties) keep the
+                # EARLIER expiry (since we iterate expiry dates in chronological order).
+                improvement_required = best_score * 0.90
+                if score < improvement_required and score < threshold:
                     best_score = score
                     best = {
                         "strike":          contract_strike,
@@ -784,10 +798,21 @@ class OptionsMonitor(BaseAgent):
         # Use entry_price as reference when market is closed and current price is 0
         price_ref = current_opt_price if current_opt_price > 0 else bp.get("entry_price", 0)
         expiry_locked = bool(existing and existing.get("expiry_locked"))
+        # Run chain enrichment when any key field is missing.
+        # Check BOTH the incoming bp (broker position) AND the existing DB row:
+        # Webull v1 positions never carry strike/expiry in bp, so check the DB first.
+        db_strike  = existing.get("strike")           if existing else None
+        db_expiry  = existing.get("expiration_date")  if existing else None
+        db_delta   = existing.get("delta")            if existing else None
+        effective_strike  = strike           or db_strike
+        effective_expiry  = expiration_date  or db_expiry
         needs_enrichment = (
             not expiry_locked and (
-                option_type == "unknown" or strike is None or expiration_date is None
-                or existing is None or existing.get("delta") is None
+                option_type == "unknown"
+                or effective_strike is None
+                or effective_expiry is None
+                or existing is None
+                or db_delta is None
             )
         )
         if needs_enrichment:
@@ -813,7 +838,11 @@ class OptionsMonitor(BaseAgent):
                 log.debug("options_monitor.chain_no_match", contract=contract_symbol,
                           underlying=underlying, price_ref=price_ref)
 
-        # Fall back to existing DB delta if chain lookup produced nothing
+        # Fall back to DB values when chain lookup didn't run or found nothing
+        if strike is None and db_strike is not None:
+            strike = float(db_strike)
+        if expiration_date is None and db_expiry is not None:
+            expiration_date = db_expiry
         if delta is None and existing and existing.get("delta") is not None:
             try:
                 delta = float(existing["delta"])

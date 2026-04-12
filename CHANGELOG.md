@@ -3,6 +3,14 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.33] - 2026-04-12
+
+### Fixed
+- Options monitor: DTE now resolves correctly for Webull positions (SAN, NEM, LUNR, SKM were showing wrong expiry)
+- Options monitor: chain lookup now scores contracts using bid/ask midpoint instead of stale `lastPrice` — prevents ITM calls from matching wrong expiry when Webull reports `last_price` equal to entry cost
+- Options monitor: prefer-earlier-expiry tiebreaker — a later expiry must score 10% better to displace an earlier candidate, so chronologically earlier dates win ties
+- Options monitor: removed debug enrichment_check log line
+
 ## [3.5.32] - 2026-04-12
 
 ### Added
