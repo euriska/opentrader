@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.38] - 2026-04-12
+
+### Fixed
+- Trades: reject reason now always shows a meaningful label — new events use the friendly message from the equity trader; old events with no stored reason derive context from the trade timestamp (weekend/holiday → "Market was closed", otherwise "Reason unknown")
+- Trades: `_NYSE_HOLIDAYS` and market-closed check hoisted to `loadTradesPage` scope and reused by both day pills and reject-reason derivation (was re-declared inside the week loop on every iteration)
+
 ## [3.5.37] - 2026-04-12
 
 ### Added

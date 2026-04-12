@@ -5304,6 +5304,55 @@ async function loadTradesPage() {
   const TRADE_COLS = _colTheadHtml('trades_hist_col', _TRADE_HIST_DEFS, _TRADE_HIST_DEFAULTS);
   const ORDER_COLS = _colTheadHtml('trades_ord_col',  _TRADE_ORD_DEFS,  _TRADE_ORD_DEFAULTS);
 
+  // NYSE holidays — used by both the week-header day pills and reject-reason derivation
+  const _NYSE_HOLIDAYS_SET = new Set([
+    '2025-01-01','2025-01-20','2025-02-17','2025-04-18','2025-05-26',
+    '2025-06-19','2025-07-04','2025-09-01','2025-11-27','2025-12-25',
+    '2026-01-01','2026-01-19','2026-02-16','2026-04-03','2026-04-06',
+    '2026-05-25','2026-06-19','2026-07-03','2026-09-07','2026-11-26','2026-12-25',
+  ]);
+  function _isMktClosedMs(ms) {
+    const d = new Date(ms);
+    const dow = d.getDay();
+    if (dow === 0 || dow === 6) return true;
+    return _NYSE_HOLIDAYS_SET.has(d.toISOString().slice(0, 10));
+  }
+
+  // Known broker error patterns → friendly labels (mirrors equity_trader._friendly_error)
+  const _REJECT_PATTERNS = [
+    [['market is closed','market not open','market closed','not a trading day',
+      'outside market hours','extended hours','after.hours'], 'Market was closed'],
+    [['buying power','insufficient funds','insufficient buying power',
+      'not enough','account balance'], 'Insufficient buying power'],
+    [['not tradable','not authorized to trade','asset is not active',
+      'asset halted','trading halted','symbol not found','unknown symbol',
+      'security is not available'], 'Asset not tradable'],
+    [['short sell','short selling','cannot short','shorting not allowed',
+      'locate required'], 'Short selling not allowed'],
+    [['day trading','pattern day','pdt','day trade'], 'Day trading restriction'],
+    [['fractional','minimum quantity','lot size','invalid quantity',
+      'shares must be','quantity must'], 'Invalid quantity'],
+    [['auth failed','authentication','invalid api key','unauthorized','forbidden'],
+      'Authentication error'],
+    [['request failed after','timeout','network error'], 'Network error'],
+    [['no matching accounts','no connectors'], 'No broker account matched'],
+    [['duplicate','already exists'], 'Duplicate order'],
+  ];
+  function _rejectLabel(t) {
+    const raw = (t.reject_reason || '').trim();
+    if (raw) {
+      // Already a friendly message from new code — return as-is
+      const low = raw.toLowerCase();
+      for (const [patterns, label] of _REJECT_PATTERNS) {
+        if (patterns.some(p => low.includes(p))) return label;
+      }
+      return raw.length > 60 ? raw.slice(0, 60) + '…' : raw;
+    }
+    // No reason stored — derive from context
+    if (t._ms && _isMktClosedMs(t._ms)) return 'Market was closed';
+    return 'Reason unknown';
+  }
+
   function _tradeRow(t) {
     const d        = t._ms ? new Date(t._ms) : null;
     const date     = d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
@@ -5312,8 +5361,9 @@ async function loadTradesPage() {
     const acctInfo = _acctMap[acctKey] || null;
     const dispName = acctInfo ? acctInfo.display_name : (acctKey || '—');
     const acctNum  = acctInfo ? (acctInfo.id || '—') : '—';
-    const statusCell = t.event_type === 'reject' && t.reject_reason
-      ? `${statusChip(t.event_type)} <span style="font-size:10px;color:var(--red);margin-left:4px" title="${t.reject_reason}">${t.reject_reason.substring(0,40)}${t.reject_reason.length>40?'…':''}</span>`
+    const rejectReason = t.event_type === 'reject' ? _rejectLabel(t) : '';
+    const statusCell = t.event_type === 'reject'
+      ? `${statusChip(t.event_type)} <span style="font-size:10px;color:var(--red);margin-left:4px" title="${rejectReason}">${rejectReason}</span>`
       : statusChip(t.event_type);
     const cells = {
       date:     `<td class="mono" style="font-size:11px;white-space:nowrap">${date}</td>`,
@@ -5432,21 +5482,6 @@ async function loadTradesPage() {
       const wkTrades = weeks[wk].sort((a,b) => b._ms - a._ms);
       const wkId = `wk-trades-${wk}`;
 
-      // NYSE holidays (YYYY-MM-DD) — kept in sync with scheduler/calendar.py
-      const _NYSE_HOLIDAYS = new Set([
-        '2025-01-01','2025-01-20','2025-02-17','2025-04-18','2025-05-26',
-        '2025-06-19','2025-07-04','2025-09-01','2025-11-27','2025-12-25',
-        '2026-01-01','2026-01-19','2026-02-16','2026-04-03','2026-05-25',
-        '2026-06-19','2026-07-03','2026-09-07','2026-11-26','2026-12-25',
-      ]);
-      function _isMktClosed(ms) {
-        const d = new Date(ms);
-        const dow = d.getDay(); // 0=Sun, 6=Sat
-        if (dow === 0 || dow === 6) return true;
-        const iso = d.toISOString().slice(0,10);
-        return _NYSE_HOLIDAYS.has(iso);
-      }
-
       // Build trade counts per calendar day
       const dayCounts = {};
       wkTrades.forEach(t => {
@@ -5460,7 +5495,7 @@ async function loadTradesPage() {
         const dayMs = wk + offset * 86400000;
         const label = new Date(dayMs).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
         const count = dayCounts[dayMs] ?? 0;
-        const closed = _isMktClosed(dayMs + 43200000); // noon to avoid DST edge
+        const closed = _isMktClosedMs(dayMs + 43200000); // noon to avoid DST edge
         let badge, pillStyle;
         if (closed) {
           badge = `<span style="font-size:9px;color:var(--dim);font-style:italic">Mkt Closed</span>`;
