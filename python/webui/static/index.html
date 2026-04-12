@@ -5475,11 +5475,32 @@ async function loadTradesPage() {
         return `<span style="display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:600;border:1px solid;border-radius:8px;padding:2px 8px;white-space:nowrap;${pillStyle}">${label} ${badge}</span>`;
       }).join('');
 
+      // Tally trades per broker account for this week
+      const acctCounts = {};
+      wkTrades.forEach(t => {
+        const key = t.account || '—';
+        acctCounts[key] = (acctCounts[key] || 0) + 1;
+      });
+      const brokerDotColors = { tradier: '#1da462', alpaca: '#ffa500', webull: '#e82f3e' };
+      const acctChips = Object.entries(acctCounts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([key, cnt]) => {
+          const info = _acctMap[key] || null;
+          const name = info ? info.display_name : key;
+          // Derive broker from key or from info (not stored directly on trade)
+          const brokerHint = key.split('-')[0] || '';
+          const dotColor = brokerDotColors[brokerHint] || 'var(--blue)';
+          return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:2px 8px;white-space:nowrap;color:var(--muted)">` +
+            `<span style="width:6px;height:6px;border-radius:50%;background:${dotColor};flex-shrink:0;display:inline-block"></span>` +
+            `${name} <span style="color:var(--text)">${cnt}</span></span>`;
+        }).join('');
+
       html += `<div style="padding:6px 16px;background:var(--bg);border-bottom:1px solid var(--border);border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;margin-right:auto">${_weekLabel(wk)}</span>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${dayPills}</div>
-        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-          <span style="font-size:11px;font-weight:700;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:2px 10px;white-space:nowrap">Weekly Trades: ${wkTrades.length}</span>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap">
+          ${acctChips}
+          <span style="font-size:11px;font-weight:700;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:2px 10px;white-space:nowrap">Total: ${wkTrades.length}</span>
           <button class="btn btn-ghost btn-xs" title="Collapse" style="font-size:10px;padding:2px 6px;color:var(--muted)" onclick="toggleWeekTable('${wkId}',this)">▲</button>
         </div>
       </div>`;
