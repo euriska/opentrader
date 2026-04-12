@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.37] - 2026-04-12
+
+### Added
+- Equity trader: `_friendly_error()` maps raw broker error strings to human-readable reject reasons — covers market closed, insufficient buying power, asset not tradable, short selling not allowed, PDT restriction, invalid quantity, auth errors, network errors, and routing failures; unknown errors show the trimmed broker message (up to 80 chars); empty errors fall back to "Rejected"
+
 ## [3.5.36] - 2026-04-12
 
 ### Fixed

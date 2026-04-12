@@ -29,6 +29,73 @@ from scheduler.calendar import is_market_open, is_trading_day
 
 log = structlog.get_logger("trader-equity")
 
+
+# ── Error message normalization ───────────────────────────────────────────────
+
+_ERROR_PATTERNS: list[tuple[list[str], str]] = [
+    # Market timing
+    (["market is closed", "market not open", "market closed", "not a trading day",
+      "outside market hours", "extended hours", "after.hours"],
+     "Market is closed"),
+    # Buying power / funds
+    (["buying power", "insufficient funds", "insufficient buying power",
+      "not enough", "account balance"],
+     "Insufficient buying power"),
+    # Asset not tradable
+    (["not tradable", "not authorized to trade", "asset is not active",
+      "asset halted", "trading halted", "symbol not found", "unknown symbol",
+      "security is not available"],
+     "Asset not tradable"),
+    # Short selling
+    (["short sell", "short selling", "cannot short", "shorting not allowed",
+      "locate required"],
+     "Short selling not allowed"),
+    # PDT / day trading
+    (["day trading", "pattern day", "pdt", "day trade"],
+     "Day trading restriction"),
+    # Fractional / quantity
+    (["fractional", "minimum quantity", "lot size", "invalid quantity",
+      "shares must be", "quantity must"],
+     "Invalid quantity"),
+    # Auth
+    (["auth failed", "authentication", "invalid api key", "unauthorized",
+      "forbidden"],
+     "Authentication error"),
+    # Network / timeout
+    (["request failed after", "timeout", "network error", "connection"],
+     "Network error — order may not have been placed"),
+    # Routing
+    (["no matching accounts", "no connectors"],
+     "No broker account matched"),
+    # Duplicate order
+    (["duplicate", "already exists"],
+     "Duplicate order"),
+]
+
+
+def _friendly_error(raw: str) -> str:
+    """Map a raw broker/gateway error string to a human-readable reject reason."""
+    if not raw:
+        return "Rejected"
+    low = raw.lower()
+    # Strip common broker prefixes to get the core message for pattern matching
+    for prefix in ("alpaca rejected order: ", "tradier rejected order: ",
+                   "webull rejected order: "):
+        if low.startswith(prefix):
+            low = low[len(prefix):]
+            break
+    for patterns, label in _ERROR_PATTERNS:
+        if any(p in low for p in patterns):
+            return label
+    # Unknown error — return the core message trimmed (up to 80 chars)
+    core = raw
+    for prefix in ("Alpaca rejected order: ", "Tradier rejected order: ",
+                   "Webull rejected order: ", "[alpaca] ", "[tradier] "):
+        if core.startswith(prefix):
+            core = core[len(prefix):]
+            break
+    return core[:80] if core else "Rejected"
+
 SIG_STREAM     = STREAMS["signals"]
 ORD_STREAM     = STREAMS["orders"]
 CONSUMER_GROUP = GROUPS["equity"]
@@ -301,7 +368,7 @@ class EquityTrader(BaseAgent):
             mode   = r.get("mode", trade_mode)
 
             if r.get("status") == "error":
-                reject_reason = r.get("error") or "gateway error"
+                reject_reason = _friendly_error(r.get("error") or "")
                 log.warning("trader-equity.order_rejected",
                             ticker=ticker, error=reject_reason)
                 await self.redis.xadd(
@@ -328,8 +395,8 @@ class EquityTrader(BaseAgent):
             order_id = str(data.get("id", data.get("orderId", "")))
             status   = data.get("status", "ok")
             event_type = "fill" if status in ("ok", "filled", "open", "accepted", "pending_new", "new") else "reject"
-            reject_reason = "" if event_type == "fill" else (
-                data.get("reject_reason") or data.get("reason") or status
+            reject_reason = "" if event_type == "fill" else _friendly_error(
+                data.get("reject_reason") or data.get("reason") or status or ""
             )
 
             payload = OrderEventPayload(
