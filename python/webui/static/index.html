@@ -263,6 +263,17 @@ select option{background:var(--surface2)}
         <span class="nav-dot" style="background:var(--green)"></span>
         Trade Directives
       </div>
+      <div class="nav-item" onclick="navigate('page-trading-charts')" data-page="page-trading-charts">
+        <span class="nav-dot" style="background:#f59e0b"></span>
+        Charts
+      </div>
+      <div class="nav-item" onclick="navigate('page-trading-broker')" data-page="page-trading-broker">
+        <span class="nav-dot" style="background:var(--blue)"></span>
+        Broker
+      </div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-label">Equities</div>
       <div class="nav-item" onclick="navigate('page-trading-trades')" data-page="page-trading-trades">
         <span class="nav-dot" style="background:var(--amber)"></span>
         Trades
@@ -275,17 +286,12 @@ select option{background:var(--surface2)}
         <span class="nav-dot" style="background:var(--green)"></span>
         Dividends
       </div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-label">Options</div>
       <div class="nav-item" onclick="navigate('page-trading-options')" data-page="page-trading-options">
         <span class="nav-dot" style="background:#a855f7"></span>
-        Options
-      </div>
-      <div class="nav-item" onclick="navigate('page-trading-charts')" data-page="page-trading-charts">
-        <span class="nav-dot" style="background:#f59e0b"></span>
-        Charts
-      </div>
-      <div class="nav-item" onclick="navigate('page-trading-broker')" data-page="page-trading-broker">
-        <span class="nav-dot" style="background:var(--blue)"></span>
-        Broker
+        Options Dashboard
       </div>
     </div>
     <div class="nav-group">
@@ -4821,6 +4827,19 @@ function _renderAccountHeatmap(positions, acctKey) {
   </div>`;
 }
 
+/** Returns true if a broker position is an equity (stock) — not an option contract. */
+function _isEquityPosition(p) {
+  const raw = p.raw || {};
+  // Webull: instrument_type field
+  if ((raw.instrument_type || '').toUpperCase() === 'OPTION') return false;
+  // Alpaca: asset_class field
+  const ac = (raw.asset_class || p.asset_class || '').toLowerCase();
+  if (ac === 'us_option' || ac === 'option' || ac === 'options') return false;
+  // OCC symbol format: TICKER + 6-digit date + C/P + 8-digit strike
+  if (/^[A-Z]{1,6}\d{6}[CP]\d{8}$/i.test(p.symbol || '')) return false;
+  return true;
+}
+
 function _renderUnifiedCard(acct, signalMap, sentMap, sectorMap) {
   sectorMap = sectorMap || {};
   const brokerColors = { tradier:'#1da462', alpaca:'#ffa500', webull:'#e82f3e' };
@@ -4835,8 +4854,11 @@ function _renderUnifiedCard(acct, signalMap, sentMap, sectorMap) {
   const bp     = _fmtUsd(bal.buying_power ?? bal.cash_power ?? bal.margin?.stock_buying_power ?? null);
   const acctKey = acct.label.replace(/[^a-zA-Z0-9]/g, '_');
 
-  // Total unrealized P&L across all positions
-  const totalPl = (acct.positions || []).reduce((sum, p) => {
+  // Filter to equity positions only — options are tracked on the Options dashboard
+  const equityPositions = (acct.positions || []).filter(_isEquityPosition);
+
+  // Total unrealized P&L across equity positions only
+  const totalPl = equityPositions.reduce((sum, p) => {
     const qty = parseFloat(p.qty ?? p.quantity ?? 0);
     const mv  = parseFloat(p.market_value ?? 0);
     const cb  = parseFloat(p.cost_basis ?? 0);
@@ -4846,7 +4868,7 @@ function _renderUnifiedCard(acct, signalMap, sentMap, sectorMap) {
   const plSign  = totalPl >= 0 ? '+' : '';
   const plColor = totalPl > 0 ? 'var(--green)' : totalPl < 0 ? 'var(--red)' : 'var(--muted)';
 
-  const rows = (acct.positions || []).map(p => {
+  const rows = equityPositions.map(p => {
     const sym    = p.symbol || '—';
     const symKey = sym.replace(/[^a-zA-Z0-9]/g, '_');
     const qty    = parseFloat(p.qty ?? p.quantity ?? 0);
@@ -4921,7 +4943,7 @@ function _renderUnifiedCard(acct, signalMap, sentMap, sectorMap) {
     </tr>`;
   }).join('') || `<tr><td colspan="14" class="empty-state" style="padding:12px">No open positions</td></tr>`;
 
-  const heatmap = _renderAccountHeatmap(acct.positions || [], acctKey);
+  const heatmap = _renderAccountHeatmap(equityPositions, acctKey);
   const bodyId = `unified-card-${acctKey}`;
 
   // Mentor icon — show if account has mentor or ai_enabled in broker settings
@@ -5374,7 +5396,9 @@ async function loadTradesPage() {
   const cutoff = Date.now() - 30 * 86400000;
   let trades = tradeResult.status === 'fulfilled' ? (tradeResult.value || []) : [];
 
-  // Attach timestamp from stream ID if ts field is empty, then sort newest first
+  // Attach timestamp from stream ID if ts field is empty, then sort newest first.
+  // Filter to equity trades only — option trades belong on the Options dashboard.
+  const _optionAssetClasses = new Set(['option', 'options', 'us_option']);
   trades = trades.map(t => ({
     ...t,
     _ms: (() => {
@@ -5382,7 +5406,8 @@ async function loadTradesPage() {
       const ms = parseInt((t.id || '').split('-')[0]);
       return isNaN(ms) ? 0 : ms;
     })()
-  })).filter(t => t._ms >= cutoff).sort((a, b) => b._ms - a._ms);
+  })).filter(t => t._ms >= cutoff && !_optionAssetClasses.has((t.asset_class || '').toLowerCase()))
+     .sort((a, b) => b._ms - a._ms);
 
   html += `<div class="card">
     <div class="card-header">

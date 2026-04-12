@@ -166,6 +166,27 @@ def check_token(token: str):
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+_OCC_SYMBOL_RE = re.compile(r'^[A-Z]{1,6}\d{6}[CP]\d{8}$', re.IGNORECASE)
+_OPTION_ASSET_CLASSES = {"option", "options", "us_option"}
+
+def _is_equity_position(p: dict) -> bool:
+    """Return True if a broker position is a stock (equity), not an option contract."""
+    raw = p.get("raw") or {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    if str(raw.get("instrument_type", "")).upper() == "OPTION":
+        return False
+    ac = str(raw.get("asset_class") or p.get("asset_class") or "").lower()
+    if ac in _OPTION_ASSET_CLASSES:
+        return False
+    if _OCC_SYMBOL_RE.match(p.get("symbol") or ""):
+        return False
+    return True
+
+
 def ts_to_age(ts_ms: int) -> int:
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     return round((now_ms - ts_ms) / 1000)
@@ -4989,10 +5010,12 @@ async def div_holdings(token: str = ""):
     # from env vars (e.g. TRADIER_SANDBOX_DISPLAY_NAME) and normalises position fields.
     broker_data = await get_broker_positions()
 
-    # Collect all unique tickers across every account
+    # Collect all unique equity tickers across every account
     all_tickers: list[str] = []
     for acct in broker_data.get("accounts", []):
         for p in acct.get("positions", []):
+            if not _is_equity_position(p):
+                continue
             sym = (p.get("symbol") or "").upper().strip()
             if sym and sym not in all_tickers:
                 all_tickers.append(sym)
@@ -5011,6 +5034,8 @@ async def div_holdings(token: str = ""):
         positions_out = []
 
         for p in acct.get("positions", []):
+            if not _is_equity_position(p):
+                continue
             sym  = (p.get("symbol") or "").upper().strip()
             if not sym:
                 continue

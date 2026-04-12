@@ -3,6 +3,16 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.34] - 2026-04-12
+
+### Added
+- Left sidebar navigation reorganized into four sections: **Trading** (Dashboard, Directives, Charts, Broker), **Equities** (Trades, Active Positions, Dividends), **Options** (Options Dashboard), **Trading Plan**, **Resources**, **Platform**
+
+### Changed
+- Active Positions: filters out option contracts from position cards and heatmap — only equity/stock positions displayed; options tracked exclusively on Options Dashboard
+- Trades: filters out option trades (`asset_class=option/us_option`) from trade history and open orders — equity trades only
+- Dividends: backend `_is_equity_position()` helper filters options from holdings and ticker enrichment; options no longer inflate portfolio value totals
+
 ## [3.5.33] - 2026-04-12
 
 ### Fixed
