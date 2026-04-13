@@ -6,10 +6,10 @@
     "mode": "sandbox",
     "strategy_family_id": "68ace094-c685-4727-8bd2-35d2ce140f44",
     "strategy_name": "Momentum Equity",
-    "pinned_version": 2,
+    "pinned_version": 3,
     "status": "active",
     "assigned_at": "2026-04-06T00:10:31.887028Z",
-    "updated_at": "2026-04-06T23:46:58.493522Z"
+    "updated_at": "2026-04-11T22:52:00.936202Z"
   },
   {
     "id": "481d1607-afa6-4838-bb5b-3d906b3d7c99",
@@ -18,21 +18,9 @@
     "mode": "paper",
     "strategy_family_id": "68ace094-c685-4727-8bd2-35d2ce140f44",
     "strategy_name": "Momentum Equity",
-    "pinned_version": 2,
+    "pinned_version": 3,
     "status": "active",
     "assigned_at": "2026-04-06T00:10:54.852493Z",
-    "updated_at": "2026-04-06T23:47:01.589675Z"
-  },
-  {
-    "id": "5d0b8517-d7b0-4f94-9781-471459f25259",
-    "account_label": "webull-paper",
-    "broker": "webull",
-    "mode": "paper",
-    "strategy_family_id": "68ace094-c685-4727-8bd2-35d2ce140f44",
-    "strategy_name": "Momentum Equity",
-    "pinned_version": 2,
-    "status": "active",
-    "assigned_at": "2026-04-06T00:11:06.471305Z",
-    "updated_at": "2026-04-06T23:47:04.833142Z"
+    "updated_at": "2026-04-11T22:52:04.956952Z"
   }
 ]

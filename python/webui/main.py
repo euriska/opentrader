@@ -166,11 +166,11 @@ def check_token(token: str):
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-_OCC_SYMBOL_RE = re.compile(r'^[A-Z]{1,6}\d{6}[CP]\d{8}$', re.IGNORECASE)
-_OPTION_ASSET_CLASSES = {"option", "options", "us_option"}
+_OCC_SYMBOL_RE = re.compile(r'^[A-Z]{1,6}[_ ]?\d{6}[CP]\d{8}$', re.IGNORECASE)
+_OPTION_ASSET_CLASSES = {"option", "options", "us_option", "us_option_contract"}
 
 def _is_equity_position(p: dict) -> bool:
-    """Return True if a broker position is a stock (equity), not an option contract."""
+    """Return True if a broker position is a long stock (equity), not an option contract."""
     raw = p.get("raw") or {}
     if isinstance(raw, str):
         try:
@@ -180,9 +180,13 @@ def _is_equity_position(p: dict) -> bool:
     if str(raw.get("instrument_type", "")).upper() == "OPTION":
         return False
     ac = str(raw.get("asset_class") or p.get("asset_class") or "").lower()
-    if ac in _OPTION_ASSET_CLASSES:
+    if ac in _OPTION_ASSET_CLASSES or "option" in ac:
         return False
-    if _OCC_SYMBOL_RE.match(p.get("symbol") or ""):
+    sym = (p.get("symbol") or "").strip()
+    if _OCC_SYMBOL_RE.match(sym):
+        return False
+    # US stock tickers are pure letters — any digit in the symbol means it's a derivative
+    if any(c.isdigit() for c in sym):
         return False
     return True
 
@@ -701,14 +705,59 @@ async def run_job_now(job_id: str, token: str = ""):
     return {"triggered": job_id}
 
 
+@app.get("/api/jobs/{job_id}/state")
+async def get_job_state(job_id: str, token: str = ""):
+    """Read enabled state directly from the job key (bypasses the index set)."""
+    check_token(token)
+    redis = await get_redis()
+    raw = await redis.get(f"{JOB_KEY_PREFIX}{job_id}")
+    if not raw:
+        # Fall back to DB
+        try:
+            pool = await _get_db_pool()
+            row = await pool.fetchrow(
+                "SELECT enabled FROM scheduler_jobs WHERE id = $1", job_id
+            )
+            if row:
+                return {"job_id": job_id, "enabled": bool(row["enabled"])}
+        except Exception:
+            pass
+        return {"job_id": job_id, "enabled": True}  # default: on
+    record = json.loads(raw)
+    return {"job_id": job_id, "enabled": record.get("enabled", True)}
+
+
 @app.post("/api/jobs/{job_id}/toggle")
 async def toggle_job(job_id: str, token: str = ""):
     check_token(token)
     redis = await get_redis()
     raw = await redis.get(f"{JOB_KEY_PREFIX}{job_id}")
-    if not raw:
-        raise HTTPException(status_code=404, detail="Job not found")
-    record = json.loads(raw)
+    if raw:
+        record = json.loads(raw)
+    else:
+        # Key missing (scheduler may have wiped the index) — try DB first
+        record = None
+        try:
+            pool = await _get_db_pool()
+            row = await pool.fetchrow("SELECT * FROM scheduler_jobs WHERE id = $1", job_id)
+            if row:
+                record = dict(row)
+                for ts_field in ("created_at", "updated_at"):
+                    if record.get(ts_field) and hasattr(record[ts_field], "isoformat"):
+                        record[ts_field] = record[ts_field].isoformat()
+                if isinstance(record.get("payload"), str):
+                    try:
+                        record["payload"] = json.loads(record["payload"])
+                    except Exception:
+                        record["payload"] = {}
+        except Exception:
+            pass
+        if not record:
+            record = {
+                "id": job_id, "enabled": True,
+                "created_at": now_et().isoformat(), "updated_at": now_et().isoformat(),
+                "run_count": 0, "last_run": None, "last_status": None,
+            }
     record["enabled"] = not record.get("enabled", True)
     record["updated_at"] = now_et().isoformat()
     await save_job(redis, record)
@@ -5016,6 +5065,8 @@ async def div_holdings(token: str = ""):
         for p in acct.get("positions", []):
             if not _is_equity_position(p):
                 continue
+            if float(p.get("qty") or p.get("quantity") or p.get("shares") or 0) <= 0:
+                continue  # skip short and zero positions
             sym = (p.get("symbol") or "").upper().strip()
             if sym and sym not in all_tickers:
                 all_tickers.append(sym)
@@ -5040,6 +5091,8 @@ async def div_holdings(token: str = ""):
             if not sym:
                 continue
             qty  = float(p.get("qty") or p.get("quantity") or p.get("shares") or 0)
+            if qty <= 0:
+                continue  # skip short and zero positions
             cost = float(p.get("cost_basis") or p.get("cost") or 0)
             price= float(p.get("current_price") or p.get("last_price") or p.get("mark") or 0)
             mval = float(p.get("market_value") or (qty * price))
@@ -5402,6 +5455,101 @@ async def get_option_positions(status: str = "active"):
            ORDER BY underlying, account_label""",
         status,
     )
+    # Fetch current underlying prices — Redis sentiment cache first, Yahoo Finance MCP fallback
+    live_prices: dict[str, float] = {}
+    tickers = list({r["underlying"] for r in rows})
+    try:
+        _redis = await get_redis()
+        for ticker in tickers:
+            raw_p = await _redis.hget("sentiment:latest", ticker)
+            if raw_p:
+                d = json.loads(raw_p)
+                p = float(d.get("close") or d.get("price") or 0)
+                if p:
+                    live_prices[ticker] = p
+    except Exception:
+        pass
+    # Fill any missing prices from yfinance
+    missing = [t for t in tickers if t not in live_prices]
+    if missing:
+        try:
+            import yfinance as _yf
+            import concurrent.futures as _cf
+            import asyncio as _asyncio
+            def _batch_prices(syms):
+                data = _yf.download(syms, period="1d", interval="1d",
+                                    auto_adjust=True, progress=False, threads=False)
+                out = {}
+                try:
+                    close = data["Close"] if "Close" in data else data
+                    if hasattr(close, "columns"):
+                        for sym in syms:
+                            if sym in close.columns:
+                                col = close[sym].dropna()
+                                if not col.empty:
+                                    out[sym] = float(col.iloc[-1])
+                    else:
+                        col = close.dropna()
+                        if not col.empty and len(syms) == 1:
+                            out[syms[0]] = float(col.iloc[-1])
+                except Exception:
+                    pass
+                return out
+            loop = _asyncio.get_event_loop()
+            with _cf.ThreadPoolExecutor(max_workers=1) as ex:
+                yf_prices = await loop.run_in_executor(ex, _batch_prices, missing)
+            live_prices.update(yf_prices)
+        except Exception:
+            pass
+
+    # Fetch latest predictor signal per underlying ticker
+    live_signals: dict[str, dict] = {}
+    try:
+        _redis = await get_redis()
+        sig_entries = await _redis.xrevrange(STREAMS["signals"], "+", "-", count=1000)
+        for _eid, _fields in sig_entries:
+            def _dec(v): return v.decode() if isinstance(v, bytes) else v
+            ticker = _dec(_fields.get(b"ticker") or _fields.get("ticker", b""))
+            if ticker and ticker not in live_signals:
+                direction  = _dec(_fields.get(b"direction") or _fields.get("direction", b""))
+                confidence = _dec(_fields.get(b"confidence") or _fields.get("confidence", b""))
+                live_signals[ticker] = {
+                    "direction":  direction,
+                    "confidence": float(confidence) if confidence else None,
+                    "source":     "predictor",
+                }
+    except Exception:
+        pass
+    # Fill missing signals from Yahoo Finance analyst recommendations
+    _REC_MAP = {
+        "strong_buy": ("long", 0.95), "buy": ("long", 0.75),
+        "hold": None,
+        "underperform": ("short", 0.60), "sell": ("short", 0.80), "strong_sell": ("short", 0.95),
+    }
+    missing_sig = [t for t in tickers if t not in live_signals]
+    if missing_sig:
+        try:
+            import yfinance as _yf
+            import concurrent.futures as _cf
+            import asyncio as _asyncio
+            def _fetch_recs(syms):
+                out = {}
+                for sym in syms:
+                    try:
+                        rec = _yf.Ticker(sym).info.get("recommendationKey", "")
+                        mapped = _REC_MAP.get((rec or "").lower())
+                        if mapped:
+                            out[sym] = {"direction": mapped[0], "confidence": mapped[1], "source": "yahoo"}
+                    except Exception:
+                        pass
+                return out
+            loop = _asyncio.get_event_loop()
+            with _cf.ThreadPoolExecutor(max_workers=1) as ex:
+                yf_sigs = await loop.run_in_executor(ex, _fetch_recs, missing_sig)
+            live_signals.update(yf_sigs)
+        except Exception:
+            pass
+
     today = date.today()
     results = []
     for r in rows:
@@ -5457,11 +5605,155 @@ async def get_option_positions(status: str = "active"):
             "days_to_exp":      dte,
             "days_to_earnings": ded,
             "delta":            float(r["delta"]) if r["delta"] is not None else None,
+            "underlying_price":  live_prices.get(r["underlying"]),
+            "signal":            live_signals.get(r["underlying"]),
             "status":           r["status"],
             "last_scan_at":     r["last_scan_at"].isoformat() if r["last_scan_at"] else None,
             "has_chart":        bool(raw_obj.get("chart_b64")),
         })
     return results
+
+
+class OptionsReportBody(BaseModel):
+    html:  str
+    count: int = 0
+
+@app.post("/api/options/report/email")
+async def email_options_report(body: OptionsReportBody, token: str = ""):
+    """Send the options positions HTML report via AgentMail."""
+    check_token(token)
+    import aiohttp as _aiohttp
+    env = _read_env_file()
+    def ev(k): return env.get(k) or os.getenv(k, "")
+
+    api_key   = ev("AGENTMAIL_API_KEY")
+    base_url  = (ev("AGENTMAIL_BASE_URL") or "https://api.agentmail.to").rstrip("/")
+    recipient = ev("REPORT_RECIPIENT_EMAIL")
+    inbox_raw = ev("AGENTMAIL_ALERTS_INBOX") or "alerts"
+    inbox_id  = inbox_raw if "@" in inbox_raw else f"{inbox_raw}@agentmail.to"
+
+    if not api_key:
+        raise HTTPException(status_code=400, detail="AGENTMAIL_API_KEY is not configured — set it in Configuration → AgentMail")
+    if not recipient:
+        raise HTTPException(status_code=400, detail="REPORT_RECIPIENT_EMAIL is not configured — set it in Configuration → User Settings → Report Delivery")
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    n        = body.count
+    subject  = f"OpenTrader Daily Option Report {date_str} ({n} position{'s' if n != 1 else ''})"
+    plain    = f"OpenTrader Daily Option Report {date_str} — {n} positions. Open in an HTML-capable email client."
+
+    try:
+        async with _aiohttp.ClientSession() as s:
+            async with s.post(
+                f"{base_url}/v0/inboxes/{inbox_id}/messages/send",
+                headers=headers,
+                json={"to": [recipient], "subject": subject, "text": plain, "html": body.html},
+                timeout=_aiohttp.ClientTimeout(total=30),
+            ) as r_send:
+                send_status = r_send.status
+                if send_status not in (200, 201):
+                    err = await r_send.text()
+                    raise HTTPException(status_code=502,
+                        detail=f"AgentMail send failed ({send_status}): {err[:300]}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AgentMail connection error: {e}")
+
+    return {"ok": True, "message": f"Report sent to {recipient}"}
+
+
+def _build_options_report_html(positions: list[dict]) -> str:
+    """Build the HTML options report from a list of position dicts."""
+    from datetime import date as _date
+    today = _date.today()
+    date_str = today.isoformat()
+    report_title = f"OpenTrader Daily Option Report {date_str}"
+    # Sort by broker account name then expiration date
+    sorted_pos = sorted(positions, key=lambda p: (
+        p.get("account_name") or p.get("account_label") or "",
+        p.get("expiration_date") or "",
+    ))
+
+    def fmt(v):
+        return f"${float(v):.2f}" if v is not None else "—"
+
+    rows_html = ""
+    for p in sorted_pos:
+        dte = p.get("days_to_exp")
+        dte_str = f"{dte}d" if dte is not None else "—"
+        dte_style = "color:#c0392b;font-weight:bold" if dte is not None and dte <= 7 else ""
+        earn_date = p.get("next_earnings_date") or "—"
+        price = p.get("underlying_price")
+        price_str = f"${float(price):.2f}" if price else "—"
+        sig = p.get("signal") or {}
+        direction  = (sig.get("direction") or "").lower()
+        confidence = sig.get("confidence")
+        if direction == "long":
+            conf_pct = f" {round(confidence * 100)}%" if confidence else ""
+            sig_html = f'<span style="color:#1a7a3a;font-weight:bold">▲ BUY{conf_pct}</span>'
+        elif direction == "short":
+            conf_pct = f" {round(confidence * 100)}%" if confidence else ""
+            sig_html = f'<span style="color:#c0392b;font-weight:bold">▼ SELL{conf_pct}</span>'
+        else:
+            sig_html = "—"
+        rows_html += f"""<tr>
+          <td>{p.get("underlying","")}</td>
+          <td>{p.get("account_name", p.get("account_label",""))}</td>
+          <td>{fmt(p.get("strike"))}</td>
+          <td>{price_str}</td>
+          <td>{p.get("expiration_date","—")}</td>
+          <td style="{dte_style}">{dte_str}</td>
+          <td>{sig_html}</td>
+          <td>{earn_date}</td>
+          <td style="color:#c0392b;font-weight:bold">{fmt(p.get("level_emergency"))}</td>
+          <td style="color:#b8860b;font-weight:bold">{fmt(p.get("level_exit_alert"))}</td>
+          <td>{fmt(p.get("level_roll_1"))}</td>
+          <td>{fmt(p.get("level_roll_2"))}</td>
+          <td>{fmt(p.get("level_roll_3"))}</td>
+        </tr>"""
+
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>{report_title}</title>
+<style>
+  body{{font-family:Arial,sans-serif;font-size:13px;color:#222;margin:24px}}
+  h2{{margin:0 0 4px;color:#111}}
+  .meta{{color:#777;font-size:11px;margin-bottom:18px}}
+  table{{border-collapse:collapse;width:100%}}
+  th{{background:#f2f2f2;border:1px solid #ccc;padding:8px 10px;text-align:left;font-size:11px;
+      text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}}
+  td{{border:1px solid #ddd;padding:7px 10px;white-space:nowrap}}
+  tr:nth-child(even) td{{background:#fafafa}}
+  th.emg{{color:#c0392b}} th.sl{{color:#b8860b}}
+  th.r1{{color:#2980b9}} th.r2{{color:#5499c7}} th.r3{{color:#7fb3d3}}
+</style></head><body>
+<h2>{report_title}</h2>
+<div class="meta">Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")} ET &nbsp;&middot;&nbsp;
+  {len(sorted_pos)} position{"s" if len(sorted_pos) != 1 else ""}</div>
+<table>
+  <thead><tr>
+    <th>Ticker</th><th>Account</th><th>Strike</th><th>Current Price</th>
+    <th>Expiration</th><th>DTE</th><th>Signal</th><th>Earnings Date</th>
+    <th class="emg">Emergency Exit</th><th class="sl">Stop Loss</th>
+    <th class="r1">Roll 1</th><th class="r2">Roll 2</th><th class="r3">Roll 3</th>
+  </tr></thead>
+  <tbody>{rows_html}</tbody>
+</table>
+</body></html>"""
+
+
+@app.post("/api/options/report/email/auto")
+async def email_options_report_auto(token: str = ""):
+    """Generate and email the options report from DB — called by the scheduler."""
+    check_token(token)
+    positions = await get_option_positions(status="active")
+    if not positions:
+        return {"ok": True, "message": "No active positions — report skipped"}
+    html = _build_options_report_html(positions)
+    body = OptionsReportBody(html=html, count=len(positions))
+    return await email_options_report(body, token=token)
 
 
 @app.get("/api/options/positions/{position_id}/log")

@@ -28,6 +28,7 @@ from .jobs import (
     job_eod_report,
     job_pre_market_prep,
     job_daily_summary,
+    job_options_report,
 )
 from .calendar import TZ
 
@@ -120,6 +121,14 @@ class Scheduler(BaseAgent):
             CronTrigger(hour=16, minute=5, timezone=TZ),
             args=[r], id="eod_report",
             name="EOD report trigger",
+            replace_existing=True,
+        )
+
+        self.apscheduler.add_job(
+            job_options_report,
+            CronTrigger(hour=13, minute=0, day_of_week="mon-fri", timezone=TZ),
+            args=[r], id="options_report",
+            name="Daily options positions report email (1pm ET)",
             replace_existing=True,
         )
 

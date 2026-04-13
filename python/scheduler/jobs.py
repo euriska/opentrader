@@ -202,6 +202,44 @@ async def job_pre_market_prep(redis: aioredis.Redis):
     })
 
 
+# ── Options report ───────────────────────────────────────────────────────────
+
+@tracked
+async def job_options_report(redis: aioredis.Redis):
+    """Fires at 13:00 ET on trading days — emails the daily options positions report."""
+    if not is_trading_day():
+        log.debug("scheduler.skip", job="options_report", reason="not_trading_day")
+        return
+    import json as _json
+    raw = await redis.get("scheduler:job:options_report")
+    if raw:
+        try:
+            rec = _json.loads(raw)
+            if not rec.get("enabled", True):
+                log.info("scheduler.skip", job="options_report", reason="disabled_by_toggle")
+                return
+        except Exception:
+            pass
+    import os as _os
+    import aiohttp as _aiohttp
+    webui_url  = _os.getenv("WEBUI_INTERNAL_URL", "http://ot-webui:8080")
+    token      = _os.getenv("WEBUI_TOKEN", "opentrader")
+    log.info("scheduler.options_report")
+    try:
+        async with _aiohttp.ClientSession() as s:
+            async with s.post(
+                f"{webui_url}/api/options/report/email/auto?token={token}",
+                timeout=_aiohttp.ClientTimeout(total=60),
+            ) as resp:
+                body = await resp.json(content_type=None)
+                if resp.status == 200:
+                    log.info("scheduler.options_report_sent", message=body.get("message"))
+                else:
+                    log.error("scheduler.options_report_failed", status=resp.status, detail=body.get("detail"))
+    except Exception as e:
+        log.error("scheduler.options_report_error", error=str(e))
+
+
 # ── Maintenance jobs ──────────────────────────────────────────────────────────
 
 @tracked

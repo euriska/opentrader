@@ -826,6 +826,22 @@ select option{background:var(--surface2)}
               <div id="rc-status" style="font-size:11px;color:var(--green);margin-top:8px;display:none">Saved.</div>
             </div>
 
+            <!-- Report Delivery -->
+            <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid #14b8a6;border-radius:8px;padding:14px 16px;margin-bottom:14px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <div style="font-size:12px;font-weight:600;color:var(--text)">Report Delivery</div>
+                <button class="btn btn-primary btn-xs" onclick="_saveReportEmail()">Save</button>
+              </div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Email address where downloaded/emailed option position reports are sent.</div>
+              <div>
+                <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:block;margin-bottom:4px">Report Recipient Email</label>
+                <input id="us-report-recipient-email" type="email" class="select-input"
+                  style="width:100%;max-width:340px;padding:7px 10px;font-size:13px"
+                  placeholder="you@example.com">
+              </div>
+              <div id="us-report-email-status" style="font-size:11px;margin-top:8px;display:none"></div>
+            </div>
+
           </div>
         </div>
       </div>
@@ -1405,6 +1421,15 @@ select option{background:var(--surface2)}
           <option value="">All Accounts</option>
         </select>
         <span id="opt-count-badge" style="margin-left:auto;font-size:11px;color:var(--muted)"></span>
+        <button class="btn" onclick="_optDownloadReport()"
+          style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer"
+          title="Download positions as HTML report">⬇ Download</button>
+        <button class="btn" id="opt-email-btn" onclick="_optEmailReport()"
+          style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer"
+          title="Email positions report">✉ Email</button>
+        <button id="opt-schedule-toggle" onclick="_optToggleSchedule()"
+          style="padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);transition:background .2s,color .2s"
+          title="Enable/disable scheduled 1pm daily email report">⏱ Schedule: …</button>
       </div>
 
       <!-- Sort controls -->
@@ -1455,8 +1480,9 @@ select option{background:var(--surface2)}
               <th style="padding:8px 6px;text-align:right;white-space:nowrap" title="Option delta (0–1)">Delta</th>
               <th style="padding:8px 6px;text-align:right;white-space:nowrap">Entry $</th>
               <th style="padding:8px 6px;text-align:right;white-space:nowrap">ATR</th>
+              <th style="padding:8px 6px;text-align:center;white-space:nowrap" title="Latest predictor buy/sell signal">Signal</th>
               <th style="padding:8px 6px;text-align:right;white-space:nowrap;color:#f85149" title="Emergency Exit = Entry − 3×ATR">🚨 Emg Exit</th>
-              <th style="padding:8px 6px;text-align:right;white-space:nowrap;color:#d29922" title="Exit Alert = Entry − 2×ATR">⚠ Exit Alert</th>
+              <th style="padding:8px 6px;text-align:right;white-space:nowrap;color:#d29922" title="Stop Loss = Entry − 2×ATR">⚠ Stop Loss</th>
               <th style="padding:8px 6px;text-align:right;white-space:nowrap;color:#79c0ff" title="1st Roll = Entry + 0.5×ATR">Roll 1</th>
               <th style="padding:8px 6px;text-align:right;white-space:nowrap;color:#a5d6ff" title="2nd Roll = Entry + 1×ATR">Roll 2</th>
               <th style="padding:8px 6px;text-align:right;white-space:nowrap;color:#cae8ff" title="3rd Roll = Entry + 2×ATR">Roll 3</th>
@@ -5807,6 +5833,7 @@ async function loadConfigPage() {
   // Load user exclusions + risk controls
   _loadUserExclusions();
   _loadRiskControls();
+  _loadReportEmail();
 
   grid.innerHTML = Object.keys(CFG_META).map(svc => {
     const m = CFG_META[svc];
@@ -9366,6 +9393,14 @@ async function _libLookupISBN() {
   const isbn = document.getElementById('lib-isbn-input').value.trim();
   if (!isbn) return;
   const status = document.getElementById('lib-lookup-status');
+  // Check if ISBN already exists in the library (skip check when editing the same book)
+  const cleanIsbn = isbn.replace(/[-\s]/g, '');
+  const existing = _libBooks.find(b => b.isbn && b.isbn.replace(/[-\s]/g, '') === cleanIsbn && b.id !== _libEditId);
+  if (existing) {
+    status.textContent = `⚠ Already in your library — "${existing.title}"`;
+    status.style.color = '#f59e0b';
+    return;
+  }
   status.textContent = 'Looking up…';
   status.style.color = 'var(--muted)';
   try {
@@ -10297,6 +10332,42 @@ function _closeAssignDrawer() {
      RISK CONTROLS JS
      ══════════════════════════════════════════════════════════════════════════ -->
 <script>
+async function _loadReportEmail() {
+  try {
+    const token = getToken();
+    const r = await fetch('/api/broker/env/reveal', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, keys: ['REPORT_RECIPIENT_EMAIL'] }),
+    });
+    if (r.ok) {
+      const env = await r.json();
+      const el = document.getElementById('us-report-recipient-email');
+      if (el) el.value = env['REPORT_RECIPIENT_EMAIL'] || '';
+    }
+  } catch(_) {}
+}
+
+async function _saveReportEmail() {
+  const email = (document.getElementById('us-report-recipient-email') || {}).value || '';
+  const st    = document.getElementById('us-report-email-status');
+  try {
+    const token = getToken();
+    const r = await fetch('/api/broker/env', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, vars: { REPORT_RECIPIENT_EMAIL: email } }),
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || `HTTP ${r.status}`);
+    st.textContent  = 'Saved.';
+    st.style.color  = 'var(--green)';
+    st.style.display = 'block';
+    setTimeout(() => { st.style.display = 'none'; }, 2500);
+  } catch(e) {
+    st.textContent  = 'Save failed: ' + e.message;
+    st.style.color  = 'var(--coral)';
+    st.style.display = 'block';
+  }
+}
+
 async function _loadRiskControls() {
   const token = getToken();
   try {
@@ -10736,6 +10807,23 @@ function _divSelectAccount(label) {
     : (_divData.accounts||[]);
   _divRenderAccountCards(_divData.accounts||[]);
   _divRenderHoldings(accounts);
+  // Re-render bar chart filtered to the selected account's symbols
+  if (_divForecast) {
+    const months = _divActiveAccount
+      ? _divFilterMonthlyByAccount(_divForecast.monthly || [], _divActiveAccount)
+      : (_divForecast.monthly || []);
+    _divRenderBar(months);
+  }
+}
+
+function _divFilterMonthlyByAccount(months, accountLabel) {
+  const acct = (_divData.accounts||[]).find(a => a.label === accountLabel);
+  const symbols = new Set((acct ? acct.positions : []).map(p => p.symbol));
+  return months.map(m => {
+    const filtered = (m.breakdown||[]).filter(b => symbols.has(b.symbol));
+    const income = filtered.reduce((s, b) => s + b.income, 0);
+    return { ...m, projected_income: Math.round(income * 100) / 100, breakdown: filtered };
+  });
 }
 
 function _divApplyFilter() {
@@ -11164,6 +11252,7 @@ async function loadOptionsPositions() {
   } catch(e) {
     toast('error', 'Options Load Failed', e.message);
   }
+  _optLoadScheduleState();
 }
 
 function _optUpdateAccountFilter() {
@@ -11392,6 +11481,7 @@ function _optRenderTable(rows) {
       <td style="padding:7px 6px;text-align:right;font-family:monospace;font-size:11px">${p.delta != null ? Number(p.delta).toFixed(2) : '—'}</td>
       <td style="padding:7px 6px;text-align:right">${p.underlying_entry != null ? '$'+Number(p.underlying_entry).toFixed(2) : '—'}</td>
       <td style="padding:7px 6px;text-align:right;color:var(--muted);font-size:11px">${p.atr_14 != null ? Number(p.atr_14).toFixed(4) : '—'}</td>
+      <td style="padding:7px 6px;text-align:center;white-space:nowrap">${(() => { const s = p.signal || {}; const d = (s.direction||'').toLowerCase(); const c = s.confidence != null ? ' '+Math.round(s.confidence*100)+'%' : ''; return d==='long' ? `<span style="color:#4ade80;font-weight:700;font-size:11px">▲ BUY${c}</span>` : d==='short' ? `<span style="color:#f85149;font-weight:700;font-size:11px">▼ SELL${c}</span>` : '<span style="color:var(--muted);font-size:11px">—</span>'; })()}</td>
       <td style="padding:7px 6px;text-align:right;color:#f85149;font-weight:600">${fmt(p.level_emergency)}</td>
       <td style="padding:7px 6px;text-align:right;color:#d29922;font-weight:600">${fmt(p.level_exit_alert)}</td>
       <td style="padding:7px 6px;text-align:right;color:#79c0ff">${fmt(p.level_roll_1)}</td>
@@ -11404,6 +11494,177 @@ function _optRenderTable(rows) {
       <td style="padding:7px 6px;text-align:center"><span style="font-size:10px;color:var(--muted)">${p.status}</span></td>
     </tr>`;
   }).join('');
+}
+
+function _optBuildReportHtml(rows) {
+  const now = new Date().toLocaleString();
+  const fmt = v => v != null ? '$' + Number(v).toFixed(2) : '—';
+  // Sort by broker account name, then contract expiration date
+  const sorted = [...rows].sort((a, b) => {
+    const ak = (a.account_name || a.account_label || '').localeCompare(b.account_name || b.account_label || '');
+    if (ak !== 0) return ak;
+    return (a.expiration_date || '').localeCompare(b.expiration_date || '');
+  });
+  const rowsHtml = sorted.map(p => {
+    const dte = p.days_to_exp;
+    const dteStr = dte != null ? dte + 'd' : '—';
+    const dteStyle = dte != null && dte <= 7 ? 'background:#fff3e0;' : '';
+    const dteTxt = dte != null && dte <= 7 ? `style="color:#c0392b;font-weight:bold"` : '';
+    const earnDate = p.next_earnings_date || '—';
+    const curPrice = p.underlying_price != null ? '$' + Number(p.underlying_price).toFixed(2) : '—';
+    const sig = p.signal || {};
+    const dir = (sig.direction || '').toLowerCase();
+    const conf = sig.confidence != null ? ` ${Math.round(sig.confidence * 100)}%` : '';
+    const sigHtml = dir === 'long'
+      ? `<span style="color:#1a7a3a;font-weight:bold">&#9650; BUY${conf}</span>`
+      : dir === 'short'
+        ? `<span style="color:#c0392b;font-weight:bold">&#9660; SELL${conf}</span>`
+        : '—';
+    return `<tr style="${dteStyle}">
+      <td>${_escHtml(p.underlying)}</td>
+      <td>${_escHtml(p.account_name)}</td>
+      <td>$${p.strike != null ? Number(p.strike).toFixed(2) : '—'}</td>
+      <td>${curPrice}</td>
+      <td>${p.expiration_date || '—'}</td>
+      <td ${dteTxt}>${dteStr}</td>
+      <td>${sigHtml}</td>
+      <td>${earnDate}</td>
+      <td style="color:#c0392b;font-weight:bold">${fmt(p.level_emergency)}</td>
+      <td style="color:#b8860b;font-weight:bold">${fmt(p.level_exit_alert)}</td>
+      <td>${fmt(p.level_roll_1)}</td>
+      <td>${fmt(p.level_roll_2)}</td>
+      <td>${fmt(p.level_roll_3)}</td>
+    </tr>`;
+  }).join('');
+  const dateStr = new Date().toISOString().slice(0,10);
+  const reportTitle = `OpenTrader Daily Option Report ${dateStr}`;
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>${reportTitle}</title>
+<style>
+  body{font-family:Arial,sans-serif;font-size:13px;color:#222;margin:24px}
+  h2{margin:0 0 4px;color:#111}
+  .meta{color:#777;font-size:11px;margin-bottom:18px}
+  table{border-collapse:collapse;width:100%}
+  th{background:#f2f2f2;border:1px solid #ccc;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+  td{border:1px solid #ddd;padding:7px 10px;white-space:nowrap}
+  tr:nth-child(even) td{background:#fafafa}
+  th.emg{color:#c0392b} th.sl{color:#b8860b}
+  th.r1{color:#2980b9} th.r2{color:#5499c7} th.r3{color:#7fb3d3}
+</style>
+</head><body>
+<h2>${reportTitle}</h2>
+<div class="meta">Generated: ${now} &nbsp;&middot;&nbsp; ${rows.length} position${rows.length !== 1 ? 's' : ''}</div>
+<table>
+  <thead><tr>
+    <th>Ticker</th><th>Account</th><th>Strike</th><th>Current Price</th>
+    <th>Expiration</th><th>DTE</th><th>Signal</th><th>Earnings Date</th>
+    <th class="emg">Emergency Exit</th><th class="sl">Stop Loss</th>
+    <th class="r1">Roll 1</th><th class="r2">Roll 2</th><th class="r3">Roll 3</th>
+  </tr></thead>
+  <tbody>${rowsHtml}</tbody>
+</table>
+</body></html>`;
+}
+
+function _optDownloadReport() {
+  const filterAcct = (document.getElementById('opt-filter-account') || {}).value || '';
+  const rows = filterAcct ? _optPositions.filter(p => p.account_label === filterAcct) : _optPositions;
+  if (!rows.length) { toast('error', 'No Data', 'No positions to export'); return; }
+  const html     = _optBuildReportHtml(rows);
+  const filename = `OpenTrader Daily Option Report ${new Date().toISOString().slice(0,10)}.html`;
+  try {
+    const blob = new Blob([html], { type: 'text/html' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast('success', 'Downloaded', filename);
+  } catch(e) {
+    console.error('[optDownloadReport]', e);
+    toast('error', 'Download Failed', e.message || 'Unknown error');
+  }
+}
+
+async function _optEmailReport() {
+  const btn = document.getElementById('opt-email-btn');
+  const filterAcct = (document.getElementById('opt-filter-account') || {}).value || '';
+  let rows = filterAcct ? _optPositions.filter(p => p.account_label === filterAcct) : _optPositions;
+  rows = _optSortRows(rows);
+  if (!rows.length) { toast('error', 'No Data', 'No positions to send'); return; }
+  btn.disabled = true;
+  btn.textContent = '✉ Sending…';
+  try {
+    const html = _optBuildReportHtml(rows);
+    const tok  = getToken();
+    const r    = await fetch(`/api/options/report/email?token=${encodeURIComponent(tok)}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ html, count: rows.length }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || d.message || `HTTP ${r.status}`);
+    toast('success', 'Report Sent', d.message || `Report emailed to ${d.recipient || 'recipient'}`);
+  } catch(e) {
+    console.error('[optEmailReport]', e);
+    toast('error', 'Email Failed', e.message || 'Unknown error — check browser console', 8000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✉ Email';
+  }
+}
+
+async function _optLoadScheduleState() {
+  const btn = document.getElementById('opt-schedule-toggle');
+  if (!btn) return;
+  try {
+    const tok = getToken();
+    const r = await fetch(`/api/jobs/options_report/state?token=${encodeURIComponent(tok)}`);
+    const d = await r.json().catch(() => ({}));
+    _optSetScheduleBtn(btn, d.enabled !== false);
+  } catch(e) {
+    btn.textContent = '⏱ Schedule: ?';
+    btn.style.background = 'var(--card-header)';
+    btn.style.color = 'var(--muted)';
+  }
+}
+
+function _optSetScheduleBtn(btn, enabled) {
+  if (enabled) {
+    btn.textContent = '⏱ Schedule: ON';
+    btn.style.background = '#1a4a2e';
+    btn.style.color = '#4ade80';
+    btn.style.borderColor = '#166534';
+  } else {
+    btn.textContent = '⏱ Schedule: OFF';
+    btn.style.background = 'var(--card-header)';
+    btn.style.color = 'var(--muted)';
+    btn.style.borderColor = 'var(--border)';
+  }
+}
+
+async function _optToggleSchedule() {
+  const btn = document.getElementById('opt-schedule-toggle');
+  if (!btn) return;
+  btn.disabled = true;
+  const prevText = btn.textContent;
+  btn.textContent = '⏱ …';
+  try {
+    const tok = getToken();
+    const r = await fetch(`/api/jobs/options_report/toggle?token=${encodeURIComponent(tok)}`, { method: 'POST' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    _optSetScheduleBtn(btn, d.enabled);
+    toast('success', 'Schedule Updated', `Daily 1pm report ${d.enabled ? 'enabled' : 'disabled'}`);
+  } catch(e) {
+    btn.textContent = prevText;
+    toast('error', 'Toggle Failed', e.message || 'Unknown error');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function _optOpenModal(posId) {

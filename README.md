@@ -17,7 +17,7 @@ An AI-driven algorithmic trading platform built on a microservices architecture 
 - **TradingView Charts** — Embedded charts with EMA/SMA/BB/RSI/MACD overlays and live position picker
 - **Market Breadth** — OVTLYR bull/bear breadth gauge with crossover detection and sparkline history
 - **Equity / Options separation** — Active Positions, Trades, and Dividends pages show equity-only data; Options Dashboard is a dedicated section
-- **Options Dashboard** — Live options position tracker with DTE, strike, delta, ATR levels, and Yahoo Finance chain enrichment
+- **Options Dashboard** — Live options position tracker with DTE, strike, delta, ATR levels, current underlying price, buy/sell signal, and Yahoo Finance chain enrichment; includes download and scheduled email report
 - **Strategy Engineer** — AI-assisted strategy builder with version control and real Backtrader backtesting
 - **Backtrader Engine** — EMA 10/21 crossover strategy with stop-loss/take-profit, full trade log, PDF + CSV exports, and equity/chart tabs
 - **Trade Directives** — Natural-language GTC directives evaluated every 5 minutes by an LLM agent and executed automatically

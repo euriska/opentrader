@@ -3,6 +3,36 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.46] - 2026-04-13
+
+### Fixed
+- Options report download: removed pre-sort via dashboard sort controls (which could fail outside dashboard context); now goes through same `_optBuildReportHtml` path as email; added try/catch with error toast and success toast with filename
+- Options signal column: predictor signals only cover OVTLYR tickers — added Yahoo Finance `recommendationKey` fallback for tickers not in the predictor stream (`strong_buy`→BUY 95%, `buy`→BUY 75%, `underperform`→SELL 60%, `sell`→SELL 80%, `strong_sell`→SELL 95%, `hold`→—)
+
+## [3.5.45] - 2026-04-13
+
+### Changed
+- Options email report: removed Type column; sort changed from broker field to account name (account_name) then expiration date — matches user-visible account labels
+- Options email report: server-side `_build_options_report_html` sort updated to match
+
+## [3.5.44] - 2026-04-13
+
+### Added
+- Options dashboard table: Signal column between ATR and Emergency Exit — shows ▲ BUY / ▼ SELL with confidence % from predictor.signals stream; same signal included in download and email report between DTE and Earnings Date columns
+
+## [3.5.43] - 2026-04-13
+
+### Fixed
+- Options schedule toggle state persistence: scheduler container wipes `scheduler:jobs` index set on startup, causing toggle to lose state; added `GET /api/jobs/{id}/state` endpoint that reads the job key directly (bypasses index) with DB fallback; `POST /api/jobs/{id}/toggle` now seeds from DB when key is missing rather than using hardcoded defaults; frontend `_optLoadScheduleState` updated to use the new state endpoint
+
+## [3.5.42] - 2026-04-13
+
+### Added
+- Options dashboard: current underlying share price column in dashboard table and report — fetched from `sentiment:latest` Redis cache with yfinance batch download fallback when cache is empty
+- Options report: buy/sell signal column (▲ BUY / ▼ SELL + confidence) sourced from predictor.signals stream
+- Options report schedule toggle: ⏱ Schedule ON/OFF button to the right of the Email button; state persisted to TimescaleDB `scheduler_jobs` table and restored to Redis on webui startup; scheduler `job_options_report` checks enabled flag before sending
+- Scheduler: `job_options_report` added — fires at 13:00 ET on trading days; checks Redis enabled flag; POSTs to `/api/options/report/email/auto` on webui
+
 ## [3.5.41] - 2026-04-12
 
 ### Fixed
