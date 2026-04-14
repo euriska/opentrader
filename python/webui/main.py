@@ -5533,7 +5533,7 @@ async def get_option_positions(status: str = "active"):
                 if not raw:
                     continue
                 try:
-                    d = _json.loads(raw) if isinstance(raw, str) else raw
+                    d = json.loads(raw) if isinstance(raw, str) else raw
                     sig_str = (d.get("signal") or d.get("direction") or "").lower()
                     mapped  = _SIGNAL_MAP.get(sig_str)
                     if not mapped:

@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.51] - 2026-04-14
+
+### Fixed
+- Options dashboard OVTLYR signal lookup: `_json` (undefined local alias) changed to `json` — silent NameError was causing all OVTLYR lookups to fail and fall through to Yahoo Finance
+
 ## [3.5.50] - 2026-04-14
 
 ### Fixed
