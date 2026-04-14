@@ -293,6 +293,10 @@ select option{background:var(--surface2)}
         <span class="nav-dot" style="background:#a855f7"></span>
         Options Dashboard
       </div>
+      <div class="nav-item" onclick="navigate('page-options-log')" data-page="page-options-log">
+        <span class="nav-dot" style="background:#c084fc"></span>
+        Trading Log
+      </div>
     </div>
     <div class="nav-group">
       <div class="nav-label">Trading Plan</div>
@@ -1501,6 +1505,114 @@ select option{background:var(--surface2)}
 
     </div><!-- /page-trading-options -->
 
+    <!-- ════════════════════════════════════════
+         PAGE: Options Trading Log
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-options-log">
+
+      <!-- Header row -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="font-size:18px;font-weight:700;color:var(--fg)">Options Trading Log</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="loadOptionsLog()" style="background:var(--blue);color:#fff;border:none;padding:7px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">↻ Refresh</button>
+        </div>
+      </div>
+
+      <!-- ── Tier 1: Summary P&L cards ── -->
+      <div id="optlog-summary-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px">
+        <div class="card" style="padding:14px 16px;text-align:center">
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Total P&amp;L</div>
+          <div id="optlog-total-pnl" style="font-size:26px;font-weight:700;color:var(--fg)">—</div>
+        </div>
+        <div class="card" style="padding:14px 16px;text-align:center">
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Positions</div>
+          <div id="optlog-total-trades" style="font-size:26px;font-weight:700;color:var(--fg)">—</div>
+        </div>
+        <div class="card" style="padding:14px 16px;text-align:center">
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Win Rate</div>
+          <div id="optlog-win-rate" style="font-size:26px;font-weight:700;color:var(--fg)">—</div>
+        </div>
+        <div class="card" style="padding:14px 16px;text-align:center">
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Winners</div>
+          <div id="optlog-winners" style="font-size:26px;font-weight:700;color:#22c55e">—</div>
+        </div>
+        <div class="card" style="padding:14px 16px;text-align:center">
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Losers</div>
+          <div id="optlog-losers" style="font-size:26px;font-weight:700;color:#ef4444">—</div>
+        </div>
+      </div>
+
+      <!-- Most Profitable Tickers strip -->
+      <div class="card" style="margin-bottom:16px;padding:14px 16px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px">Most Profitable Tickers</div>
+        <div id="optlog-top-tickers" style="display:flex;gap:10px;flex-wrap:wrap">
+          <span style="color:var(--muted);font-size:12px">Loading…</span>
+        </div>
+      </div>
+
+      <!-- ── Tier 2: Account breakdown ── -->
+      <div class="card" style="margin-bottom:16px">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">By Account</div>
+        <div id="optlog-accounts-body" style="padding:4px 0">
+          <div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- ── Tier 3: Full trade history table ── -->
+      <div class="card" style="margin-bottom:16px">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
+          <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">All Positions</span>
+          <input id="optlog-search" type="text" placeholder="Filter by ticker…" oninput="_optlogFilter()"
+            style="margin-left:auto;background:var(--card-header);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:12px;color:var(--fg);width:160px">
+          <select id="optlog-status-filter" onchange="_optlogFilter()"
+            style="background:var(--card-header);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:12px;color:var(--fg)">
+            <option value="">All Statuses</option>
+            <option value="active">Active</option>
+            <option value="closed">Closed</option>
+            <option value="rolled">Rolled</option>
+            <option value="expired">Expired</option>
+          </select>
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr style="background:var(--card-header);color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">
+                <th style="padding:8px 12px;text-align:left">Ticker</th>
+                <th style="padding:8px 12px;text-align:left">Contract</th>
+                <th style="padding:8px 12px;text-align:left">Account</th>
+                <th style="padding:8px 12px;text-align:right">Entry $</th>
+                <th style="padding:8px 12px;text-align:right">Qty</th>
+                <th style="padding:8px 12px;text-align:right">Days</th>
+                <th style="padding:8px 12px;text-align:left">Status</th>
+                <th style="padding:8px 12px;text-align:right">P&amp;L</th>
+                <th style="padding:8px 12px;text-align:center">Detail</th>
+              </tr>
+            </thead>
+            <tbody id="optlog-trades-body">
+              <tr><td colspan="9" style="padding:20px;text-align:center;color:var(--muted)">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- /page-options-log -->
+
+    <!-- Options Trading Log — Position Detail Modal -->
+    <div id="optlog-detail-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9100;overflow-y:auto;padding:40px 20px">
+      <div style="max-width:860px;margin:0 auto;background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:var(--card-header);border-bottom:1px solid var(--border)">
+          <div>
+            <span id="optlog-modal-title" style="font-size:15px;font-weight:700;color:var(--fg)">Position History</span>
+          </div>
+          <button onclick="document.getElementById('optlog-detail-modal').style.display='none'"
+            style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);padding:4px 8px">✕</button>
+        </div>
+        <div id="optlog-modal-body" style="padding:20px">
+          <div style="text-align:center;color:var(--muted);padding:40px">Loading…</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Options Chart / Log Modal -->
     <div id="opt-chart-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9000;overflow-y:auto;padding:40px 20px">
       <div style="max-width:900px;margin:0 auto;background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden">
@@ -2493,6 +2605,7 @@ const PAGE_TITLES = {
   'page-trading-broker':     'Broker',
   'page-trading-dividends':  'Dividend Tracker',
   'page-trading-options':    'Options Dashboard',
+  'page-options-log':        'Options Trading Log',
   'page-trading-charts':     'Charts',
   'page-trading-directives': 'Trade Directives',
   'page-plan-engineer':      'Strategy Engineer',
@@ -2614,6 +2727,7 @@ function navigate(pageId) {
     case 'page-trading-broker':     loadBrokerPage();       break;
     case 'page-trading-dividends':  loadDividendPage();     break;
     case 'page-trading-options':    loadOptionsPositions(); break;
+    case 'page-options-log':        loadOptionsLog(); break;
     case 'page-trading-charts':     loadChartsPage();       break;
     case 'page-trading-directives': loadDirectivesPage();   break;
     case 'page-plan-engineer':      loadEngineerPage();     break;
@@ -11980,6 +12094,263 @@ async function triggerOptionsScan() {
   } catch(e) {
     toast('error', 'Scan Failed', e.message);
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// OPTIONS TRADING LOG
+// ══════════════════════════════════════════════════════════════════════════════
+
+let _optlogAllTrades = [];
+
+async function loadOptionsLog() {
+  try {
+    const [summary, accounts] = await Promise.all([
+      apiFetch('/api/options/log/summary'),
+      apiFetch('/api/options/log/accounts'),
+    ]);
+    _optlogAllTrades = summary.trades || [];
+    _renderOptlogSummary(summary);
+    _renderOptlogAccounts(accounts);
+    _optlogFilter();
+  } catch(e) {
+    toast('error', 'Options Log Failed', e.message);
+  }
+}
+
+function _renderOptlogSummary(s) {
+  const pnl = s.total_pnl || 0;
+  const el = document.getElementById('optlog-total-pnl');
+  el.textContent = _optFmtPnl(pnl);
+  el.style.color = pnl >= 0 ? '#22c55e' : '#ef4444';
+  document.getElementById('optlog-total-trades').textContent = s.total_positions || 0;
+  document.getElementById('optlog-win-rate').textContent   = (s.win_rate || 0) + '%';
+  document.getElementById('optlog-winners').textContent    = s.winning_trades || 0;
+  document.getElementById('optlog-losers').textContent     = s.losing_trades || 0;
+
+  const topEl = document.getElementById('optlog-top-tickers');
+  if (!s.top_tickers || !s.top_tickers.length) {
+    topEl.innerHTML = '<span style="color:var(--muted);font-size:12px">No closed positions yet</span>';
+    return;
+  }
+  topEl.innerHTML = s.top_tickers.map(t => {
+    const pnlColor = t.total_pnl >= 0 ? '#22c55e' : '#ef4444';
+    return `<div onclick="_optlogOpenTickerModal('${t.underlying}')" style="cursor:pointer;background:var(--card-header);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center;min-width:90px">
+      <div style="font-size:13px;font-weight:700;color:var(--fg)">${t.underlying}</div>
+      <div style="font-size:11px;font-weight:600;color:${pnlColor}">${_optFmtPnl(t.total_pnl)}</div>
+      <div style="font-size:10px;color:var(--muted)">${t.count} pos</div>
+    </div>`;
+  }).join('');
+}
+
+function _renderOptlogAccounts(accounts) {
+  const el = document.getElementById('optlog-accounts-body');
+  if (!accounts || !accounts.length) {
+    el.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">No account data</div>';
+    return;
+  }
+  el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="background:var(--card-header);color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">
+      <th style="padding:8px 16px;text-align:left">Account</th>
+      <th style="padding:8px 12px;text-align:left">Broker</th>
+      <th style="padding:8px 12px;text-align:right">Positions</th>
+      <th style="padding:8px 12px;text-align:right">Closed</th>
+      <th style="padding:8px 12px;text-align:right">Win Rate</th>
+      <th style="padding:8px 12px;text-align:right">W / L</th>
+      <th style="padding:8px 12px;text-align:right">Total P&amp;L</th>
+    </tr></thead>
+    <tbody>${accounts.map(a => {
+      const pc = a.total_pnl >= 0 ? '#22c55e' : '#ef4444';
+      return `<tr style="border-top:1px solid var(--border)">
+        <td style="padding:8px 16px;font-weight:600;color:var(--fg)">${a.account_name}</td>
+        <td style="padding:8px 12px;color:var(--muted)">${a.broker}</td>
+        <td style="padding:8px 12px;text-align:right;color:var(--fg)">${a.total_positions}</td>
+        <td style="padding:8px 12px;text-align:right;color:var(--fg)">${a.closed_count}</td>
+        <td style="padding:8px 12px;text-align:right;color:var(--fg)">${a.win_rate}%</td>
+        <td style="padding:8px 12px;text-align:right;color:var(--fg)"><span style="color:#22c55e">${a.winning}</span> / <span style="color:#ef4444">${a.losing}</span></td>
+        <td style="padding:8px 12px;text-align:right;font-weight:700;color:${pc}">${_optFmtPnl(a.total_pnl)}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+}
+
+function _optlogFilter() {
+  const search = (document.getElementById('optlog-search')?.value || '').toLowerCase();
+  const statusF = document.getElementById('optlog-status-filter')?.value || '';
+  const filtered = _optlogAllTrades.filter(t =>
+    (!search || t.underlying.toLowerCase().includes(search) || (t.contract_symbol||'').toLowerCase().includes(search)) &&
+    (!statusF || t.status === statusF)
+  );
+  _renderOptlogTradesTable(filtered);
+}
+
+const _optlogStatusColors = {
+  active: '#3b82f6', closed: '#6b7280', rolled: '#f59e0b', expired: '#9333ea'
+};
+const _optlogRiskColors = {
+  low: '#22c55e', moderate: '#f59e0b', high: '#f97316', emergency: '#ef4444'
+};
+
+function _renderOptlogTradesTable(trades) {
+  const tbody = document.getElementById('optlog-trades-body');
+  if (!trades || !trades.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--muted)">No positions found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = trades.map(t => {
+    const sc = _optlogStatusColors[t.status] || '#6b7280';
+    const pnlColor = t.realized_pnl === null ? 'var(--muted)' : t.realized_pnl >= 0 ? '#22c55e' : '#ef4444';
+    const pnlStr  = t.realized_pnl !== null ? _optFmtPnl(t.realized_pnl) : '—';
+    return `<tr style="border-top:1px solid var(--border);cursor:pointer" onclick="_optlogOpenDetailModal('${t.id}','${t.underlying}')">
+      <td style="padding:8px 12px;font-weight:700;color:var(--fg)">${t.underlying}</td>
+      <td style="padding:8px 12px;color:var(--muted);font-size:11px">${t.contract_symbol||'—'}</td>
+      <td style="padding:8px 12px;color:var(--muted)">${t.account_name}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--fg)">${t.entry_price ? '$'+t.entry_price.toFixed(2) : '—'}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--fg)">${t.qty ?? '—'}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--muted)">${t.days_in_trade ?? '—'}d</td>
+      <td style="padding:8px 12px"><span style="background:${sc}22;color:${sc};border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700;text-transform:uppercase">${t.status}</span></td>
+      <td style="padding:8px 12px;text-align:right;font-weight:700;color:${pnlColor}">${pnlStr}</td>
+      <td style="padding:8px 12px;text-align:center"><button onclick="event.stopPropagation();_optlogOpenDetailModal('${t.id}','${t.underlying}')" style="background:var(--card-header);border:1px solid var(--border);border-radius:5px;padding:3px 9px;font-size:11px;cursor:pointer;color:var(--fg)">View</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function _optlogOpenDetailModal(positionId, ticker) {
+  const modal = document.getElementById('optlog-detail-modal');
+  const body  = document.getElementById('optlog-modal-body');
+  document.getElementById('optlog-modal-title').textContent = `${ticker} — Position History`;
+  body.innerHTML = '<div style="text-align:center;color:var(--muted);padding:40px">Loading…</div>';
+  modal.style.display = 'block';
+  try {
+    const data = await apiFetch(`/api/options/log/ticker/${encodeURIComponent(ticker)}`);
+    const pos  = (data.positions || []).find(p => p.id === positionId);
+    if (!pos) { body.innerHTML = '<div style="text-align:center;color:var(--muted);padding:40px">Not found</div>'; return; }
+    body.innerHTML = _renderOptlogPositionDetail(pos);
+  } catch(e) {
+    body.innerHTML = `<div style="text-align:center;color:#ef4444;padding:40px">${e.message}</div>`;
+  }
+}
+
+async function _optlogOpenTickerModal(ticker) {
+  const modal = document.getElementById('optlog-detail-modal');
+  const body  = document.getElementById('optlog-modal-body');
+  document.getElementById('optlog-modal-title').textContent = `${ticker} — Full Trade History`;
+  body.innerHTML = '<div style="text-align:center;color:var(--muted);padding:40px">Loading…</div>';
+  modal.style.display = 'block';
+  try {
+    const data = await apiFetch(`/api/options/log/ticker/${encodeURIComponent(ticker)}`);
+    if (!data.positions || !data.positions.length) {
+      body.innerHTML = '<div style="text-align:center;color:var(--muted);padding:40px">No positions</div>'; return;
+    }
+    const totalColor = data.total_pnl >= 0 ? '#22c55e' : '#ef4444';
+    body.innerHTML = `
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)">
+        <div style="font-size:22px;font-weight:700;color:var(--fg)">${ticker}</div>
+        <div style="font-size:18px;font-weight:700;color:${totalColor}">${_optFmtPnl(data.total_pnl)}</div>
+        <div style="color:var(--muted);font-size:13px">${data.position_count} position(s)</div>
+      </div>
+      ${data.positions.map(p => _renderOptlogPositionDetail(p)).join('<hr style="border-color:var(--border);margin:20px 0">')}`;
+  } catch(e) {
+    body.innerHTML = `<div style="text-align:center;color:#ef4444;padding:40px">${e.message}</div>`;
+  }
+}
+
+function _renderOptlogPositionDetail(pos) {
+  const sc      = _optlogStatusColors[pos.status] || '#6b7280';
+  const pnlColor= pos.total_realized_pnl === null ? 'var(--muted)' : pos.total_realized_pnl >= 0 ? '#22c55e' : '#ef4444';
+  const aiHtml  = pos.ai_analysis
+    ? `<div style="margin-top:14px;padding:14px;background:var(--card-header);border-radius:8px;border-left:3px solid #a855f7">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#a855f7;margin-bottom:8px">AI Analysis</div>
+        <div style="font-size:12px;color:var(--fg);white-space:pre-wrap;line-height:1.6">${_escHtml(pos.ai_analysis)}</div>
+        ${pos.ai_analyzed_at ? `<div style="font-size:10px;color:var(--muted);margin-top:6px">Analyzed ${pos.ai_analyzed_at.substring(0,10)}</div>` : ''}
+      </div>`
+    : (pos.status !== 'active'
+        ? `<div style="margin-top:12px"><button onclick="_optlogRunAnalysis('${pos.id}')" style="background:#a855f722;color:#a855f7;border:1px solid #a855f755;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer">Run AI Analysis</button></div>`
+        : '');
+
+  const eventsHtml = pos.events && pos.events.length
+    ? `<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:8px">
+        <thead><tr style="background:var(--card-header);color:var(--muted);font-size:9px;font-weight:700;text-transform:uppercase">
+          <th style="padding:5px 8px;text-align:left">Date</th>
+          <th style="padding:5px 8px;text-align:left">Event</th>
+          <th style="padding:5px 8px;text-align:right">Underlying</th>
+          <th style="padding:5px 8px;text-align:right">Contract $</th>
+          <th style="padding:5px 8px;text-align:center">Risk</th>
+          <th style="padding:5px 8px;text-align:right">Days</th>
+          <th style="padding:5px 8px;text-align:right">P&amp;L</th>
+        </tr></thead>
+        <tbody>${pos.events.map(ev => {
+          const rc = _optlogRiskColors[ev.risk_level] || 'var(--muted)';
+          const evPnlColor = ev.realized_pnl === null ? 'var(--muted)' : ev.realized_pnl >= 0 ? '#22c55e' : '#ef4444';
+          const isClose = ['closed','expired','alert_roll_1','alert_roll_2','alert_roll_3'].includes(ev.event_type);
+          return `<tr style="border-top:1px solid var(--border)${isClose ? ';background:var(--card-header)22' : ''}">
+            <td style="padding:5px 8px;color:var(--muted)">${ev.ts.substring(0,10)}</td>
+            <td style="padding:5px 8px;color:var(--fg);font-weight:${isClose?700:400}">${ev.event_type}</td>
+            <td style="padding:5px 8px;text-align:right;color:var(--fg)">${ev.underlying_price ? '$'+ev.underlying_price.toFixed(2) : '—'}</td>
+            <td style="padding:5px 8px;text-align:right;color:var(--fg)">${ev.contract_price ? '$'+ev.contract_price.toFixed(2) : '—'}</td>
+            <td style="padding:5px 8px;text-align:center"><span style="background:${rc}22;color:${rc};border-radius:4px;padding:1px 5px;font-size:9px;font-weight:700;text-transform:uppercase">${ev.risk_level||'—'}</span></td>
+            <td style="padding:5px 8px;text-align:right;color:var(--muted)">${ev.days_since_prev !== null ? ev.days_since_prev+'d' : '—'}</td>
+            <td style="padding:5px 8px;text-align:right;font-weight:700;color:${evPnlColor}">${ev.realized_pnl !== null ? _optFmtPnl(ev.realized_pnl) : '—'}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`
+    : '<div style="color:var(--muted);font-size:12px;padding:8px 0">No events logged</div>';
+
+  return `<div style="margin-bottom:4px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+      <span style="font-size:13px;font-weight:700;color:var(--fg)">${pos.contract_symbol}</span>
+      <span style="background:${sc}22;color:${sc};border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700;text-transform:uppercase">${pos.status}</span>
+      <span style="color:var(--muted);font-size:12px">${pos.account_name} · ${pos.broker}</span>
+      <span style="color:var(--muted);font-size:12px">Entry: ${pos.entry_date||'—'}</span>
+      ${pos.closed_at ? `<span style="color:var(--muted);font-size:12px">Closed: ${pos.closed_at.substring(0,10)}</span>` : ''}
+      <span style="color:var(--muted);font-size:12px">${pos.days_in_trade ?? '—'}d in trade</span>
+      ${pos.total_realized_pnl !== null
+        ? `<span style="font-weight:700;font-size:13px;color:${pnlColor};margin-left:auto">${_optFmtPnl(pos.total_realized_pnl)}</span>`
+        : ''}
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-bottom:10px">
+      <span>Entry premium: <b style="color:var(--fg)">${pos.entry_price ? '$'+pos.entry_price.toFixed(2) : '—'}</b></span>
+      <span>Qty: <b style="color:var(--fg)">${pos.qty ?? '—'}</b></span>
+      <span>Type: <b style="color:var(--fg)">${pos.option_type}</b></span>
+      ${pos.strike ? `<span>Strike: <b style="color:var(--fg)">$${pos.strike}</b></span>` : ''}
+      ${pos.expiration_date ? `<span>Exp: <b style="color:var(--fg)">${pos.expiration_date}</b></span>` : ''}
+      ${pos.close_reason ? `<span>Close reason: <b style="color:var(--fg)">${pos.close_reason}</b></span>` : ''}
+    </div>
+    ${eventsHtml}
+    ${aiHtml}
+  </div>`;
+}
+
+async function _optlogRunAnalysis(positionId) {
+  const token = getToken();
+  try {
+    toast('info', 'AI Analysis', 'Generating analysis…');
+    const result = await apiFetch(`/api/options/log/analyze/${positionId}?token=${encodeURIComponent(token)}`, {method:'POST'});
+    if (result.analysis) {
+      // Re-render modal content by refreshing the detail modal
+      const titleEl = document.getElementById('optlog-modal-title');
+      const ticker  = (titleEl.textContent.split('—')[0]||'').trim();
+      if (ticker) {
+        const data = await apiFetch(`/api/options/log/ticker/${encodeURIComponent(ticker)}`);
+        const pos  = (data.positions || []).find(p => p.id === positionId);
+        if (pos) {
+          document.getElementById('optlog-modal-body').innerHTML = _renderOptlogPositionDetail(pos);
+        }
+      }
+      toast('success', 'AI Analysis Complete', 'Analysis saved');
+    }
+  } catch(e) {
+    toast('error', 'Analysis Failed', e.message);
+  }
+}
+
+function _optFmtPnl(v) {
+  if (v === null || v === undefined) return '—';
+  const sign = v >= 0 ? '+' : '';
+  return sign + '$' + Math.abs(v).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function _escHtml(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 </script>
 

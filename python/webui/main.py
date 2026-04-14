@@ -5879,6 +5879,344 @@ async def patch_option_position(position_id: str, body: dict):
     return {"ok": True}
 
 
+@app.get("/api/options/log/summary")
+async def get_options_log_summary():
+    """Top-level P&L summary across all option positions (closed/rolled/expired)."""
+    pool = await _get_db_pool()
+    rows = await pool.fetch(
+        """
+        SELECT
+            p.id,
+            p.underlying,
+            p.account_label,
+            p.account_name,
+            p.broker,
+            p.entry_price,
+            p.qty,
+            p.entry_date,
+            p.closed_at,
+            p.status,
+            p.total_realized_pnl,
+            p.option_type,
+            p.contract_symbol,
+            -- Days in trade (entry_date to closed_at or today)
+            COALESCE(
+                (p.closed_at::date - p.entry_date),
+                (CURRENT_DATE - p.entry_date)
+            ) AS days_in_trade
+        FROM option_positions p
+        WHERE p.status IN ('closed','rolled','expired','active')
+        ORDER BY p.entry_date DESC
+        LIMIT 500
+        """
+    )
+
+    total_pnl = 0.0
+    winning = 0
+    losing  = 0
+    trades  = []
+    ticker_pnl: dict = {}
+
+    for r in rows:
+        pnl = float(r["total_realized_pnl"]) if r["total_realized_pnl"] is not None else None
+        entry_cost = float(r["entry_price"] or 0) * abs(float(r["qty"] or 1)) * 100
+
+        trades.append({
+            "id":             str(r["id"]),
+            "underlying":     r["underlying"],
+            "account_label":  r["account_label"],
+            "account_name":   r["account_name"] or r["account_label"],
+            "broker":         r["broker"],
+            "status":         r["status"],
+            "option_type":    r["option_type"],
+            "contract_symbol":r["contract_symbol"],
+            "entry_price":    float(r["entry_price"]) if r["entry_price"] else None,
+            "qty":            float(r["qty"]) if r["qty"] else None,
+            "entry_date":     r["entry_date"].isoformat() if r["entry_date"] else None,
+            "closed_at":      r["closed_at"].isoformat() if r["closed_at"] else None,
+            "days_in_trade":  int(r["days_in_trade"]) if r["days_in_trade"] is not None else None,
+            "realized_pnl":   pnl,
+        })
+
+        if pnl is not None:
+            total_pnl += pnl
+            if pnl > 0:
+                winning += 1
+            elif pnl < 0:
+                losing += 1
+            sym = r["underlying"]
+            if sym not in ticker_pnl:
+                ticker_pnl[sym] = {"underlying": sym, "total_pnl": 0.0, "count": 0}
+            ticker_pnl[sym]["total_pnl"] += pnl
+            ticker_pnl[sym]["count"] += 1
+
+    # Top 5 most profitable tickers
+    top_tickers = sorted(ticker_pnl.values(), key=lambda x: x["total_pnl"], reverse=True)[:5]
+    for t in top_tickers:
+        t["total_pnl"] = round(t["total_pnl"], 2)
+
+    closed_count = winning + losing
+    return {
+        "total_positions": len(trades),
+        "closed_count":    closed_count,
+        "winning_trades":  winning,
+        "losing_trades":   losing,
+        "win_rate":        round(winning / closed_count * 100, 1) if closed_count else 0.0,
+        "total_pnl":       round(total_pnl, 2),
+        "top_tickers":     top_tickers,
+        "trades":          trades,
+    }
+
+
+@app.get("/api/options/log/accounts")
+async def get_options_log_by_account():
+    """P&L broken down by account."""
+    pool = await _get_db_pool()
+    rows = await pool.fetch(
+        """
+        SELECT
+            account_label,
+            MAX(account_name) AS account_name,
+            MAX(broker) AS broker,
+            COUNT(*) AS total_positions,
+            COUNT(*) FILTER (WHERE status IN ('closed','rolled','expired')) AS closed_count,
+            SUM(total_realized_pnl) AS total_pnl,
+            COUNT(*) FILTER (WHERE total_realized_pnl > 0) AS winning,
+            COUNT(*) FILTER (WHERE total_realized_pnl < 0) AS losing
+        FROM option_positions
+        GROUP BY account_label
+        ORDER BY total_pnl DESC NULLS LAST
+        """
+    )
+    return [
+        {
+            "account_label":   r["account_label"],
+            "account_name":    r["account_name"] or r["account_label"],
+            "broker":          r["broker"],
+            "total_positions": int(r["total_positions"]),
+            "closed_count":    int(r["closed_count"]),
+            "total_pnl":       round(float(r["total_pnl"]), 2) if r["total_pnl"] else 0.0,
+            "winning":         int(r["winning"]),
+            "losing":          int(r["losing"]),
+            "win_rate":        round(int(r["winning"]) / int(r["closed_count"]) * 100, 1)
+                               if int(r["closed_count"]) > 0 else 0.0,
+        }
+        for r in rows
+    ]
+
+
+@app.get("/api/options/log/ticker/{ticker}")
+async def get_options_log_ticker(ticker: str):
+    """Full trade history for a specific ticker with per-event P&L and risk levels."""
+    pool = await _get_db_pool()
+    # All positions for this ticker
+    positions = await pool.fetch(
+        """
+        SELECT
+            p.id, p.underlying, p.contract_symbol, p.option_type, p.strike,
+            p.expiration_date, p.account_label, p.account_name, p.broker,
+            p.entry_price, p.qty, p.entry_date, p.status,
+            p.closed_at, p.close_reason, p.total_realized_pnl,
+            p.ai_analysis, p.ai_analyzed_at,
+            p.level_emergency, p.level_exit_alert, p.level_roll_1,
+            COALESCE(
+                (p.closed_at::date - p.entry_date),
+                (CURRENT_DATE - p.entry_date)
+            ) AS days_in_trade
+        FROM option_positions p
+        WHERE p.underlying = $1
+        ORDER BY p.entry_date DESC
+        """,
+        ticker.upper(),
+    )
+
+    result = []
+    for pos in positions:
+        pos_id = pos["id"]
+        # Get all log events for this position
+        events = await pool.fetch(
+            """
+            SELECT ts, event_type, underlying_price, contract_price, atr_value,
+                   distance_emergency, distance_exit_alert, distance_roll_1,
+                   qty, realized_pnl, pnl_pct, risk_level, notes
+            FROM option_trade_log
+            WHERE position_id = $1
+            ORDER BY ts ASC
+            """,
+            pos_id,
+        )
+
+        event_list = []
+        prev_ts = None
+        for ev in events:
+            days_since = None
+            if prev_ts:
+                days_since = (ev["ts"].date() - prev_ts.date()).days
+            prev_ts = ev["ts"]
+
+            # Determine risk level if not stored
+            rl = ev["risk_level"]
+            if not rl:
+                de = float(ev["distance_emergency"]) if ev["distance_emergency"] else None
+                if de is not None and de <= 0:
+                    rl = "emergency"
+                elif ev["distance_exit_alert"] and float(ev["distance_exit_alert"]) <= 0:
+                    rl = "high"
+                elif ev["distance_roll_1"] and float(ev["distance_roll_1"]) <= 0:
+                    rl = "moderate"
+                else:
+                    rl = "low"
+
+            # Compute realized_pnl for close/roll events if not already stored
+            rpnl = float(ev["realized_pnl"]) if ev["realized_pnl"] is not None else None
+            if rpnl is None and ev["event_type"] in ("closed", "expired", "alert_roll_1", "alert_roll_2", "alert_roll_3"):
+                ep = float(pos["entry_price"]) if pos["entry_price"] else None
+                cp = float(ev["contract_price"]) if ev["contract_price"] else None
+                q  = abs(float(pos["qty"])) if pos["qty"] else 1.0
+                if ep is not None and cp is not None:
+                    rpnl = round((ep - cp) * q * 100, 2)  # short option: profit = credit - debit
+
+            event_list.append({
+                "ts":                ev["ts"].isoformat(),
+                "event_type":        ev["event_type"],
+                "underlying_price":  float(ev["underlying_price"]) if ev["underlying_price"] else None,
+                "contract_price":    float(ev["contract_price"]) if ev["contract_price"] else None,
+                "atr_value":         float(ev["atr_value"]) if ev["atr_value"] else None,
+                "distance_emergency":float(ev["distance_emergency"]) if ev["distance_emergency"] else None,
+                "risk_level":        rl,
+                "realized_pnl":      rpnl,
+                "pnl_pct":           float(ev["pnl_pct"]) if ev["pnl_pct"] is not None else None,
+                "days_since_prev":   days_since,
+                "notes":             ev["notes"],
+            })
+
+        result.append({
+            "id":               str(pos_id),
+            "underlying":       pos["underlying"],
+            "contract_symbol":  pos["contract_symbol"],
+            "option_type":      pos["option_type"],
+            "strike":           float(pos["strike"]) if pos["strike"] else None,
+            "expiration_date":  pos["expiration_date"].isoformat() if pos["expiration_date"] else None,
+            "account_label":    pos["account_label"],
+            "account_name":     pos["account_name"] or pos["account_label"],
+            "broker":           pos["broker"],
+            "entry_price":      float(pos["entry_price"]) if pos["entry_price"] else None,
+            "qty":              float(pos["qty"]) if pos["qty"] else None,
+            "entry_date":       pos["entry_date"].isoformat() if pos["entry_date"] else None,
+            "status":           pos["status"],
+            "closed_at":        pos["closed_at"].isoformat() if pos["closed_at"] else None,
+            "close_reason":     pos["close_reason"],
+            "days_in_trade":    int(pos["days_in_trade"]) if pos["days_in_trade"] is not None else None,
+            "total_realized_pnl": float(pos["total_realized_pnl"]) if pos["total_realized_pnl"] is not None else None,
+            "ai_analysis":      pos["ai_analysis"],
+            "ai_analyzed_at":   pos["ai_analyzed_at"].isoformat() if pos["ai_analyzed_at"] else None,
+            "events":           event_list,
+        })
+
+    # Ticker-level summary
+    total_pnl = sum(
+        p["total_realized_pnl"] for p in result
+        if p["total_realized_pnl"] is not None
+    )
+    return {
+        "ticker":          ticker.upper(),
+        "positions":       result,
+        "total_pnl":       round(total_pnl, 2),
+        "position_count":  len(result),
+    }
+
+
+@app.post("/api/options/log/analyze/{position_id}")
+async def analyze_option_position(position_id: str, token: str = ""):
+    """Generate AI post-close analysis for a completed option position."""
+    if token != WEBUI_TOKEN:
+        raise HTTPException(403, "Forbidden")
+    pool = await _get_db_pool()
+    pos = await pool.fetchrow(
+        """SELECT p.*, p.ai_analysis, p.ai_analyzed_at
+           FROM option_positions p WHERE p.id=$1""",
+        uuid.UUID(position_id),
+    )
+    if not pos:
+        raise HTTPException(404, "Position not found")
+
+    # Gather events
+    events = await pool.fetch(
+        """SELECT ts, event_type, underlying_price, contract_price, atr_value,
+                  distance_emergency, notes
+           FROM option_trade_log WHERE position_id=$1 ORDER BY ts ASC""",
+        uuid.UUID(position_id),
+    )
+
+    # Build context for LLM
+    event_lines = []
+    for ev in events:
+        cp   = f"${float(ev['contract_price']):.2f}" if ev["contract_price"] else "N/A"
+        up   = f"${float(ev['underlying_price']):.2f}" if ev["underlying_price"] else "N/A"
+        event_lines.append(
+            f"  [{ev['ts'].strftime('%Y-%m-%d')}] {ev['event_type']} | underlying={up} contract={cp}"
+        )
+    events_str = "\n".join(event_lines) or "  (no events)"
+
+    # Calc rough P&L
+    ep = float(pos["entry_price"]) if pos["entry_price"] else 0
+    qty = abs(float(pos["qty"])) if pos["qty"] else 1
+    stored_pnl = float(pos["total_realized_pnl"]) if pos["total_realized_pnl"] else None
+    pnl_str = f"${stored_pnl:+.2f}" if stored_pnl is not None else "unknown"
+
+    prompt = f"""You are an options trading coach. Analyze this completed option trade and provide concise, actionable improvement suggestions.
+
+Position: {pos['contract_symbol']}
+Underlying: {pos['underlying']}
+Type: {pos['option_type']}
+Strike: {pos['strike']}
+Expiration: {pos['expiration_date']}
+Account: {pos['account_label']} ({pos['broker']})
+Entry Date: {pos['entry_date']}
+Entry Price (premium): ${ep:.2f}
+Qty: {qty} contracts
+Status: {pos['status']}
+Close Reason: {pos['close_reason'] or 'N/A'}
+Realized P&L: {pnl_str}
+
+Trade Events:
+{events_str}
+
+Based on this trade history, provide:
+1. What worked well in this trade
+2. What could have been done better (entry timing, strike selection, exit management)
+3. Specific actionable suggestions for the next similar trade on {pos['underlying']}
+4. Risk management observations (ATR levels, position sizing)
+
+Keep your analysis concise (4-6 sentences per section). Focus on practical improvements."""
+
+    # Use the existing AI infrastructure
+    analysis_text = None
+    try:
+        _redis = await get_redis()
+        # Try Claude via the AI broker if available
+        import anthropic as _anthropic
+        _client = _anthropic.Anthropic()
+        msg = _client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=800,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        analysis_text = msg.content[0].text if msg.content else None
+    except Exception as exc:
+        analysis_text = f"Analysis unavailable: {exc}"
+
+    if analysis_text:
+        await pool.execute(
+            """UPDATE option_positions
+               SET ai_analysis=$1, ai_analyzed_at=NOW()
+               WHERE id=$2""",
+            analysis_text, uuid.UUID(position_id),
+        )
+
+    return {"position_id": position_id, "analysis": analysis_text}
+
+
 @app.post("/api/options/scan")
 async def trigger_options_scan(token: str = ""):
     """Manually trigger an options position scan."""

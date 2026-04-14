@@ -3,6 +3,19 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.52] - 2026-04-14
+
+### Added
+- **Options Trading Log** page under the Options nav section — full 18-month trade history with P&L tracking
+  - Top-tier summary cards: total P&L, position count, win rate, winners/losers
+  - Most Profitable Tickers strip — click any ticker to open full history modal
+  - Account-level breakdown table: per-account P&L, win rate, trade counts
+  - Full positions table with search/filter by ticker and status (active/closed/rolled/expired)
+  - Per-position detail modal: event timeline with risk levels, days between events, per-event P&L
+  - **Post-close AI analysis**: "Run AI Analysis" button on closed positions — calls Claude Haiku to evaluate entry/exit timing, strike selection, risk management, and generates actionable improvement suggestions
+- New API endpoints: `GET /api/options/log/summary`, `GET /api/options/log/accounts`, `GET /api/options/log/ticker/{ticker}`, `POST /api/options/log/analyze/{position_id}`
+- DB migration: added `qty`, `entry_cost`, `exit_cost`, `realized_pnl`, `pnl_pct`, `risk_level` columns to `option_trade_log`; added `total_realized_pnl`, `ai_analysis`, `ai_analyzed_at` to `option_positions`
+
 ## [3.5.51] - 2026-04-14
 
 ### Fixed

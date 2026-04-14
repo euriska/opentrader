@@ -275,3 +275,16 @@ CREATE INDEX IF NOT EXISTS option_trade_log_position
     ON option_trade_log (position_id, ts DESC);
 CREATE INDEX IF NOT EXISTS option_trade_log_underlying
     ON option_trade_log (underlying, ts DESC);
+
+-- ── Options P&L columns (added 2026-04-14) ───────────────────────────────────
+-- P&L-related fields on option_trade_log for trading log / history
+ALTER TABLE option_trade_log ADD COLUMN IF NOT EXISTS qty          NUMERIC;   -- contracts at event time
+ALTER TABLE option_trade_log ADD COLUMN IF NOT EXISTS entry_cost   NUMERIC;   -- premium paid/received at position open (per-share × qty × 100)
+ALTER TABLE option_trade_log ADD COLUMN IF NOT EXISTS exit_cost    NUMERIC;   -- premium paid/received at close/roll event
+ALTER TABLE option_trade_log ADD COLUMN IF NOT EXISTS realized_pnl NUMERIC;   -- exit_cost - entry_cost (positive = profit)
+ALTER TABLE option_trade_log ADD COLUMN IF NOT EXISTS pnl_pct      NUMERIC;   -- realized_pnl / abs(entry_cost) × 100
+ALTER TABLE option_trade_log ADD COLUMN IF NOT EXISTS risk_level   TEXT;      -- low | moderate | high | emergency
+-- Post-close AI analysis on option_positions
+ALTER TABLE option_positions ADD COLUMN IF NOT EXISTS total_realized_pnl NUMERIC;
+ALTER TABLE option_positions ADD COLUMN IF NOT EXISTS ai_analysis   TEXT;
+ALTER TABLE option_positions ADD COLUMN IF NOT EXISTS ai_analyzed_at TIMESTAMPTZ;
