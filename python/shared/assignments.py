@@ -35,10 +35,11 @@ def _read_json(path: str) -> list:
 
 def _asset_match(strat_asset: str, signal_asset: str) -> bool:
     """True if a strategy for strat_asset should execute on signal_asset signals."""
-    if strat_asset == signal_asset:
+    parts = [p.strip() for p in strat_asset.split(",")]
+    if signal_asset in parts:
         return True
     # Equity strategies cover ETFs — same execution path
-    if strat_asset == "equity" and signal_asset == "etf":
+    if "equity" in parts and signal_asset == "etf":
         return True
     return False
 
@@ -94,7 +95,7 @@ def load_active_assignments(asset_class: str) -> list[dict]:
             "strategy_name":      a.get("strategy_name", strat.get("name", "")),
             "strategy_family_id": fid,
             "min_confidence":     float(strat.get("confidence", 0.70)),
-            "max_pos_usd":        float(strat.get("max_pos", 500)),
+            "max_pos_usd":        float(strat.get("max_pos") or 500),
         })
 
     return enriched

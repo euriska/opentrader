@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.47] - 2026-04-14
+
+### Fixed
+- `shared/assignments.py`: `_asset_match` now splits comma-separated strategy asset strings (e.g. `"equity, etf"`) before comparing — was doing exact string match, so strategies with multi-asset fields never matched any signal and no trades fired
+- `shared/assignments.py`: `max_pos_usd` uses `or 500` fallback instead of `.get("max_pos", 500)` — handles `null` JSON values where `.get()` returns `None` rather than the default
+
 ## [3.5.46] - 2026-04-13
 
 ### Fixed
