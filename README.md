@@ -17,7 +17,8 @@ An AI-driven algorithmic trading platform built on a microservices architecture 
 - **TradingView Charts** — Embedded charts with EMA/SMA/BB/RSI/MACD overlays and live position picker
 - **Market Breadth** — OVTLYR bull/bear breadth gauge with crossover detection and sparkline history
 - **Equity / Options separation** — Active Positions, Trades, and Dividends pages show equity-only data; Options Dashboard is a dedicated section
-- **Options Dashboard** — Live options position tracker with DTE, strike, delta, ATR levels, current underlying price, buy/sell signal, and Yahoo Finance chain enrichment; includes download and scheduled email report
+- **Options Dashboard** — Live options position tracker with DTE, strike, delta, ATR levels, current underlying price, buy/sell signal (OVTLYR → predictor → Yahoo Finance chain), and Yahoo Finance chain enrichment; includes download and scheduled email report
+- **Options Trading Log** — Full P&L history organized as a broker → account → ticker tree with collapsible position rows, cost basis, milestone chains (Open → Roll 1/2/3 → Closed/Expired), per-event realized P&L, and post-close AI analysis via Claude Haiku; 18-month retention
 - **Strategy Engineer** — AI-assisted strategy builder with version control and real Backtrader backtesting
 - **Backtrader Engine** — EMA 10/21 crossover strategy with stop-loss/take-profit, full trade log, PDF + CSV exports, and equity/chart tabs
 - **Trade Directives** — Natural-language GTC directives evaluated every 5 minutes by an LLM agent and executed automatically
@@ -142,7 +143,7 @@ cp .env.sample .env && nano .env
 cp config/accounts.toml.sample config/accounts.toml
 
 # Pull images (replace X.Y.Z with the release version)
-export OT_VERSION=3.5.41
+export OT_VERSION=3.5.54
 podman pull ghcr.io/euriska/ot-webui:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-python:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-mcp-yahoo:${OT_VERSION}
