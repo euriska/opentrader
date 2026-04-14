@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.50] - 2026-04-14
+
+### Fixed
+- Options dashboard signal column: OVTLYR position intel (`ovtlyr:position_intel` / `scanner:ovtlyr:latest`) is now consulted before Yahoo Finance for tickers not in the predictor signals stream — previously options positions like SKM would show Yahoo's `underperform` → SELL 60% even when OVTLYR had an active Buy with a 9/9 nine_score
+- OVTLYR-sourced confidence is derived from nine_score: `0.55 + (nine_score/9 × 0.40)` — a perfect 9/9 score yields 95% confidence
+
 ## [3.5.49] - 2026-04-14
 
 ### Fixed

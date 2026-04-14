@@ -5520,7 +5520,39 @@ async def get_option_positions(status: str = "active"):
                 }
     except Exception:
         pass
-    # Fill missing signals from Yahoo Finance analyst recommendations
+    # Fill missing signals from OVTLYR position intel / screener (higher authority than Yahoo)
+    missing_after_predictor = [t for t in tickers if t not in live_signals]
+    if missing_after_predictor:
+        try:
+            _SIGNAL_MAP = {"buy": ("long", 0.90), "sell": ("short", 0.80)}
+            _nine_to_conf = lambda n: round(0.55 + (int(n) / 9.0) * 0.40, 2) if n is not None else None
+            ovt_intel_raw  = await _redis.hgetall("ovtlyr:position_intel")
+            ovt_screen_raw = await _redis.hgetall("scanner:ovtlyr:latest")
+            for sym in missing_after_predictor:
+                raw = ovt_intel_raw.get(sym) or ovt_screen_raw.get(sym)
+                if not raw:
+                    continue
+                try:
+                    d = _json.loads(raw) if isinstance(raw, str) else raw
+                    sig_str = (d.get("signal") or d.get("direction") or "").lower()
+                    mapped  = _SIGNAL_MAP.get(sig_str)
+                    if not mapped:
+                        if sig_str in ("long",):  mapped = ("long", 0.80)
+                        elif sig_str in ("short",): mapped = ("short", 0.75)
+                    if mapped:
+                        nine    = d.get("nine_score")
+                        conf    = _nine_to_conf(nine) if nine is not None else mapped[1]
+                        live_signals[sym] = {
+                            "direction":  mapped[0],
+                            "confidence": conf,
+                            "source":     "ovtlyr",
+                        }
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # Fill remaining missing signals from Yahoo Finance analyst recommendations
     _REC_MAP = {
         "strong_buy": ("long", 0.95), "buy": ("long", 0.75),
         "hold": None,
