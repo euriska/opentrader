@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.49] - 2026-04-14
+
+### Fixed
+- OVTLYR scraper now enriches open position tickers that are not in the current watchlist — their dashboard data (nine_score, oscillator, fear_greed, signal) is scraped and written into `scanner:ovtlyr:latest` with a seeded baseline entry so the predictor can see them
+
 ## [3.5.48] - 2026-04-14
 
 ### Added

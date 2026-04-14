@@ -173,8 +173,18 @@ class OvtlyrScraperAgent(BaseAgent):
         await pipe.execute()
         log.info("scraper-ovtlyr.published", count=published)
 
-        # Enrich each candidate with per-ticker dashboard data (nine_score, fear_greed, oscillator)
-        await self._enrich_candidates([t.ticker for t in tickers[:MAX_TICKERS]])
+        # Build enrich list: watchlist candidates + any open positions not already included
+        watchlist_set = {t.ticker for t in tickers[:MAX_TICKERS]}
+        position_tickers = await self._get_position_tickers()
+        extra_positions = [t for t in position_tickers if t not in watchlist_set]
+
+        enrich_list = list(watchlist_set) + extra_positions
+        if extra_positions:
+            log.info("scraper-ovtlyr.adding_position_tickers",
+                     count=len(extra_positions), tickers=extra_positions)
+
+        # Enrich all with per-ticker dashboard data (nine_score, fear_greed, oscillator, signal)
+        await self._enrich_candidates(enrich_list)
 
         # Scrape all list types and save to DB
         await self._run_list_scrape()
@@ -195,9 +205,21 @@ class OvtlyrScraperAgent(BaseAgent):
                 if not data:
                     continue
 
-                # Load the existing entry so we can merge into it
+                # Load the existing entry — for position tickers not in the watchlist,
+                # this will be empty and we seed a baseline entry from the dashboard data
                 existing_raw = await self.redis.hget("scanner:ovtlyr:latest", ticker)
-                existing = json.loads(existing_raw) if existing_raw else {}
+                if existing_raw:
+                    existing = json.loads(existing_raw)
+                else:
+                    import time as _time
+                    existing = {
+                        "direction": "long",   # will be overwritten by dashboard signal below
+                        "score":     50.0,
+                        "price":     data.get("last_close"),
+                        "sector":    None,
+                        "ts_utc":    int(_time.time() * 1000),
+                        "source":    "position",
+                    }
 
                 # Apply dashboard signal direction if available (overrides bull-list default)
                 raw_signal = data.get("signal", "")
