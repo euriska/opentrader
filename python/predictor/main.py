@@ -210,7 +210,19 @@ class PredictorAgent(BaseAgent):
 
         ovtlyr_data = {t: json.loads(v) for t, v in ovtlyr_raw.items()}
 
-        # ── 2. Load aggregator intelligence for each candidate ───────────────
+        # ── 2. Load market breadth ────────────────────────────────────────────
+        market_breadth: dict = {}
+        try:
+            breadth_raw = await self.redis.get("ovtlyr:market_breadth")
+            if breadth_raw:
+                market_breadth = json.loads(breadth_raw)
+                log.info("predictor.market_breadth",
+                         breadth_pct=market_breadth.get("breadth_pct"),
+                         signal=market_breadth.get("signal"))
+        except Exception as e:
+            log.warning("predictor.market_breadth_load_error", error=str(e))
+
+        # ── 3. Load aggregator intelligence for each candidate ───────────────
         from aggregator.models import TickerIntelligence
         intel_map: dict = {}
         for ticker in ovtlyr_data:
@@ -225,9 +237,11 @@ class PredictorAgent(BaseAgent):
                  ovtlyr_tickers=len(ovtlyr_data),
                  intel_available=len(intel_map))
 
-        # ── 3. Score ─────────────────────────────────────────────────────────
+        # ── 4. Score ─────────────────────────────────────────────────────────
         min_conf = min(MIN_CONF_EQUITY, MIN_CONF_ETF) - 0.05
-        candidates = score_tickers(ovtlyr_data, intel_map, min_confidence=min_conf)
+        candidates = score_tickers(ovtlyr_data, intel_map,
+                                   market_breadth=market_breadth,
+                                   min_confidence=min_conf)
 
         if not candidates:
             log.info("predictor.no_candidates")

@@ -1,7 +1,17 @@
 """
 Predictor Scorer
 Scores OVTLYR momentum signals enriched with TickerIntelligence from the
-aggregator. Applies earnings filter and confidence delta.
+aggregator. Applies earnings filter, confidence delta, nine_score weighting,
+and market breadth directional filter.
+
+Confidence formula:
+  base_conf  = weighted blend of ovtlyr_score (70%) + nine_score (30%)
+  confidence = clip(base_conf + intel_delta, 0, 1)
+
+Market breadth filter:
+  breadth_pct < 40%  → skip long signals (bearish regime)
+  breadth_pct > 60%  → skip short signals (bullish regime)
+  40–60%             → neutral, all signals allowed
 """
 import math
 from typing import Optional
@@ -36,20 +46,33 @@ class ScoredTicker:
 
 
 def score_tickers(
-    ovtlyr_data:    dict,   # ticker → {direction, score, ts_utc, ...}
+    ovtlyr_data:    dict,   # ticker → {direction, score, nine_score, oscillator, fear_greed, ...}
     intel_map:      dict,   # ticker → TickerIntelligence | None
+    market_breadth: dict = None,   # {breadth_pct, signal, bull_count, bear_count}
     min_confidence: float = 0.60,
 ) -> list[ScoredTicker]:
     """
     Score OVTLYR candidates, apply aggregator intelligence delta,
-    and filter out earnings-risk tickers.
+    nine_score weighting, and market breadth directional filter.
     """
+    if market_breadth is None:
+        market_breadth = {}
+
+    breadth_pct    = float(market_breadth.get("breadth_pct", 50.0))
+    breadth_signal = market_breadth.get("signal", "neutral")
+
     results: list[ScoredTicker] = []
 
     for ticker, ov in ovtlyr_data.items():
-        ov_score    = float(ov.get("score", 50.0))
+        ov_score     = float(ov.get("score", 50.0))
         ov_direction = ov.get("direction", "long")
-        base_conf   = ov_score / 100.0
+
+        # ── Market breadth directional filter ────────────────────────────────
+        # Hard skip when breadth strongly disagrees with signal direction
+        if ov_direction == "long" and breadth_pct < 40.0:
+            continue   # bearish market regime — don't add longs
+        if ov_direction == "short" and breadth_pct > 60.0:
+            continue   # bullish market regime — don't add shorts
 
         intel = intel_map.get(ticker)
 
@@ -57,9 +80,27 @@ def score_tickers(
         if intel and intel.earnings_too_close:
             continue
 
+        # ── Confidence: blend ovtlyr_score + nine_score ───────────────────
+        # nine_score is 0–9 from the dashboard panel; normalize to 0–100
+        nine_score = ov.get("nine_score")
+        if nine_score is not None:
+            nine_pct   = (int(nine_score) / 9.0) * 100.0
+            # 70% weight on OVTLYR signal score, 30% on nine-panel score
+            blended = ov_score * 0.70 + nine_pct * 0.30
+        else:
+            blended = ov_score
+
+        base_conf = blended / 100.0
+
+        # Breadth alignment bonus/penalty (±5% nudge, stays within 0–1)
+        if ov_direction == "long":
+            breadth_adj = (breadth_pct - 50.0) / 1000.0   # +0.01 per 10% above 50
+        else:
+            breadth_adj = (50.0 - breadth_pct) / 1000.0   # +0.01 per 10% below 50
+
         # Apply intelligence confidence delta
         delta = intel.confidence_delta if intel else 0.0
-        confidence = max(0.0, min(1.0, base_conf + delta))
+        confidence = max(0.0, min(1.0, base_conf + delta + breadth_adj))
 
         if confidence < min_confidence:
             continue
@@ -69,7 +110,15 @@ def score_tickers(
         metadata: dict = {
             "ov_ts":          ov.get("ts_utc"),
             "ovtlyr_score":   ov_score,
+            "nine_score":     nine_score,
+            "oscillator":     ov.get("oscillator"),
+            "fear_greed":     ov.get("fear_greed"),
+            "signal_active":  ov.get("signal_active"),
+            "signal_date":    ov.get("signal_date"),
             "intel_delta":    delta,
+            "breadth_pct":    breadth_pct,
+            "breadth_signal": breadth_signal,
+            "breadth_adj":    round(breadth_adj, 4),
         }
         if intel:
             metadata.update({

@@ -3,6 +3,15 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.48] - 2026-04-14
+
+### Added
+- Predictor now ingests OVTLYR market breadth (`ovtlyr:market_breadth`) as a market regime filter: breadth < 40% blocks long signals, breadth > 60% blocks short signals; breadth alignment gives a small confidence nudge
+- Predictor confidence now blends OVTLYR signal score (70%) with OVTLYR nine-panel score (30%) when nine_score is available from the dashboard scrape
+- Scraper enriches `scanner:ovtlyr:latest` with per-ticker dashboard data: `nine_score`, `oscillator`, `fear_greed`, `signal_active`, `signal_date` after each watchlist scrape
+- Predictor metadata now includes `nine_score`, `oscillator`, `fear_greed`, `breadth_pct`, `breadth_signal` for each scored ticker
+- `scrapers/ovtlyr/main.py`: `_enrich_candidates()` calls `scrape_ticker()` for all watchlist candidates (not just open positions) and merges enrichment back into `scanner:ovtlyr:latest`
+
 ## [3.5.47] - 2026-04-14
 
 ### Fixed

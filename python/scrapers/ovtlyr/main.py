@@ -173,8 +173,60 @@ class OvtlyrScraperAgent(BaseAgent):
         await pipe.execute()
         log.info("scraper-ovtlyr.published", count=published)
 
+        # Enrich each candidate with per-ticker dashboard data (nine_score, fear_greed, oscillator)
+        await self._enrich_candidates([t.ticker for t in tickers[:MAX_TICKERS]])
+
         # Scrape all list types and save to DB
         await self._run_list_scrape()
+
+    async def _enrich_candidates(self, ticker_list: list[str]):
+        """
+        Call scrape_ticker() for each watchlist candidate and write nine_score,
+        oscillator, fear_greed, and the actual dashboard signal back into
+        scanner:ovtlyr:latest so the predictor can use them.
+        """
+        log.info("scraper-ovtlyr.enrich_start", tickers=len(ticker_list))
+        enriched = 0
+        pipe = self.redis.pipeline()
+
+        for ticker in ticker_list:
+            try:
+                data = await self.ovtlyr.scrape_ticker(ticker)
+                if not data:
+                    continue
+
+                # Load the existing entry so we can merge into it
+                existing_raw = await self.redis.hget("scanner:ovtlyr:latest", ticker)
+                existing = json.loads(existing_raw) if existing_raw else {}
+
+                # Apply dashboard signal direction if available (overrides bull-list default)
+                raw_signal = data.get("signal", "")
+                if raw_signal:
+                    if raw_signal.lower() in ("sell", "short", "bear"):
+                        existing["direction"] = "short"
+                    elif raw_signal.lower() in ("buy", "long", "bull"):
+                        existing["direction"] = "long"
+
+                # Merge enrichment fields
+                if data.get("nine_score") is not None:
+                    existing["nine_score"] = data["nine_score"]
+                if data.get("oscillator"):
+                    existing["oscillator"] = data["oscillator"]
+                if data.get("fear_greed") is not None:
+                    existing["fear_greed"] = data["fear_greed"]
+                if data.get("signal_active") is not None:
+                    existing["signal_active"] = data["signal_active"]
+                if data.get("signal_date_str"):
+                    existing["signal_date"] = data["signal_date_str"]
+
+                pipe.hset("scanner:ovtlyr:latest", ticker, json.dumps(existing))
+                enriched += 1
+
+            except Exception as e:
+                log.warning("scraper-ovtlyr.enrich_ticker_error", ticker=ticker, error=str(e))
+
+        await pipe.execute()
+        log.info("scraper-ovtlyr.enrich_done", enriched=enriched, total=len(ticker_list))
 
     async def _get_position_tickers(self) -> list[str]:
         """
