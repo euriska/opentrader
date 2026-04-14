@@ -5922,6 +5922,7 @@ async def get_options_log_summary():
             ) AS days_in_trade
         FROM option_positions p
         WHERE p.status IN ('closed','rolled','expired','active')
+          AND p.option_type IN ('call','put')
         ORDER BY p.broker, p.account_label, p.underlying, p.entry_date ASC
         LIMIT 500
         """
@@ -6100,6 +6101,7 @@ async def get_options_log_by_account():
             COUNT(*) FILTER (WHERE total_realized_pnl > 0) AS winning,
             COUNT(*) FILTER (WHERE total_realized_pnl < 0) AS losing
         FROM option_positions
+        WHERE option_type IN ('call','put')
         GROUP BY account_label
         ORDER BY total_pnl DESC NULLS LAST
         """
@@ -6141,6 +6143,7 @@ async def get_options_log_ticker(ticker: str):
             ) AS days_in_trade
         FROM option_positions p
         WHERE p.underlying = $1
+          AND p.option_type IN ('call','put')
         ORDER BY p.entry_date DESC
         """,
         ticker.upper(),

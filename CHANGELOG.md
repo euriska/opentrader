@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.54] - 2026-04-14
+
+### Fixed
+- Options Trading Log: filter all three endpoints (`/summary`, `/accounts`, `/ticker/{t}`) to `option_type IN ('call','put')` — excludes 5 Webull non-OCC `unknown`-type entries (WBL: symbols with no strike/expiry) that were appearing alongside proper option positions
+
 ## [3.5.53] - 2026-04-14
 
 ### Fixed
