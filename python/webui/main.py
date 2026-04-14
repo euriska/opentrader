@@ -5879,9 +5879,23 @@ async def patch_option_position(position_id: str, body: dict):
     return {"ok": True}
 
 
+def _ev_label(event_type: str) -> str:
+    return {
+        "imported":        "Open",
+        "alert_roll_1":    "Roll 1",
+        "alert_roll_2":    "Roll 2",
+        "alert_roll_3":    "Roll 3",
+        "alert_roll_extra":"Roll",
+        "alert_emergency": "Emergency Exit",
+        "alert_exit":      "Exit Alert",
+        "closed":          "Closed",
+        "expired":         "Expired",
+    }.get(event_type, event_type)
+
+
 @app.get("/api/options/log/summary")
 async def get_options_log_summary():
-    """Top-level P&L summary across all option positions (closed/rolled/expired)."""
+    """Top-level P&L summary with per-position event snapshots for the tree view."""
     pool = await _get_db_pool()
     rows = await pool.fetch(
         """
@@ -5898,18 +5912,62 @@ async def get_options_log_summary():
             p.status,
             p.total_realized_pnl,
             p.option_type,
+            p.strike,
+            p.expiration_date,
             p.contract_symbol,
-            -- Days in trade (entry_date to closed_at or today)
+            p.close_reason,
             COALESCE(
                 (p.closed_at::date - p.entry_date),
                 (CURRENT_DATE - p.entry_date)
             ) AS days_in_trade
         FROM option_positions p
         WHERE p.status IN ('closed','rolled','expired','active')
-        ORDER BY p.entry_date DESC
+        ORDER BY p.broker, p.account_label, p.underlying, p.entry_date ASC
         LIMIT 500
         """
     )
+
+    # Fetch all key events for these positions in one query
+    pos_ids = [r["id"] for r in rows]
+    events_by_pos: dict = {}
+    if pos_ids:
+        ev_rows = await pool.fetch(
+            """
+            SELECT position_id, ts, event_type, underlying_price, contract_price,
+                   atr_value, distance_emergency, distance_exit_alert, distance_roll_1,
+                   realized_pnl, risk_level, notes
+            FROM option_trade_log
+            WHERE position_id = ANY($1::uuid[])
+              AND event_type NOT IN ('scan')
+            ORDER BY ts ASC
+            """,
+            pos_ids,
+        )
+        for ev in ev_rows:
+            pid = str(ev["position_id"])
+            if pid not in events_by_pos:
+                events_by_pos[pid] = []
+            # Determine risk level from distances if not stored
+            rl = ev["risk_level"]
+            if not rl:
+                de = float(ev["distance_emergency"]) if ev["distance_emergency"] else None
+                if de is not None and de <= 0:
+                    rl = "emergency"
+                elif ev["distance_exit_alert"] and float(ev["distance_exit_alert"]) <= 0:
+                    rl = "high"
+                elif ev["distance_roll_1"] and float(ev["distance_roll_1"]) <= 0:
+                    rl = "moderate"
+                else:
+                    rl = "low"
+            events_by_pos[pid].append({
+                "ts":               ev["ts"].strftime("%Y-%m-%d"),
+                "event_type":       ev["event_type"],
+                "underlying_price": float(ev["underlying_price"]) if ev["underlying_price"] else None,
+                "contract_price":   float(ev["contract_price"]) if ev["contract_price"] else None,
+                "realized_pnl":     float(ev["realized_pnl"]) if ev["realized_pnl"] is not None else None,
+                "risk_level":       rl,
+                "notes":            ev["notes"],
+            })
 
     total_pnl = 0.0
     winning = 0
@@ -5919,23 +5977,81 @@ async def get_options_log_summary():
 
     for r in rows:
         pnl = float(r["total_realized_pnl"]) if r["total_realized_pnl"] is not None else None
-        entry_cost = float(r["entry_price"] or 0) * abs(float(r["qty"] or 1)) * 100
+        pid = str(r["id"])
+        ep  = float(r["entry_price"]) if r["entry_price"] else None
+        qty = float(r["qty"]) if r["qty"] else None
+        cost_basis = round(ep * abs(qty) * 100, 2) if ep and qty else None
+
+        # Compute P&L from events if not stored on position
+        pos_events = events_by_pos.get(pid, [])
+        if pnl is None:
+            ev_pnl = sum(e["realized_pnl"] for e in pos_events if e["realized_pnl"] is not None)
+            if ev_pnl != 0:
+                pnl = ev_pnl
+        # For active positions compute unrealised P&L from last event price
+        last_contract_price = None
+        for e in reversed(pos_events):
+            if e["contract_price"]:
+                last_contract_price = e["contract_price"]
+                break
+        if last_contract_price is None and len(pos_events) == 0:
+            # Fallback to entry price
+            last_contract_price = ep
+
+        # Cost basis chain: entry → each roll/close event price
+        milestones = []
+        # Entry milestone
+        if ep:
+            milestones.append({
+                "label": "Open",
+                "date":  r["entry_date"].isoformat() if r["entry_date"] else None,
+                "contract_price": ep,
+                "cost_basis": cost_basis,
+                "realized_pnl": None,
+                "risk_level": "low",
+                "event_type": "imported",
+            })
+        for e in pos_events:
+            et = e["event_type"]
+            is_key = et in ("imported", "closed", "expired",
+                            "alert_roll_1", "alert_roll_2", "alert_roll_3", "alert_roll_extra",
+                            "alert_emergency", "alert_exit")
+            if is_key:
+                cp = e["contract_price"]
+                rpnl = e["realized_pnl"]
+                if rpnl is None and cp and ep and qty:
+                    # Short option convention: profit = entry credit - exit debit
+                    rpnl = round((ep - cp) * abs(qty) * 100, 2)
+                milestones.append({
+                    "label":          _ev_label(et),
+                    "date":           e["ts"],
+                    "contract_price": cp,
+                    "cost_basis":     cost_basis,
+                    "realized_pnl":   rpnl,
+                    "risk_level":     e["risk_level"],
+                    "event_type":     et,
+                })
 
         trades.append({
-            "id":             str(r["id"]),
+            "id":             pid,
             "underlying":     r["underlying"],
             "account_label":  r["account_label"],
             "account_name":   r["account_name"] or r["account_label"],
             "broker":         r["broker"],
             "status":         r["status"],
             "option_type":    r["option_type"],
+            "strike":         float(r["strike"]) if r["strike"] else None,
+            "expiration_date":r["expiration_date"].isoformat() if r["expiration_date"] else None,
             "contract_symbol":r["contract_symbol"],
-            "entry_price":    float(r["entry_price"]) if r["entry_price"] else None,
-            "qty":            float(r["qty"]) if r["qty"] else None,
+            "close_reason":   r["close_reason"],
+            "entry_price":    ep,
+            "qty":            qty,
+            "cost_basis":     cost_basis,
             "entry_date":     r["entry_date"].isoformat() if r["entry_date"] else None,
             "closed_at":      r["closed_at"].isoformat() if r["closed_at"] else None,
             "days_in_trade":  int(r["days_in_trade"]) if r["days_in_trade"] is not None else None,
-            "realized_pnl":   pnl,
+            "realized_pnl":   round(pnl, 2) if pnl is not None else None,
+            "milestones":     milestones,
         })
 
         if pnl is not None:

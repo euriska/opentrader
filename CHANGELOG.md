@@ -3,6 +3,20 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.53] - 2026-04-14
+
+### Fixed
+- Options Trading Log: `webull-live-4` account had 5 old positions stored with stale name "Webull live account 4" — corrected to "Webull IRA 2 Account" in DB
+
+### Changed
+- Options Trading Log "All Positions" view replaced with **broker → account → ticker tree**
+  - Broker card (top level) with aggregate P&L
+  - Account sub-section with per-account P&L
+  - Ticker group (collapsible) with total P&L across all positions on that ticker
+  - Each position row: entry date, type, strike, expiry, entry price, cost basis, qty, days, status, P&L
+  - Milestone chain below each position: colored node per event (Open → Roll 1/2/3 → Closed/Expired) with contract price, cost basis, and per-event realized P&L at each stop
+- Summary API now fetches non-scan events in a single batch query and attaches milestones + cost_basis to each position for the tree renderer
+
 ## [3.5.52] - 2026-04-14
 
 ### Added
