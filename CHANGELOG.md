@@ -3,6 +3,20 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.55] - 2026-04-16
+
+### Changed
+- **Strategy rule enforcement** — price range and exclusions now live in `strategies.json`, not hard-coded in trader agents
+  - Momentum Equity v4: `min_price: 25`, `max_price: 200`, `excluded_tickers: [PLTR, SOFI]`, `excluded_sectors: [Health Care]`, `excluded_industries: [Automotive, Airlines]`
+  - `assignments.py` passes all rule fields through to trader at signal time
+  - `exclusions.py` `is_excluded()` accepts strategy exclusions merged with user:exclusions
+  - `equity_trader.py` price range enforced per-assignment after quote fetch; strategy exclusions merged and checked before order loop
+
+### Fixed
+- **Trading Dashboard — options trade count always showed 0**: Webull manual options trades are stored in `option_positions` DB, not the `orders.events` Redis stream. Added `GET /api/trades/options-stats` endpoint and updated chip to query DB for options count (30d window)
+- **Win rate excluded all options trades**: now combines equity stream wins + DB options closed winners for combined win rate
+- **options_trader published `event_type=submitted`** instead of `fill` — automated options orders were excluded from stream-based counts; changed to `fill` with underlying price recorded
+
 ## [3.5.54] - 2026-04-14
 
 ### Fixed
