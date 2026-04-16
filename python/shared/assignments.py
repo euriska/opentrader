@@ -35,11 +35,15 @@ def _read_json(path: str) -> list:
 
 def _asset_match(strat_asset: str, signal_asset: str) -> bool:
     """True if a strategy for strat_asset should execute on signal_asset signals."""
-    parts = [p.strip() for p in strat_asset.split(",")]
-    if signal_asset in parts:
+    # Normalise: "equities" → "equity" so user-entered values match signal asset_class
+    def _norm(s: str) -> str:
+        return "equity" if s.strip().lower() == "equities" else s.strip().lower()
+
+    parts = [_norm(p) for p in strat_asset.split(",")]
+    if signal_asset.lower() in parts:
         return True
     # Equity strategies cover ETFs — same execution path
-    if "equity" in parts and signal_asset == "etf":
+    if "equity" in parts and signal_asset.lower() == "etf":
         return True
     return False
 
@@ -89,13 +93,18 @@ def load_active_assignments(asset_class: str) -> list[dict]:
             continue
 
         enriched.append({
-            "account_label":      a["account_label"],
-            "broker":             a.get("broker", ""),
-            "mode":               a.get("mode", ""),
-            "strategy_name":      a.get("strategy_name", strat.get("name", "")),
-            "strategy_family_id": fid,
-            "min_confidence":     float(strat.get("confidence", 0.70)),
-            "max_pos_usd":        float(strat.get("max_pos") or 500),
+            "account_label":       a["account_label"],
+            "broker":              a.get("broker", ""),
+            "mode":                a.get("mode", ""),
+            "strategy_name":       a.get("strategy_name", strat.get("name", "")),
+            "strategy_family_id":  fid,
+            "min_confidence":      float(strat.get("confidence", 0.70)),
+            "max_pos_usd":         float(strat.get("max_pos") or 500),
+            "min_price":           float(strat["min_price"]) if strat.get("min_price") is not None else None,
+            "max_price":           float(strat["max_price"]) if strat.get("max_price") is not None else None,
+            "excluded_tickers":    [t.upper() for t in strat.get("excluded_tickers", [])],
+            "excluded_sectors":    strat.get("excluded_sectors", []),
+            "excluded_industries": strat.get("excluded_industries", []),
         })
 
     return enriched

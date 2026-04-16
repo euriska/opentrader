@@ -768,16 +768,14 @@ async def toggle_job(job_id: str, token: str = ""):
 
 @app.get("/api/trades")
 async def get_trades(limit: int = 50):
-    """Recent trade fills from orders.events stream."""
+    """Recent trade fills from orders.events stream with unrealized P&L."""
     redis = await get_redis()
     entries = await redis.xrevrange(STREAMS["orders"], "+", "-", count=limit)
     trades = []
     for entry_id, fields in entries:
         try:
-            # Derive timestamp from stream entry ID (format: {ms}-{seq}) if no ts field
             ts_from_id = int(entry_id.split("-")[0]) if "-" in entry_id else 0
             ts = fields.get("ts_utc") or fields.get("ts") or ts_from_id or ""
-            # Fields are written flat by equity_trader (no JSON payload wrapper)
             trades.append({
                 "id":            entry_id,
                 "ts":            ts,
@@ -796,7 +794,85 @@ async def get_trades(limit: int = 50):
             })
         except Exception:
             pass
+
+    # Enrich fills that have no P&L with unrealized P&L using current prices
+    fills_needing_pnl = [
+        t for t in trades
+        if t["event_type"] == "fill" and not t["pnl"] and t["ticker"] and t["price"]
+    ]
+    if fills_needing_pnl:
+        tickers = list({t["ticker"] for t in fills_needing_pnl})
+        current_prices: dict[str, float] = {}
+        try:
+            req_id = str(uuid.uuid4())
+            await redis.xadd(STREAMS["broker_commands"], {
+                "command":    "get_quotes",
+                "request_id": req_id,
+                "symbols":    ",".join(tickers),
+                "issued_by":  "webui-trades",
+            }, maxlen=10_000)
+            reply_raw = await redis.blpop([f"broker:reply:{req_id}"], timeout=10)
+            if reply_raw:
+                result = json.loads(reply_raw[1])
+                if not isinstance(result, list):
+                    result = [result]
+                for r in result:
+                    # Gateway wraps as {"quotes": [{symbol, last, bid, ask, ...}, ...]}
+                    quotes_list = r.get("data", {}).get("quotes", [])
+                    if not isinstance(quotes_list, list):
+                        quotes_list = [quotes_list]
+                    for q in quotes_list:
+                        if not isinstance(q, dict):
+                            continue
+                        sym = q.get("symbol", "").upper()
+                        p = q.get("last") or q.get("ask") or q.get("bid")
+                        if sym and p:
+                            current_prices[sym] = float(p)
+        except Exception:
+            pass
+
+        for t in fills_needing_pnl:
+            cp = current_prices.get(t["ticker"].upper())
+            if cp is None:
+                continue
+            try:
+                ep  = float(t["price"])
+                qty = float(t["qty"])
+                mul = 1 if t["direction"] == "long" else -1
+                t["pnl"] = round((cp - ep) * qty * mul, 2)
+                t["current_price"] = cp
+            except Exception:
+                pass
+
     return trades
+
+
+@app.get("/api/trades/options-stats")
+async def get_options_trade_stats():
+    """
+    30-day options trade count and win rate from option_positions (Webull).
+    Used by the dashboard trades smart chip.
+    """
+    pool = await _get_db_pool()
+    rows = await pool.fetch(
+        """
+        SELECT status, total_realized_pnl
+        FROM option_positions
+        WHERE entry_date >= CURRENT_DATE - INTERVAL '30 days'
+          AND option_type IN ('call', 'put')
+        """
+    )
+    total   = len(rows)
+    closed  = [r for r in rows if r["status"] in ("closed", "rolled", "expired")]
+    winners = [r for r in closed if r["total_realized_pnl"] and r["total_realized_pnl"] > 0]
+    win_rate = round(len(winners) / len(closed) * 100, 1) if closed else 0.0
+    return {
+        "total":    total,
+        "closed":   len(closed),
+        "active":   total - len(closed),
+        "winners":  len(winners),
+        "win_rate": win_rate,
+    }
 
 
 @app.get("/api/trades/summary")
@@ -6021,18 +6097,22 @@ async def get_options_log_summary():
                 cp = e["contract_price"]
                 rpnl = e["realized_pnl"]
                 if rpnl is None and cp and ep and qty:
-                    # Short option convention: profit = entry credit - exit debit
-                    rpnl = round((ep - cp) * abs(qty) * 100, 2)
+                    # Long option convention: profit = exit price - entry price
+                    rpnl = round((cp - ep) * abs(qty) * 100, 2)
+                # Running ROC at this milestone: P&L so far as % of cost basis
+                running_roc = round(rpnl / cost_basis * 100, 1) if (rpnl is not None and cost_basis) else None
                 milestones.append({
                     "label":          _ev_label(et),
                     "date":           e["ts"],
                     "contract_price": cp,
                     "cost_basis":     cost_basis,
                     "realized_pnl":   rpnl,
+                    "running_roc":    running_roc,
                     "risk_level":     e["risk_level"],
                     "event_type":     et,
                 })
 
+        roc_pct = round(pnl / cost_basis * 100, 1) if (pnl is not None and cost_basis) else None
         trades.append({
             "id":             pid,
             "underlying":     r["underlying"],
@@ -6052,6 +6132,7 @@ async def get_options_log_summary():
             "closed_at":      r["closed_at"].isoformat() if r["closed_at"] else None,
             "days_in_trade":  int(r["days_in_trade"]) if r["days_in_trade"] is not None else None,
             "realized_pnl":   round(pnl, 2) if pnl is not None else None,
+            "roc_pct":        roc_pct,
             "milestones":     milestones,
         })
 
@@ -6073,15 +6154,23 @@ async def get_options_log_summary():
         t["total_pnl"] = round(t["total_pnl"], 2)
 
     closed_count = winning + losing
+    closed_trades   = [t for t in trades if t["days_in_trade"] is not None and t["status"] != "active"]
+    avg_dit         = round(sum(t["days_in_trade"] for t in closed_trades) / len(closed_trades), 1) if closed_trades else None
+    total_cost_basis = sum(t["cost_basis"] for t in trades if t["cost_basis"])
+    cap_eff         = round(total_pnl / total_cost_basis * 100, 1) if total_cost_basis else None
+    active_count = sum(1 for t in trades if t["status"] == "active")
     return {
-        "total_positions": len(trades),
-        "closed_count":    closed_count,
-        "winning_trades":  winning,
-        "losing_trades":   losing,
-        "win_rate":        round(winning / closed_count * 100, 1) if closed_count else 0.0,
-        "total_pnl":       round(total_pnl, 2),
-        "top_tickers":     top_tickers,
-        "trades":          trades,
+        "total_positions":    len(trades),
+        "active_count":       active_count,
+        "closed_count":       closed_count,
+        "winning_trades":     winning,
+        "losing_trades":      losing,
+        "win_rate":           round(winning / closed_count * 100, 1) if closed_count else 0.0,
+        "total_pnl":          round(total_pnl, 2),
+        "avg_days_in_trade":  avg_dit,
+        "capital_efficiency": cap_eff,
+        "top_tickers":        top_tickers,
+        "trades":             trades,
     }
 
 
@@ -6093,34 +6182,46 @@ async def get_options_log_by_account():
         """
         SELECT
             account_label,
-            MAX(account_name) AS account_name,
-            MAX(broker) AS broker,
-            COUNT(*) AS total_positions,
+            MAX(account_name)  AS account_name,
+            MAX(broker)        AS broker,
+            COUNT(*)           AS total_positions,
             COUNT(*) FILTER (WHERE status IN ('closed','rolled','expired')) AS closed_count,
-            SUM(total_realized_pnl) AS total_pnl,
+            SUM(total_realized_pnl)  AS total_pnl,
             COUNT(*) FILTER (WHERE total_realized_pnl > 0) AS winning,
-            COUNT(*) FILTER (WHERE total_realized_pnl < 0) AS losing
+            COUNT(*) FILTER (WHERE total_realized_pnl < 0) AS losing,
+            SUM(COALESCE(entry_price,0) * ABS(COALESCE(qty,0)) * 100) AS total_cost_basis,
+            ROUND(AVG(
+                CASE WHEN status IN ('closed','rolled','expired')
+                     THEN COALESCE(closed_at::date, CURRENT_DATE) - entry_date
+                END
+            ), 1) AS avg_days_in_trade
         FROM option_positions
         WHERE option_type IN ('call','put')
         GROUP BY account_label
         ORDER BY total_pnl DESC NULLS LAST
         """
     )
-    return [
-        {
-            "account_label":   r["account_label"],
-            "account_name":    r["account_name"] or r["account_label"],
-            "broker":          r["broker"],
-            "total_positions": int(r["total_positions"]),
-            "closed_count":    int(r["closed_count"]),
-            "total_pnl":       round(float(r["total_pnl"]), 2) if r["total_pnl"] else 0.0,
-            "winning":         int(r["winning"]),
-            "losing":          int(r["losing"]),
-            "win_rate":        round(int(r["winning"]) / int(r["closed_count"]) * 100, 1)
-                               if int(r["closed_count"]) > 0 else 0.0,
-        }
-        for r in rows
-    ]
+    result = []
+    for r in rows:
+        total_pnl        = round(float(r["total_pnl"]), 2) if r["total_pnl"] else 0.0
+        total_cost_basis = round(float(r["total_cost_basis"]), 2) if r["total_cost_basis"] else 0.0
+        capital_eff      = round(total_pnl / total_cost_basis * 100, 1) if total_cost_basis else None
+        closed           = int(r["closed_count"])
+        result.append({
+            "account_label":      r["account_label"],
+            "account_name":       r["account_name"] or r["account_label"],
+            "broker":             r["broker"],
+            "total_positions":    int(r["total_positions"]),
+            "closed_count":       closed,
+            "total_pnl":          total_pnl,
+            "total_cost_basis":   total_cost_basis,
+            "capital_efficiency": capital_eff,
+            "avg_days_in_trade":  float(r["avg_days_in_trade"]) if r["avg_days_in_trade"] else None,
+            "winning":            int(r["winning"]),
+            "losing":             int(r["losing"]),
+            "win_rate":           round(int(r["winning"]) / closed * 100, 1) if closed > 0 else 0.0,
+        })
+    return result
 
 
 @app.get("/api/options/log/ticker/{ticker}")

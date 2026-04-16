@@ -51,20 +51,33 @@ async def _resolve_classification(redis, ticker: str) -> tuple[str, str]:
     return sector, industry
 
 
-async def is_excluded(redis, ticker: str) -> bool:
+async def is_excluded(
+    redis,
+    ticker: str,
+    strategy_tickers: list[str] | None = None,
+    strategy_sectors: list[str] | None = None,
+    strategy_industries: list[str] | None = None,
+) -> bool:
     """
-    Returns True (and logs) if the ticker, its sector, or its industry is in
-    user:exclusions.  Fails open (False) on Redis error or missing config.
+    Returns True (and logs) if the ticker, its sector, or its industry matches
+    any exclusion from user:exclusions OR the strategy-level exclusion lists.
+    Fails open (False) on Redis error or missing config.
     """
     try:
         raw = await redis.get(USER_EXCLUSIONS_KEY)
-        if not raw:
-            return False
-        excl = json.loads(raw)
+        excl = json.loads(raw) if raw else {}
 
-        excluded_tickers    = {t.upper() for t in excl.get("tickers", [])}
-        excluded_sectors    = {_norm(s) for s in excl.get("sectors",    [])}
+        excluded_tickers = {t.upper() for t in excl.get("tickers", [])}
+        excluded_sectors = {_norm(s) for s in excl.get("sectors", [])}
         excluded_industries = {_norm(i) for i in excl.get("industries", [])}
+
+        # Merge strategy-level exclusions
+        if strategy_tickers:
+            excluded_tickers |= {t.upper() for t in strategy_tickers}
+        if strategy_sectors:
+            excluded_sectors |= {_norm(s) for s in strategy_sectors}
+        if strategy_industries:
+            excluded_industries |= {_norm(i) for i in strategy_industries}
 
         if ticker.upper() in excluded_tickers:
             log.info("exclusion.ticker_blocked", ticker=ticker)
@@ -72,6 +85,16 @@ async def is_excluded(redis, ticker: str) -> bool:
 
         if excluded_sectors or excluded_industries:
             sector, industry = await _resolve_classification(redis, ticker)
+
+            # Fail closed: if classification couldn't be resolved and there are
+            # active sector/industry exclusions, block the trade — unknown sector
+            # is not a safe default when exclusions are configured.
+            if excluded_sectors and not sector:
+                log.info("exclusion.sector_unknown_blocked", ticker=ticker)
+                return True
+            if excluded_industries and not industry:
+                log.info("exclusion.industry_unknown_blocked", ticker=ticker)
+                return True
 
             if sector and _norm(sector) in excluded_sectors:
                 log.info("exclusion.sector_blocked",

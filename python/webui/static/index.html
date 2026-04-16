@@ -1525,20 +1525,21 @@ select option{background:var(--surface2)}
           <div id="optlog-total-pnl" style="font-size:26px;font-weight:700;color:var(--fg)">—</div>
         </div>
         <div class="card" style="padding:14px 16px;text-align:center">
-          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Positions</div>
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Open Positions</div>
           <div id="optlog-total-trades" style="font-size:26px;font-weight:700;color:var(--fg)">—</div>
+          <div id="optlog-total-all" style="font-size:10px;color:var(--muted);margin-top:2px">— total</div>
         </div>
         <div class="card" style="padding:14px 16px;text-align:center">
           <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Win Rate</div>
           <div id="optlog-win-rate" style="font-size:26px;font-weight:700;color:var(--fg)">—</div>
         </div>
         <div class="card" style="padding:14px 16px;text-align:center">
-          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Winners</div>
-          <div id="optlog-winners" style="font-size:26px;font-weight:700;color:#22c55e">—</div>
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Capital Efficiency</div>
+          <div id="optlog-cap-eff" style="font-size:26px;font-weight:700;color:var(--fg)">—</div>
         </div>
         <div class="card" style="padding:14px 16px;text-align:center">
-          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Losers</div>
-          <div id="optlog-losers" style="font-size:26px;font-weight:700;color:#ef4444">—</div>
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Avg Days / Trade</div>
+          <div id="optlog-avg-dit" style="font-size:26px;font-weight:700;color:var(--fg)">—</div>
         </div>
       </div>
 
@@ -4096,13 +4097,21 @@ function _updateTdStats() {
       return ms >= cutoff;
     });
     const eqFills  = fills.filter(t => !_optAC.has((t.asset_class || '').toLowerCase()));
-    const optFills = fills.filter(t =>  _optAC.has((t.asset_class || '').toLowerCase()));
-    const winners  = eqFills.filter(t => parseFloat(t.pnl || 0) > 0);
-    const wr       = eqFills.length ? Math.round(winners.length / eqFills.length * 100) : 0;
+    // Options count comes from option_positions DB (Webull manual trades),
+    // not the orders stream which only captures automated equity orders.
+    const optCount = _tdOptionsStats ? _tdOptionsStats.total : 0;
+    // Win rate: equity wins from stream + options wins from DB, over all closed trades with PnL
+    const eqWithPnl  = eqFills.filter(t => t.pnl !== '' && t.pnl !== null && t.pnl !== undefined);
+    const eqWinners  = eqWithPnl.filter(t => parseFloat(t.pnl || 0) > 0);
+    const optClosed  = _tdOptionsStats ? _tdOptionsStats.closed  : 0;
+    const optWinners = _tdOptionsStats ? _tdOptionsStats.winners : 0;
+    const totalClosed  = eqWithPnl.length + optClosed;
+    const totalWinners = eqWinners.length  + optWinners;
+    const wr = totalClosed ? Math.round(totalWinners / totalClosed * 100) : 0;
     const eqTEl  = document.getElementById('td-equity-trades');
     const optTEl = document.getElementById('td-option-trades');
     if (eqTEl)  eqTEl.textContent  = eqFills.length;
-    if (optTEl) optTEl.textContent = optFills.length;
+    if (optTEl) optTEl.textContent = optCount;
     document.getElementById('td-winrate').textContent = wr + '%';
   }
 
@@ -4157,14 +4166,21 @@ async function loadTotalPositions() {
   }
 }
 
+let _tdOptionsStats = null;   // 30-day options count + win rate from option_positions DB
+
 async function _loadTdTradeStats() {
   // Fetch 30-day trade window for the dashboard stat counters.
   // The WS feed only carries the last 5 entries (for the Recent Activity table),
   // so trades made on Friday (or any day) would vanish from the count once 5+
   // newer events arrive. This fetch gives the full rolling window.
+  // Also fetch options stats from the DB (Webull positions — not in the orders stream).
   try {
-    const trades = await apiFetch('/api/trades?limit=500');
-    _tdTradesFull = Array.isArray(trades) ? trades : [];
+    const [trades, optStats] = await Promise.allSettled([
+      apiFetch('/api/trades?limit=500'),
+      apiFetch('/api/trades/options-stats'),
+    ]);
+    _tdTradesFull  = trades.status === 'fulfilled' && Array.isArray(trades.value) ? trades.value : _tdTradesFull;
+    _tdOptionsStats = optStats.status === 'fulfilled' ? optStats.value : _tdOptionsStats;
     _updateTdStats();
   } catch(_) {}
 }
@@ -12103,10 +12119,18 @@ function _renderOptlogSummary(s) {
   const el = document.getElementById('optlog-total-pnl');
   el.textContent = _optFmtPnl(pnl);
   el.style.color = pnl >= 0 ? '#22c55e' : '#ef4444';
-  document.getElementById('optlog-total-trades').textContent = s.total_positions || 0;
-  document.getElementById('optlog-win-rate').textContent   = (s.win_rate || 0) + '%';
-  document.getElementById('optlog-winners').textContent    = s.winning_trades || 0;
-  document.getElementById('optlog-losers').textContent     = s.losing_trades || 0;
+  document.getElementById('optlog-total-trades').textContent = s.active_count ?? s.total_positions ?? 0;
+  document.getElementById('optlog-total-all').textContent    = (s.total_positions || 0) + ' total';
+  document.getElementById('optlog-win-rate').textContent     = (s.win_rate || 0) + '%';
+
+  const capEffEl = document.getElementById('optlog-cap-eff');
+  if (s.capital_efficiency != null) {
+    capEffEl.textContent = (s.capital_efficiency >= 0 ? '+' : '') + s.capital_efficiency + '%';
+    capEffEl.style.color = s.capital_efficiency >= 0 ? '#22c55e' : '#ef4444';
+  } else { capEffEl.textContent = '—'; capEffEl.style.color = 'var(--muted)'; }
+
+  const ditEl = document.getElementById('optlog-avg-dit');
+  ditEl.textContent = s.avg_days_in_trade != null ? s.avg_days_in_trade + 'd' : '—';
 
   const topEl = document.getElementById('optlog-top-tickers');
   if (!s.top_tickers || !s.top_tickers.length) {
@@ -12134,20 +12158,22 @@ function _renderOptlogAccounts(accounts) {
       <th style="padding:8px 16px;text-align:left">Account</th>
       <th style="padding:8px 12px;text-align:left">Broker</th>
       <th style="padding:8px 12px;text-align:right">Positions</th>
-      <th style="padding:8px 12px;text-align:right">Closed</th>
       <th style="padding:8px 12px;text-align:right">Win Rate</th>
-      <th style="padding:8px 12px;text-align:right">W / L</th>
+      <th style="padding:8px 12px;text-align:right">Avg DIT</th>
+      <th style="padding:8px 12px;text-align:right">Cap Efficiency</th>
       <th style="padding:8px 12px;text-align:right">Total P&amp;L</th>
     </tr></thead>
     <tbody>${accounts.map(a => {
-      const pc = a.total_pnl >= 0 ? '#22c55e' : '#ef4444';
+      const pc  = a.total_pnl >= 0 ? '#22c55e' : '#ef4444';
+      const cec = a.capital_efficiency == null ? 'var(--muted)' : a.capital_efficiency >= 0 ? '#22c55e' : '#ef4444';
+      const ceStr = a.capital_efficiency != null ? (a.capital_efficiency >= 0 ? '+' : '') + a.capital_efficiency + '%' : '—';
       return `<tr style="border-top:1px solid var(--border)">
         <td style="padding:8px 16px;font-weight:600;color:var(--fg)">${a.account_name}</td>
         <td style="padding:8px 12px;color:var(--muted)">${a.broker}</td>
-        <td style="padding:8px 12px;text-align:right;color:var(--fg)">${a.total_positions}</td>
-        <td style="padding:8px 12px;text-align:right;color:var(--fg)">${a.closed_count}</td>
-        <td style="padding:8px 12px;text-align:right;color:var(--fg)">${a.win_rate}%</td>
-        <td style="padding:8px 12px;text-align:right;color:var(--fg)"><span style="color:#22c55e">${a.winning}</span> / <span style="color:#ef4444">${a.losing}</span></td>
+        <td style="padding:8px 12px;text-align:right;color:var(--fg)">${a.total_positions} <span style="color:var(--muted);font-size:10px">(${a.closed_count} closed)</span></td>
+        <td style="padding:8px 12px;text-align:right;color:var(--fg)">${a.win_rate}% <span style="font-size:10px;color:var(--muted)">${a.winning}W/${a.losing}L</span></td>
+        <td style="padding:8px 12px;text-align:right;color:var(--fg)">${a.avg_days_in_trade != null ? a.avg_days_in_trade+'d' : '—'}</td>
+        <td style="padding:8px 12px;text-align:right;font-weight:600;color:${cec}">${ceStr}</td>
         <td style="padding:8px 12px;text-align:right;font-weight:700;color:${pc}">${_optFmtPnl(a.total_pnl)}</td>
       </tr>`;
     }).join('')}</tbody>
@@ -12201,13 +12227,26 @@ function _renderOptlogTree(trades) {
     byBroker[bk][ac][tk].push(t);
   }
 
+  // Helper: capital efficiency chip
+  function _capEffChip(pnl, basis) {
+    if (!basis) return '';
+    const ce = Math.round(pnl / basis * 1000) / 10;
+    const c  = ce >= 0 ? '#22c55e' : '#ef4444';
+    return `<span style="background:${c}22;color:${c};border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">cap eff ${ce >= 0 ? '+' : ''}${ce}%</span>`;
+  }
+
   let html = '';
   for (const [broker, accounts] of Object.entries(byBroker)) {
-    let brkPnl = 0;
+    let brkPnl = 0, brkBasis = 0, brkDitSum = 0, brkDitCount = 0;
     for (const acTickers of Object.values(accounts))
       for (const positions of Object.values(acTickers))
-        for (const p of positions) if (p.realized_pnl !== null) brkPnl += p.realized_pnl;
+        for (const p of positions) {
+          if (p.realized_pnl !== null) brkPnl += p.realized_pnl;
+          if (p.cost_basis)   brkBasis += p.cost_basis;
+          if (p.days_in_trade != null && p.status !== 'active') { brkDitSum += p.days_in_trade; brkDitCount++; }
+        }
     const brkPnlColor = brkPnl >= 0 ? '#22c55e' : '#ef4444';
+    const brkAvgDit   = brkDitCount ? Math.round(brkDitSum / brkDitCount * 10) / 10 : null;
 
     let accountsHtml = '';
     for (const [account, tickers] of Object.entries(accounts)) {
@@ -12253,8 +12292,10 @@ function _renderOptlogTree(trades) {
 
     html += `
       <div class="card" style="padding:0;overflow:hidden">
-        <div style="display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--card-header);border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px;background:var(--card-header);border-bottom:1px solid var(--border)">
           <span style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--fg)">${broker.toUpperCase()}</span>
+          ${_capEffChip(brkPnl, brkBasis)}
+          ${brkAvgDit != null ? `<span style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:2px 8px;font-size:10px;color:var(--muted);font-weight:600">avg ${brkAvgDit}d / trade</span>` : ''}
           <span style="margin-left:auto;font-size:13px;font-weight:700;color:${brkPnlColor}">${brkPnl ? _optFmtPnl(brkPnl) : '—'}</span>
         </div>
         <div style="padding:12px">${accountsHtml}</div>
@@ -12267,6 +12308,8 @@ function _optlogRenderPositionRow(p) {
   const sc = _optlogStatusColors[p.status] || '#6b7280';
   const pnlColor = p.realized_pnl === null ? 'var(--muted)' : p.realized_pnl >= 0 ? '#22c55e' : '#ef4444';
   const cbStr    = p.cost_basis != null ? '$'+p.cost_basis.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+  const rocColor = p.roc_pct == null ? '' : p.roc_pct >= 0 ? '#22c55e' : '#ef4444';
+  const rocChip  = p.roc_pct != null ? `<span style="background:${rocColor}22;color:${rocColor};border-radius:8px;padding:1px 7px;font-size:9px;font-weight:700">ROC ${p.roc_pct >= 0 ? '+' : ''}${p.roc_pct}%</span>` : '';
   const strikeStr = p.strike ? '$'+p.strike : '—';
   const typeTag  = p.option_type ? `<span style="background:#6b728022;color:var(--muted);border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;text-transform:uppercase">${p.option_type}</span>` : '';
 
@@ -12278,6 +12321,7 @@ function _optlogRenderPositionRow(p) {
       const mc = _optlogEvColors[m.label] || '#6b7280';
       const mPnlColor = m.realized_pnl == null ? 'var(--muted)' : m.realized_pnl >= 0 ? '#22c55e' : '#ef4444';
       const isLast = i === milestones.length - 1;
+      const mRocColor = m.running_roc == null ? '' : m.running_roc >= 0 ? '#22c55e' : '#ef4444';
       return `<div style="display:flex;align-items:flex-start;gap:0">
         <div style="display:flex;flex-direction:column;align-items:center">
           <div style="width:9px;height:9px;border-radius:50%;background:${mc};margin-top:4px;flex-shrink:0"></div>
@@ -12290,6 +12334,7 @@ function _optlogRenderPositionRow(p) {
             ${m.contract_price != null ? `<span style="font-size:10px;color:var(--fg)">contract <b>$${m.contract_price.toFixed(2)}</b></span>` : ''}
             ${m.cost_basis != null ? `<span style="font-size:10px;color:var(--muted)">basis <b style="color:var(--fg)">${cbStr}</b></span>` : ''}
             ${m.realized_pnl != null ? `<span style="font-size:10px;font-weight:700;color:${mPnlColor}">${_optFmtPnl(m.realized_pnl)}</span>` : ''}
+            ${m.running_roc != null ? `<span style="background:${mRocColor}22;color:${mRocColor};border-radius:8px;padding:1px 6px;font-size:9px;font-weight:700">ROC ${m.running_roc >= 0 ? '+' : ''}${m.running_roc}%</span>` : ''}
           </div>
         </div>
       </div>`;
@@ -12306,6 +12351,7 @@ function _optlogRenderPositionRow(p) {
       <span style="font-size:11px;color:var(--muted)">basis <b style="color:var(--fg)">${cbStr}</b></span>
       <span style="font-size:11px;color:var(--muted)">${p.qty ?? '—'} cts · ${p.days_in_trade ?? '—'}d</span>
       <span style="background:${sc}22;color:${sc};border-radius:4px;padding:1px 7px;font-size:9px;font-weight:700;text-transform:uppercase">${p.status}</span>
+      ${rocChip}
       <span style="margin-left:auto;font-size:12px;font-weight:700;color:${pnlColor}">${p.realized_pnl != null ? _optFmtPnl(p.realized_pnl) : '—'}</span>
       <button onclick="event.stopPropagation();_optlogOpenDetailModal('${p.id}','${p.underlying}')"
         style="background:var(--card-header);border:1px solid var(--border);border-radius:5px;padding:2px 8px;font-size:10px;cursor:pointer;color:var(--fg)">Detail</button>

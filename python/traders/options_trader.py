@@ -315,7 +315,7 @@ class OptionsTrader(BaseAgent):
             order_id = str(rdata.get("id", rdata.get("orderId", request_id)))
 
             payload = OrderEventPayload(
-                event_type  = "submitted",
+                event_type  = "fill",
                 account_id  = acct,
                 broker      = broker,
                 mode        = mode,
@@ -323,7 +323,7 @@ class OptionsTrader(BaseAgent):
                 asset_class = "options",
                 direction   = direction,
                 qty         = float(MAX_CONTRACTS),
-                price       = None,
+                price       = price,
                 order_id    = order_id,
                 strategy    = strategy_name,
             )
@@ -338,7 +338,7 @@ class OptionsTrader(BaseAgent):
                     "asset_class": payload.asset_class,
                     "direction":   payload.direction,
                     "qty":         str(payload.qty),
-                    "price":       "",
+                    "price":       str(payload.price or ""),
                     "order_id":    payload.order_id,
                     "strategy":    payload.strategy,
                 },

@@ -226,8 +226,20 @@ class EquityTrader(BaseAgent):
                     log.debug("trader-equity.market_closed", ticker=ticker)
                     return
 
-            # Sector / ticker / industry exclusion check
-            if await is_excluded(self.redis, ticker):
+            # Sector / ticker / industry exclusion check — merge user + strategy rules
+            strat_tickers    = []
+            strat_sectors    = []
+            strat_industries = []
+            for a in assignments:
+                strat_tickers    += a.get("excluded_tickers", [])
+                strat_sectors    += a.get("excluded_sectors", [])
+                strat_industries += a.get("excluded_industries", [])
+            if await is_excluded(
+                self.redis, ticker,
+                strategy_tickers=strat_tickers or None,
+                strategy_sectors=strat_sectors or None,
+                strategy_industries=strat_industries or None,
+            ):
                 return
 
             # TradingView confirmation — veto if indicators contradict signal
@@ -281,11 +293,24 @@ class EquityTrader(BaseAgent):
         price = quote.get("last") or quote.get("ask") or quote.get("bid")
         if price is None:
             log.warning("trader-equity.no_quote", ticker=ticker)
-            price = 0.0
-        else:
-            price = float(price)
+            return
+        price = float(price)
 
-        # ── 1a. Risk controls — slippage + liquidity ──────────────────────────
+        # ── 1a. Price range — enforced from strategy rules ───────────────────
+        min_price = assignment.get("min_price")
+        max_price = assignment.get("max_price")
+        if min_price is not None and price < min_price:
+            log.info("trader-equity.price_below_min",
+                     ticker=ticker, price=price, min=min_price,
+                     strategy=strategy_name)
+            return
+        if max_price is not None and price > max_price:
+            log.info("trader-equity.price_above_max",
+                     ticker=ticker, price=price, max=max_price,
+                     strategy=strategy_name)
+            return
+
+        # ── 1b. Risk controls — slippage + liquidity ──────────────────────────
         controls = await get_risk_controls(self.redis)
         ok, spread = check_slippage(quote.get("bid"), quote.get("ask"), controls["max_slippage_pct"])
         if not ok:
