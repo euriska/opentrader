@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.58] - 2026-04-17
+
+### Added
+- **Topology — Auto Arrange button**: new button next to Reset Layout that automatically positions all nodes using a longest-path layering algorithm. Pipeline nodes (scrapers → aggregator → predictor → traders → gateway/review → chat) are assigned columns by data-flow rank; MCP nodes drop below the column of their primary consumer; scheduler/orchestrator sit at the bottom. SVG viewBox is refit to the computed bounding box. Reset Layout restores the original viewBox as well.
+
 ## [3.5.57] - 2026-04-17
 
 ### Changed

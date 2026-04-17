@@ -454,6 +454,7 @@ select option{background:var(--surface2)}
         <div class="card-header">
           <span class="card-title">Agent Topology</span>
           <div style="display:flex;gap:6px">
+            <button class="btn btn-sm" onclick="autoArrangeTopology()" title="Arrange nodes by data flow — scrapers → pipeline → execution, MCP below consumers">&#9645; Auto Arrange</button>
             <button class="btn btn-sm" onclick="resetTopoLayout()" title="Reset node positions to default">&#8635; Reset Layout</button>
             <button class="btn btn-sm" id="topo-download-btn" onclick="downloadTopology()" title="Download as SVG">&#8595; SVG</button>
           </div>
@@ -3217,6 +3218,106 @@ function resetTopoLayout() {
   TOPO_NODES.forEach(n => {
     if (defaults[n.id] !== undefined) { n.x = defaults[n.id]; n.y = defaults[n.id + '_y']; }
   });
+  const svg = document.getElementById('topology-svg');
+  if (svg) svg.setAttribute('viewBox', '0 0 1100 590');
+  drawTopology(wsData);
+}
+
+function autoArrangeTopology() {
+  // Layered layout: pipeline nodes assigned columns by longest-path rank,
+  // MCP nodes placed below their primary consumer's column, infra at bottom.
+  const COL_W  = 165;   // horizontal stride between columns
+  const ROW_H  = 62;    // vertical stride within a column
+  const PAD_X  = 20;
+  const PAD_Y  = 20;
+  const UTIL_Y = 330;   // y-start for MCP rows
+  const INFRA_Y = UTIL_Y + 130; // y-start for scheduler/orchestrator
+
+  const nodeMap = {};
+  TOPO_NODES.forEach(n => nodeMap[n.id] = n);
+
+  // ── 1. Compute column (rank) for pipeline nodes via longest-path ──────────
+  const UTIL_GROUPS = new Set(['mcp', 'infra']);
+  const pipeIds = new Set(TOPO_NODES.filter(n => !UTIL_GROUPS.has(n.group)).map(n => n.id));
+
+  // Forward pipeline edges only (non-dashed, both endpoints in pipeline set)
+  const children = {}, parents = {};
+  pipeIds.forEach(id => { children[id] = new Set(); parents[id] = new Set(); });
+  TOPO_EDGES
+    .filter(e => !e.dashed && pipeIds.has(e.from) && pipeIds.has(e.to))
+    .forEach(e => { children[e.from].add(e.to); parents[e.to].add(e.from); });
+
+  // Iterative longest-path ranking
+  const rank = {};
+  pipeIds.forEach(id => rank[id] = 0);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    pipeIds.forEach(id => {
+      children[id].forEach(child => {
+        if (rank[id] + 1 > rank[child]) { rank[child] = rank[id] + 1; changed = true; }
+      });
+    });
+  }
+
+  // Manual overrides for nodes with no pipeline parents (avoid column 0 pile-up)
+  rank['directive-agent'] = Math.min(rank['predictor'] ?? 2, 3); // alongside traders
+  rank['options-monitor'] = rank['broker-gateway'] ?? 4;          // alongside gateway/review
+  rank['chat-agent']      = Math.max(...Object.values(rank)) + 1; // rightmost column
+
+  // ── 2. Bucket pipeline nodes by column, sort within each column ──────────
+  const groupPri = { scrapers:0, core:1, traders:2, review:3, brokers:4, interface:5 };
+  const colBuckets = {};
+  pipeIds.forEach(id => {
+    const c = rank[id];
+    (colBuckets[c] = colBuckets[c] || []).push(id);
+  });
+  const colNums = Object.keys(colBuckets).map(Number).sort((a, b) => a - b);
+  colNums.forEach((col, ci) => {
+    colBuckets[col]
+      .sort((a, b) => (groupPri[nodeMap[a].group] ?? 9) - (groupPri[nodeMap[b].group] ?? 9))
+      .forEach((id, ri) => {
+        nodeMap[id].x = PAD_X + ci * COL_W;
+        nodeMap[id].y = PAD_Y + ri * ROW_H;
+      });
+  });
+
+  // ── 3. Place MCP nodes below their primary consumer's column ─────────────
+  const fwdEdges = TOPO_EDGES.filter(e => !e.dashed);
+  const mcpColBuckets = {};
+  TOPO_NODES.filter(n => n.group === 'mcp').forEach(n => {
+    let bestCi = 0;
+    fwdEdges
+      .filter(e => e.from === n.id && pipeIds.has(e.to))
+      .forEach(e => {
+        const ci = colNums.indexOf(rank[e.to] ?? 0);
+        if (ci > bestCi) bestCi = ci;
+      });
+    (mcpColBuckets[bestCi] = mcpColBuckets[bestCi] || []).push(n.id);
+  });
+  Object.entries(mcpColBuckets).forEach(([ci, ids]) => {
+    ids.forEach((id, ri) => {
+      nodeMap[id].x = PAD_X + parseInt(ci) * COL_W;
+      nodeMap[id].y = UTIL_Y + ri * ROW_H;
+    });
+  });
+
+  // ── 4. Place infra nodes (scheduler, orchestrator) at bottom ─────────────
+  TOPO_NODES.filter(n => n.group === 'infra').forEach((n, i) => {
+    n.x = PAD_X + i * COL_W;
+    n.y = INFRA_Y;
+  });
+
+  // ── 5. Expand SVG viewBox to fit all placed nodes ─────────────────────────
+  let maxX = 0, maxY = 0;
+  TOPO_NODES.forEach(n => {
+    maxX = Math.max(maxX, n.x + NODE_W);
+    maxY = Math.max(maxY, n.y + NODE_H);
+  });
+  const svg = document.getElementById('topology-svg');
+  if (svg) svg.setAttribute('viewBox', `0 0 ${maxX + 24} ${maxY + 24}`);
+
+  _saveTopoLayout();
   drawTopology(wsData);
 }
 
