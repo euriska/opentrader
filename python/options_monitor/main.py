@@ -727,20 +727,53 @@ class OptionsMonitor(BaseAgent):
             for p in broker_positions
         }
         active_rows = await pool.fetch(
-            "SELECT id, contract_symbol, account_label FROM option_positions WHERE status='active'"
+            """SELECT id, contract_symbol, account_label, underlying,
+                      entry_price, qty
+               FROM option_positions WHERE status='active'"""
         )
         for row in active_rows:
             key = f"{row['contract_symbol']}:{row['account_label']}"
             if key not in seen_keys:
+                # Fetch last known contract price from most recent scan event
+                last_scan = await pool.fetchrow(
+                    """SELECT contract_price FROM option_trade_log
+                       WHERE position_id=$1 AND event_type='scan'
+                         AND contract_price IS NOT NULL
+                       ORDER BY ts DESC LIMIT 1""",
+                    row["id"],
+                )
+                last_cp = float(last_scan["contract_price"]) if last_scan else None
+                ep      = float(row["entry_price"]) if row["entry_price"] else None
+                qty     = float(row["qty"]) if row["qty"] else None
+
+                # Short option P&L: profit = premium collected − cost to close
+                pnl = None
+                if last_cp is not None and ep is not None and qty is not None:
+                    pnl = round((ep - last_cp) * abs(qty) * 100, 2)
+
                 await pool.execute(
                     """UPDATE option_positions
                        SET status='closed', closed_at=NOW(), close_reason='not_in_scan',
-                           updated_at=NOW()
+                           total_realized_pnl=$2, updated_at=NOW()
                        WHERE id=$1""",
-                    row["id"],
+                    row["id"], pnl,
                 )
+
+                # Write a closed event so the trading log has a price + P&L record
+                await pool.execute(
+                    """INSERT INTO option_trade_log
+                       (position_id, contract_symbol, underlying, event_type,
+                        contract_price, realized_pnl, notes)
+                       VALUES ($1,$2,$3,'closed',$4::NUMERIC,$5::NUMERIC,$6)""",
+                    row["id"], row["contract_symbol"], row["underlying"],
+                    last_cp, pnl,
+                    f"Position closed — no longer in broker scan (last price: "
+                    f"{'${:.2f}'.format(last_cp) if last_cp else 'unknown'})",
+                )
+
                 log.info("options_monitor.position_closed_not_seen",
-                         contract=row["contract_symbol"], account=row["account_label"])
+                         contract=row["contract_symbol"], account=row["account_label"],
+                         last_price=last_cp, pnl=pnl)
 
         log.info("options_monitor.scan_complete")
 

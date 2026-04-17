@@ -176,7 +176,7 @@ class ScraperAgent(BaseAgent):
             pipe = self.redis.pipeline()
             for t in tickers[:MAX_OVTLYR]:
                 pipe.hset(
-                    "scraper:ovtlyr:latest",
+                    "scanner:ovtlyr:latest",
                     t.ticker,
                     json.dumps({
                         "direction":  t.direction,
@@ -184,7 +184,7 @@ class ScraperAgent(BaseAgent):
                         "ts_utc":     t.ts_utc,
                     }),
                 )
-            pipe.expire("scraper:ovtlyr:latest", 3600)  # 1 hour TTL
+            pipe.expire("scanner:ovtlyr:latest", 3600)  # 1 hour TTL
             await pipe.execute()
 
     async def _warmup(self):

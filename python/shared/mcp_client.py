@@ -67,10 +67,22 @@ async def get_tv_indicators(ticker: str, interval: str = "1d") -> dict | None:
 
 async def get_classification(ticker: str) -> dict:
     """
-    Returns {"sector": str, "industry": str} using Yahoo Finance as primary
-    source and Massive MCP (SIC mapping) as sector-only fallback.
+    Returns {"sector": str, "industry": str}.
+    Priority: Massive MCP (primary) → Yahoo Finance (last resort).
+    Massive gives SIC-mapped sector; Yahoo gives GICS sector + industry.
     """
-    # Primary: Yahoo Finance MCP
+    # Primary: Massive MCP
+    raw = await call_mcp_tool(MASSIVE_MCP_URL, "get_ticker_details", {"ticker": ticker})
+    if raw:
+        try:
+            data = json.loads(raw)
+            sector = data.get("sector") or ""
+            if sector and sector != "Unknown":
+                return {"sector": sector, "industry": data.get("sic_description") or ""}
+        except Exception:
+            pass
+
+    # Last resort: Yahoo Finance MCP
     raw = await call_mcp_tool(YAHOO_MCP_URL, "get_classification", {"ticker": ticker})
     if raw:
         try:
@@ -83,9 +95,7 @@ async def get_classification(ticker: str) -> dict:
         except Exception:
             pass
 
-    # Fallback: Massive MCP (sector via SIC mapping, no industry)
-    sector = await get_sector(ticker)
-    return {"sector": sector or "", "industry": ""}
+    return {"sector": "", "industry": ""}
 
 
 async def get_sector(ticker: str) -> str | None:
@@ -105,6 +115,55 @@ async def get_sector(ticker: str) -> str | None:
         return data.get("sector") or None
     except Exception as e:
         log.warning("mcp_client.sector_parse_failed", ticker=ticker, error=str(e))
+        return None
+
+
+async def get_massive_quote(ticker: str) -> dict | None:
+    """
+    Fetch a real-time quote from Massive MCP (Polygon.io).
+    Returns dict with: ticker, last, bid, ask, volume, vwap, open, high, low,
+    close, prev_close, change_pct — or None on failure.
+    """
+    raw = await call_mcp_tool(MASSIVE_MCP_URL, "get_quote", {"ticker": ticker})
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        if "error" in data:
+            log.warning("mcp_client.massive_quote_error", ticker=ticker, error=data["error"])
+            return None
+        return data
+    except Exception as e:
+        log.warning("mcp_client.massive_quote_parse_failed", ticker=ticker, error=str(e))
+        return None
+
+
+async def get_massive_daily_bars(
+    ticker: str, from_date: str = "", to_date: str = ""
+) -> list | None:
+    """
+    Fetch daily OHLCV bars from Massive MCP (Polygon.io).
+    Returns list of {date, open, high, low, close, volume, vwap} dicts,
+    or None on failure.
+    """
+    args: dict = {"ticker": ticker}
+    if from_date:
+        args["from_date"] = from_date
+    if to_date:
+        args["to_date"] = to_date
+    raw = await call_mcp_tool(MASSIVE_MCP_URL, "get_daily_bars", args)
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict) and "error" in data:
+            log.warning("mcp_client.massive_bars_error", ticker=ticker, error=data["error"])
+            return None
+        return data
+    except Exception as e:
+        log.warning("mcp_client.massive_bars_parse_failed", ticker=ticker, error=str(e))
         return None
 
 

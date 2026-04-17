@@ -34,7 +34,8 @@ class AlpacaPositions:
         result = await self.client.get("/positions")
         if not isinstance(result, list):
             return []
-        return [
+
+        positions = [
             {
                 "symbol":          p.get("symbol"),
                 "qty":             float(p.get("qty", 0)),
@@ -50,6 +51,32 @@ class AlpacaPositions:
             }
             for p in result
         ]
+
+        # Alpaca paper often omits date_acquired — backfill from order history.
+        missing = [p for p in positions if not p["date_acquired"]]
+        if missing:
+            try:
+                orders = await self.client.get(
+                    "/orders",
+                    params={"status": "closed", "limit": 500, "direction": "asc"},
+                )
+                if isinstance(orders, list):
+                    # earliest buy fill per symbol
+                    earliest: dict = {}
+                    for o in orders:
+                        sym = o.get("symbol", "")
+                        side = o.get("side", "")
+                        filled_at = o.get("filled_at")
+                        if sym and side == "buy" and filled_at and sym not in earliest:
+                            earliest[sym] = filled_at
+                    for p in missing:
+                        sym = p["symbol"] or ""
+                        if sym in earliest:
+                            p["date_acquired"] = earliest[sym]
+            except Exception as e:
+                log.warning(f"[alpaca:{self.account_label}] date_acquired backfill failed: {e}")
+
+        return positions
 
     async def get_pnl(self) -> dict:
         positions = await self.get_positions()

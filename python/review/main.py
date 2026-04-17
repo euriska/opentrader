@@ -18,7 +18,7 @@ import structlog
 from shared.base_agent import BaseAgent
 from shared.redis_client import STREAMS, GROUPS, REDIS_URL
 from notifier.agentmail import Notifier
-from brokers.tradier.gateway import TradierGateway
+from broker_gateway.registry import BrokerRegistry
 from scheduler.calendar import now_et
 
 log = structlog.get_logger("review-agent")
@@ -64,7 +64,7 @@ class ReviewAgent(BaseAgent):
         super().__init__("review-agent")
         self._db:      Optional[asyncpg.Pool] = None
         self.notifier  = Notifier("review")
-        self.gateway   = TradierGateway()
+        self.registry  = BrokerRegistry()
         self._trades_since_review = 0
 
     async def run(self):
@@ -261,8 +261,8 @@ class ReviewAgent(BaseAgent):
         # 1. Pull today's trades from DB
         trades = await self._get_today_trades(date_str)
 
-        # 2. Enrich with actual fills from Tradier
-        fills = await self._get_tradier_fills()
+        # 2. Enrich with actual fills from all broker accounts
+        fills = await self._get_all_broker_fills()
 
         # 3. Build summary stats
         stats = self._compute_stats(trades, fills)
@@ -310,30 +310,61 @@ class ReviewAgent(BaseAgent):
             log.error("review-agent.db_trades_error", error=str(e))
             return []
 
-    async def _get_tradier_fills(self) -> list:
-        """Pull today's filled orders from Tradier across all accounts."""
-        fills = []
-        try:
-            all_orders = await self.gateway.get_all_orders()
-            today = now_et().date().isoformat()
-            for acct_data in all_orders:
-                for o in (acct_data.get("orders") or []):
+    async def _get_all_broker_fills(self) -> list:
+        """Pull today's filled orders from all broker accounts."""
+        today = now_et().date().isoformat()
+
+        async def _fetch(rec) -> list:
+            account_fills = []
+            try:
+                orders = await rec.connector.get_orders(status="filled")
+                for o in orders:
                     if not isinstance(o, dict):
                         continue
-                    if o.get("status") in ("filled", "partially_filled"):
-                        created = str(o.get("create_date", ""))
-                        if today in created:
-                            fills.append({
-                                "account":    acct_data.get("account"),
-                                "ticker":     o.get("symbol"),
-                                "side":       o.get("side"),
-                                "qty":        o.get("quantity"),
-                                "avg_fill":   o.get("avg_fill_price"),
-                                "order_id":   o.get("id"),
-                                "status":     o.get("status"),
-                            })
-        except Exception as e:
-            log.warning("review-agent.tradier_fills_error", error=str(e))
+                    status = str(o.get("status", "")).upper()
+                    if status not in ("FILLED", "PARTIALLY_FILLED", "PARTIAL_FILLED"):
+                        continue
+                    # Tradier: create_date; Webull: filledTime / createTime / filled_time
+                    order_date = (
+                        str(o.get("create_date", ""))
+                        or str(o.get("filledTime", ""))
+                        or str(o.get("createTime", ""))
+                        or str(o.get("filled_time", ""))
+                        or str(o.get("transaction_date", ""))
+                    )
+                    if today not in order_date:
+                        continue
+                    account_fills.append({
+                        "account":  rec.label,
+                        "broker":   rec.broker,
+                        "ticker":   o.get("symbol"),
+                        "side":     str(o.get("side") or "").lower(),
+                        "qty":      o.get("quantity") or o.get("qty"),
+                        "avg_fill": (
+                            o.get("avg_fill_price")
+                            or o.get("filledPrice")
+                            or o.get("filled_price")
+                        ),
+                        "order_id": (
+                            o.get("id")
+                            or o.get("order_id")
+                            or o.get("orderId")
+                        ),
+                        "status":   o.get("status"),
+                    })
+            except Exception as e:
+                log.warning("review-agent.broker_fills_error",
+                            account=rec.label, broker=rec.broker, error=str(e))
+            return account_fills
+
+        results = await asyncio.gather(
+            *[_fetch(rec) for rec in self.registry.all_records()],
+            return_exceptions=True,
+        )
+        fills = []
+        for r in results:
+            if isinstance(r, list):
+                fills.extend(r)
         return fills
 
     def _compute_stats(self, trades: list, fills: list) -> dict:
@@ -411,9 +442,9 @@ class ReviewAgent(BaseAgent):
 
         fill_lines = "\n".join(
             f"  {f.get('ticker')} {f.get('side')} {f.get('qty')} @ ${f.get('avg_fill')}"
-            f" [{f.get('account')}]"
+            f" [{f.get('broker', '')}:{f.get('account')}]"
             for f in fills[:20]
-        ) or "  No Tradier fills today."
+        ) or "  No broker fills today."
 
         sector_breakdown = await self._get_sector_breakdown(trades)
         sector_lines = "\n".join(
@@ -427,7 +458,7 @@ Date: {date_str}
 Trading Summary:
   Total signals acted on: {stats['total_trades']}
   Rejected orders: {stats['rejected']}
-  Filled orders (Tradier): {stats['filled']}
+  Filled orders (all brokers): {stats['filled']}
   Closed P&L: ${stats['total_pnl']} ({stats['wins']}W / {stats['losses']}L, {stats['win_rate']}% win rate)
 
 Trades entered:
@@ -436,7 +467,7 @@ Trades entered:
 Rejected orders:
 {reject_lines}
 
-Tradier fills:
+Broker fills:
 {fill_lines}
 
 Sector breakdown of new positions:

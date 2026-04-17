@@ -1,15 +1,17 @@
 """
 OVTLYR Playwright Scraper
-Logs into ovtlyr.com and scrapes the watchlist / screener page.
+Logs into ovtlyr.com and reads buy/sell signals from the per-ticker dashboard.
 
 OVTLYR is a momentum/breakout screener. The scraper:
   1. Logs in once and keeps the session warm
-  2. On each trigger, navigates to the dashboard and extracts tickers
-  3. Returns list of OvtlyrTicker with direction + score
+  2. Gets the ticker list from the watchlist API
+  3. For each ticker, navigates to dashboard/<ticker> and reads the OVTLYR signal panel
+  4. Returns list of OvtlyrTicker with the actual buy/sell direction from the dashboard
 
 Set env vars:
   OVTLYR_EMAIL
   OVTLYR_PASSWORD
+  OVTLYR_DEBUG=1   — saves screenshots to /app/logs/ for debugging
 """
 import os
 import asyncio
@@ -164,18 +166,22 @@ class OvtlyrScraper:
         except Exception as e:
             log.error("ovtlyr.login_error", error=str(e))
 
-    # Known OVTLYR API handler endpoints (discovered via network interception)
-    _API_HANDLERS = [
-        ("GetBullsList_Stocks", "long"),   # main bull list — stocks
-        ("GetBullsList_ETFs",   "long"),   # bull list — ETFs
-        ("GetWatchList",        None),     # user's personal watchlist (has own signal field)
-        ("AjaxGetHighCoverage_Stocks", "long"),
+    # Watchlist API handlers used only for getting the ticker list
+    _WATCHLIST_HANDLERS = [
+        "GetWatchList",
+        "GetBullsList_Stocks",
+        "GetBullsList_ETFs",
+        "AjaxGetHighCoverage_Stocks",
     ]
 
     async def scrape(self) -> List[OvtlyrTicker]:
         """
-        Fetch tickers via direct API calls to OVTLYR's Razor Page handlers.
-        Falls back to DOM extraction if API calls don't return usable JSON.
+        Main entry point:
+          1. Pull the ticker list from the watchlist API handlers
+          2. For each ticker, navigate to dashboard/<ticker> and read the actual
+             OVTLYR buy/sell signal from the signal panel
+        Returns OvtlyrTicker objects with direction sourced from the dashboard,
+        not inferred from the bull list.
         """
         if not self._logged_in:
             log.warning("ovtlyr.not_logged_in_retry")
@@ -183,7 +189,20 @@ class OvtlyrScraper:
             if not self._logged_in:
                 return []
 
-        # Ensure we're on the watchlist page (session cookies are scoped here)
+        tickers = await self._get_watchlist_tickers()
+        if not tickers:
+            log.warning("ovtlyr.no_tickers_from_watchlist")
+            return []
+
+        log.info("ovtlyr.watchlist_tickers", count=len(tickers))
+        return await self.scrape_dashboards(tickers)
+
+    async def _get_watchlist_tickers(self) -> List[str]:
+        """
+        Hit the watchlist Razor Page handlers to collect the ticker list.
+        Returns a deduplicated list of ticker symbols.
+        """
+        # Ensure session is on the watchlist page
         try:
             if "watchlist" not in self._page.url:
                 await self._page.goto(WATCHLIST_URL, timeout=30_000)
@@ -192,11 +211,10 @@ class OvtlyrScraper:
         except Exception as e:
             log.warning("ovtlyr.goto_watchlist_error", error=str(e))
 
-        tickers: List[OvtlyrTicker] = []
         seen: set = set()
+        tickers: List[str] = []
 
-        # Call each handler via browser fetch() — reuses session cookies
-        for handler, default_direction in self._API_HANDLERS:
+        for handler in self._WATCHLIST_HANDLERS:
             url = f"{WATCHLIST_URL}?handler={handler}"
             try:
                 result = await self._page.evaluate(f"""
@@ -214,40 +232,175 @@ class OvtlyrScraper:
                         return await r.json();
                     }}
                 """)
-
                 if not result:
                     continue
 
-                batch = self._parse_handler_response(result, default_direction, url)
+                batch = self._extract_tickers_from_response(result)
+                added = 0
                 for t in batch:
-                    if t.ticker not in seen:
+                    if t not in seen:
+                        seen.add(t)
                         tickers.append(t)
-                        seen.add(t.ticker)
-
-                log.info("ovtlyr.api_handler", handler=handler, count=len(batch))
+                        added += 1
+                log.info("ovtlyr.watchlist_handler", handler=handler, added=added)
 
             except Exception as e:
-                log.warning("ovtlyr.api_handler_error", handler=handler, error=str(e))
+                log.warning("ovtlyr.watchlist_handler_error", handler=handler, error=str(e))
 
-        if tickers:
-            log.info("ovtlyr.scraped_api", count=len(tickers))
-            return tickers
+        return tickers
 
-        # Fall back to DOM extraction
-        log.info("ovtlyr.dom_fallback")
-        try:
-            if os.environ.get("OVTLYR_DEBUG") == "1":
-                await self._page.screenshot(
-                    path="/app/logs/ovtlyr_console.ovtlyr.com_watchlist.png",
-                    full_page=True,
-                )
-            dom_tickers = await self._extract_tickers()
-            if dom_tickers:
-                log.info("ovtlyr.scraped", url=self._page.url, count=len(dom_tickers))
-            return dom_tickers
-        except Exception as e:
-            log.error("ovtlyr.dom_fallback_error", error=str(e))
-            return []
+    async def scrape_dashboards(self, tickers: List[str]) -> List[OvtlyrTicker]:
+        """
+        For each ticker, navigate to dashboard/<ticker> and extract the OVTLYR
+        buy/sell signal from the signal panel.
+
+        Throttled to avoid hammering the server — 1 page at a time with a brief
+        delay between requests.
+        """
+        results: List[OvtlyrTicker] = []
+        debug = os.environ.get("OVTLYR_DEBUG") == "1"
+
+        for ticker in tickers:
+            url = f"{DASHBOARD_URL}/{ticker}"
+            try:
+                await self._page.goto(url, timeout=30_000)
+                await self._page.wait_for_load_state("networkidle", timeout=20_000)
+                await asyncio.sleep(1.5)  # let SPA render signal panel
+
+                if debug:
+                    safe = ticker.replace("/", "_")
+                    await self._page.screenshot(
+                        path=f"/app/logs/ovtlyr_dashboard_{safe}.png",
+                        full_page=True,
+                    )
+
+                signal = await self._extract_dashboard_signal(ticker)
+                if signal:
+                    direction, score = signal
+                    results.append(OvtlyrTicker(
+                        ticker    = ticker,
+                        direction = direction,
+                        score     = score,
+                        metadata  = {"source": "dashboard", "url": url},
+                    ))
+                    log.info("ovtlyr.dashboard_signal",
+                             ticker=ticker, direction=direction, score=score)
+                else:
+                    log.warning("ovtlyr.dashboard_no_signal", ticker=ticker)
+
+            except Exception as e:
+                log.warning("ovtlyr.dashboard_error", ticker=ticker, error=str(e))
+
+        log.info("ovtlyr.dashboards_scraped",
+                 total=len(tickers), signals=len(results))
+        return results
+
+    async def _extract_dashboard_signal(
+        self, ticker: str
+    ) -> Optional[tuple]:
+        """
+        Extract the OVTLYR buy/sell signal from a dashboard page.
+
+        Tries multiple strategies in order:
+          1. Signal badge/chip elements (class names containing 'signal', 'badge', etc.)
+          2. Text proximity — finds "Buy"/"Sell" near "OVTLYR" or "Signal" headings
+          3. OVTLYR 9-panel — reads the 9 indicator chips and derives consensus
+          4. Raw buy/sell word count across the visible page text
+        """
+        result = await self._page.evaluate("""
+            (ticker) => {
+                const norm = s => (s || '').trim().toUpperCase();
+
+                // ── Strategy 1: Signal/recommendation badge elements ─────────
+                const badgeSels = [
+                    '[class*="signal" i]',
+                    '[class*="recommendation" i]',
+                    '[class*="badge" i]',
+                    '[class*="status" i]',
+                    '[class*="label" i]',
+                    '[class*="chip" i]',
+                    '[class*="tag" i]',
+                    '[class*="indicator" i]',
+                    '[class*="action" i]',
+                ];
+                for (const sel of badgeSels) {
+                    for (const el of document.querySelectorAll(sel)) {
+                        const t = norm(el.innerText);
+                        if (t === 'BUY' || t === 'STRONG BUY')   return {direction: 'long',  score: t === 'STRONG BUY' ? 90 : 75, strategy: 'badge', text: t};
+                        if (t === 'SELL' || t === 'STRONG SELL')  return {direction: 'short', score: t === 'STRONG SELL' ? 85 : 70, strategy: 'badge', text: t};
+                    }
+                }
+
+                // ── Strategy 2: Text proximity to OVTLYR/Signal headings ─────
+                const allEls = Array.from(document.querySelectorAll('*'));
+                for (let i = 0; i < allEls.length; i++) {
+                    const el = allEls[i];
+                    if (el.children.length > 5) continue;
+                    const t = norm(el.innerText);
+                    if (!t.includes('OVTLYR') && !t.includes('SIGNAL') && !t.includes('CURRENT SIGNAL'))
+                        continue;
+                    // Check next 10 siblings/children for Buy/Sell
+                    const parent = el.parentElement;
+                    if (!parent) continue;
+                    const siblings = Array.from(parent.querySelectorAll('*')).slice(0, 20);
+                    for (const s of siblings) {
+                        const st = norm(s.innerText);
+                        if (st === 'BUY' || st === 'STRONG BUY')   return {direction: 'long',  score: st === 'STRONG BUY' ? 90 : 75, strategy: 'proximity', text: st};
+                        if (st === 'SELL' || st === 'STRONG SELL')  return {direction: 'short', score: st === 'STRONG SELL' ? 85 : 70, strategy: 'proximity', text: st};
+                    }
+                }
+
+                // ── Strategy 3: OVTLYR 9-panel — count indicator buy/sell chips
+                // The 9-panel shows individual indicator states; majority rules.
+                const allText = document.body.innerText || '';
+                const lines = allText.split(/[\\n\\r]+/).map(l => l.trim()).filter(Boolean);
+                let panelBuy = 0, panelSell = 0, inPanel = false;
+                for (let i = 0; i < lines.length; i++) {
+                    const u = lines[i].toUpperCase();
+                    if (u.includes('OVTLYR') || u.includes('9') || u.includes('PANEL')) inPanel = true;
+                    if (!inPanel) continue;
+                    if (u === 'BUY' || u === 'STRONG BUY' || u === 'BULLISH') panelBuy++;
+                    if (u === 'SELL' || u === 'STRONG SELL' || u === 'BEARISH') panelSell++;
+                    // Stop counting after 20 lines past the panel start
+                    if (panelBuy + panelSell >= 9) break;
+                }
+                if (panelBuy + panelSell > 0) {
+                    const pct = panelBuy / (panelBuy + panelSell);
+                    return {
+                        direction: pct >= 0.5 ? 'long' : 'short',
+                        score: Math.round(pct >= 0.5 ? 55 + pct * 35 : 55 + (1 - pct) * 35),
+                        strategy: 'panel9',
+                        text: `buy=${panelBuy} sell=${panelSell}`,
+                    };
+                }
+
+                // ── Strategy 4: Raw buy/sell word count (last resort) ─────────
+                const buyCount  = (allText.match(/\\bBUY\\b/gi)  || []).length;
+                const sellCount = (allText.match(/\\bSELL\\b/gi) || []).length;
+                if (buyCount + sellCount > 0) {
+                    const pct = buyCount / (buyCount + sellCount);
+                    return {
+                        direction: pct >= 0.5 ? 'long' : 'short',
+                        score: Math.round(pct >= 0.5 ? 50 + pct * 30 : 50 + (1 - pct) * 30),
+                        strategy: 'wordcount',
+                        text: `buy=${buyCount} sell=${sellCount}`,
+                    };
+                }
+
+                return null;
+            }
+        """, ticker)
+
+        if not result:
+            return None
+
+        log.debug("ovtlyr.signal_extracted",
+                  ticker=ticker,
+                  strategy=result.get("strategy"),
+                  text=result.get("text"),
+                  direction=result.get("direction"))
+
+        return result.get("direction", "long"), float(result.get("score", 70.0))
 
     def _parse_handler_response(
         self,
@@ -328,6 +481,33 @@ class OvtlyrScraper:
             ))
 
         return results
+
+    def _extract_tickers_from_response(self, data) -> List[str]:
+        """
+        Extract just ticker symbols from a watchlist API response.
+        Used by _get_watchlist_tickers() to build the ticker list for dashboard scraping.
+        """
+        entries = []
+        if isinstance(data, list):
+            entries = data
+        elif isinstance(data, dict):
+            for key in ("data", "results", "stocks", "etfs", "watchlist", "items", "list", "tickers"):
+                if key in data and isinstance(data[key], list):
+                    entries = data[key]
+                    break
+            if not entries and "symbol" in data:
+                entries = [data]
+
+        tickers = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            for k in ("symbol", "ticker", "stock", "sym", "Symbol", "Ticker"):
+                v = entry.get(k, "")
+                if v and re.match(r'^[A-Z]{1,5}$', str(v).strip().upper()):
+                    tickers.append(str(v).strip().upper())
+                    break
+        return tickers
 
     async def _extract_tickers(self) -> List[OvtlyrTicker]:
         """

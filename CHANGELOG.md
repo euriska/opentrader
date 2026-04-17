@@ -3,6 +3,26 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.56] - 2026-04-16
+
+### Fixed
+- **Options P&L formula** — `options_monitor` was using long-option convention `(exit−entry)` when auto-closing positions not seen in scan; corrected to short-option convention `(entry−exit)`, matching the formula in `webui`
+- **Dividend page — exclude paper filter**: paper accounts were visible on initial load and account selection because `loadDividendPage` and `_divSelectAccount` bypassed `_divApplyFilter()`; both now route through the filter
+- **Options capital efficiency denominator**: active positions' cost basis was included in ROC denominator, artificially deflating the metric — server SQL and client tree now exclude `status='active'` positions
+- **Options P&L milestone fallback** (`webui/main.py`): `(cp−ep)` long convention used when `total_realized_pnl` is NULL in DB; corrected to `(ep−cp)` short convention
+
+### Changed
+- **Platform Dashboard enriched**: added Trade Mode (live/sandbox), System status (circuit broken/halted/normal), and Active Directives count as stat cards; all sourced from existing WS push data
+- **Recent Events panel rewritten**: now surfaces system alerts, order fills/rejects, active directives, signals, and unhealthy agent heartbeats — sorted by priority and color-coded by event type; max 12 events
+- **Topology diagram updated**: added `options-monitor`, `directive-agent`, `scraper-yahoo-sentiment` nodes with correct edges; added Logs dropdown entries for all three; viewBox expanded for new layout
+- **ROC % standardized**: "Capital Efficiency" / "Cap Eff" labels unified to "ROC %" across summary card, account table header, and chip tooltip
+- **Active Positions table**: added P&L % column; uses Alpaca `unrealized_plpc` (decimal→%) or computes from `pl÷costBasis` for other brokers
+- **DB connection pooling**: migrated 6 remaining direct `asyncpg.connect()` calls (scheduler jobs, ovtlyr lists, sentiment trends, breadth history, position signals, sector map) to `_get_db_pool()` pool
+- **Review agent**: migrated from Tradier-only fills to `BrokerRegistry.all_records()` — normalises filled order fields across Tradier, Alpaca, and Webull field naming conventions
+- **Alpaca positions**: backfill `date_acquired` from order history for paper accounts that omit this field
+- **OVTLYR scraper**: reads actual buy/sell signal from per-ticker dashboard page instead of inferring direction from the bull list API; Redis key renamed `scraper:ovtlyr:latest` → `scanner:ovtlyr:latest` (already in use by all consumers)
+- **`shared/mcp_client.py`**: added `get_classification()` (Massive → Yahoo fallback), `get_massive_quote()`, `get_massive_daily_bars()`, `get_avg_volume()`, `get_uw_ticker_flow()`, `get_uw_darkpool()`, `get_uw_market_tide()`, `tv_confirms_direction()` helpers
+
 ## [3.5.55] - 2026-04-16
 
 ### Changed

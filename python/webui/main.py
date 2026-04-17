@@ -531,8 +531,8 @@ async def _db_upsert_job(job: dict):
     if not DB_URL:
         return
     try:
-        conn = await asyncpg.connect(**_db_connect_kwargs())
-        try:
+        pool = await _get_db_pool()
+        async with pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO scheduler_jobs
                     (id, name, schedule, minutes, seconds, enabled, notify, command, payload,
@@ -567,8 +567,6 @@ async def _db_upsert_job(job: dict):
                 job.get("intraday_interval_min"),
                 job.get("intraday_days"),
             )
-        finally:
-            await conn.close()
     except Exception as e:
         log.warning("db_upsert_job_failed", error=str(e))
 
@@ -578,11 +576,9 @@ async def _db_delete_job(job_id: str):
     if not DB_URL:
         return
     try:
-        conn = await asyncpg.connect(**_db_connect_kwargs())
-        try:
+        pool = await _get_db_pool()
+        async with pool.acquire() as conn:
             await conn.execute("DELETE FROM scheduler_jobs WHERE id = $1", job_id)
-        finally:
-            await conn.close()
     except Exception as e:
         log.warning("db_delete_job_failed", error=str(e))
 
@@ -592,11 +588,9 @@ async def _load_jobs_from_db_to_redis(redis):
     if not DB_URL:
         return
     try:
-        conn = await asyncpg.connect(**_db_connect_kwargs())
-        try:
+        pool = await _get_db_pool()
+        async with pool.acquire() as conn:
             rows = await conn.fetch("SELECT * FROM scheduler_jobs")
-        finally:
-            await conn.close()
         for row in rows:
             job = dict(row)
             # asyncpg returns jsonb as str
@@ -991,43 +985,31 @@ async def get_positions_signals():
 
     # Layer 3: DB fallback — latest signal per ticker from ovtlyr_intel table
     db_signals: dict = {}
-    if all_syms:
+    if all_syms and DB_URL:
         try:
-            import asyncpg as _asyncpg
-            from urllib.parse import urlparse as _urlparse, unquote as _unquote
-            _db_url = os.getenv("DB_URL", "")
-            if _db_url:
-                _p = _urlparse(_db_url)
-                _conn = await _asyncpg.connect(
-                    host=_p.hostname, port=_p.port or 5432,
-                    user=_p.username,
-                    password=_unquote(_p.password) if _p.password else None,
-                    database=_p.path.lstrip("/"),
+            pool = await _get_db_pool()
+            async with pool.acquire() as conn:
+                _rows = await conn.fetch(
+                    """
+                    SELECT DISTINCT ON (ticker)
+                        ticker, signal, signal_active, signal_date,
+                        nine_score, oscillator, last_close
+                    FROM ovtlyr_intel
+                    WHERE ticker = ANY($1::text[])
+                    ORDER BY ticker, ts DESC
+                    """,
+                    list(all_syms),
                 )
-                try:
-                    _rows = await _conn.fetch(
-                        """
-                        SELECT DISTINCT ON (ticker)
-                            ticker, signal, signal_active, signal_date,
-                            nine_score, oscillator, last_close
-                        FROM ovtlyr_intel
-                        WHERE ticker = ANY($1::text[])
-                        ORDER BY ticker, ts DESC
-                        """,
-                        list(all_syms),
-                    )
-                    for row in _rows:
-                        db_signals[row["ticker"].upper()] = {
-                            "direction":    row["signal"],
-                            "signal_active": row["signal_active"],
-                            "signal_date":  str(row["signal_date"]) if row["signal_date"] else None,
-                            "score":        row["nine_score"],
-                            "oscillator":   row["oscillator"],
-                            "price":        row["last_close"],
-                            "source":       "db",
-                        }
-                finally:
-                    await _conn.close()
+            for row in _rows:
+                db_signals[row["ticker"].upper()] = {
+                    "direction":    row["signal"],
+                    "signal_active": row["signal_active"],
+                    "signal_date":  str(row["signal_date"]) if row["signal_date"] else None,
+                    "score":        row["nine_score"],
+                    "oscillator":   row["oscillator"],
+                    "price":        row["last_close"],
+                    "source":       "db",
+                }
         except Exception:
             pass  # DB fallback is best-effort
 
@@ -1076,7 +1058,11 @@ async def get_positions_signals():
                 "avg_entry_price":  p.get("avg_entry_price", 0),
                 "current_price":    p.get("current_price", 0),
                 "market_value":     p.get("market_value", 0),
+                "cost_basis":       p.get("cost_basis", 0),
                 "unrealized_pl":    p.get("unrealized_pl", 0),
+                # unrealized_plpc: Alpaca provides as decimal (0.05 = 5%).
+                # For brokers that don't, the client computes it from pl/cost_basis.
+                "unrealized_plpc":  p.get("unrealized_plpc"),
                 # OVTLYR data points
                 "has_signal":       bool(signal),
                 "signal_direction": signal.get("direction"),
@@ -1096,6 +1082,56 @@ async def get_positions_signals():
         "ovtlyr_count": len(all_signals),
         "ovtlyr_ts":    latest_ts,
     }
+
+
+def _sic_to_sector(sic_code) -> str:
+    """Map a Polygon SIC code to a GICS-style sector name."""
+    try:
+        code = int(sic_code)
+    except (TypeError, ValueError):
+        return "Unknown"
+    if   100  <= code <=  999:  return "Basic Materials"
+    if  1000  <= code <= 1499:  return "Basic Materials"
+    if  1500  <= code <= 1799:  return "Industrials"
+    if  2000  <= code <= 2111:  return "Consumer Defensive"
+    if  2200  <= code <= 2399:  return "Consumer Cyclical"
+    if  2400  <= code <= 2499:  return "Industrials"
+    if  2500  <= code <= 2599:  return "Consumer Cyclical"
+    if  2600  <= code <= 2699:  return "Basic Materials"
+    if  2700  <= code <= 2799:  return "Consumer Cyclical"
+    if  2800  <= code <= 2829:  return "Basic Materials"
+    if  2830  <= code <= 2836:  return "Healthcare"
+    if  2837  <= code <= 2899:  return "Basic Materials"
+    if  2900  <= code <= 2999:  return "Energy"
+    if  3000  <= code <= 3299:  return "Basic Materials"
+    if  3300  <= code <= 3399:  return "Basic Materials"
+    if  3400  <= code <= 3499:  return "Industrials"
+    if  3500  <= code <= 3599:  return "Industrials"
+    if  3600  <= code <= 3699:  return "Technology"
+    if  3700  <= code <= 3799:  return "Consumer Cyclical"
+    if  3800  <= code <= 3840:  return "Industrials"
+    if  3841  <= code <= 3851:  return "Healthcare"
+    if  3852  <= code <= 3999:  return "Industrials"
+    if  4000  <= code <= 4599:  return "Industrials"
+    if  4600  <= code <= 4699:  return "Energy"
+    if  4700  <= code <= 4799:  return "Industrials"
+    if  4800  <= code <= 4899:  return "Communication Services"
+    if  4900  <= code <= 4999:  return "Utilities"
+    if  code == 5047:           return "Healthcare"
+    if  code == 5122:           return "Healthcare"
+    if  5000  <= code <= 5199:  return "Industrials"
+    if  5200  <= code <= 5999:  return "Consumer Cyclical"
+    if  6000  <= code <= 6299:  return "Financial Services"
+    if  6300  <= code <= 6499:  return "Financial Services"
+    if  6500  <= code <= 6599:  return "Real Estate"
+    if  6700  <= code <= 6999:  return "Financial Services"
+    if  7370  <= code <= 7379:  return "Technology"
+    if  7000  <= code <= 7399:  return "Consumer Cyclical"
+    if  7400  <= code <= 7999:  return "Consumer Cyclical"
+    if  8000  <= code <= 8099:  return "Healthcare"
+    if  8100  <= code <= 8299:  return "Industrials"
+    if  8300  <= code <= 8799:  return "Industrials"
+    return "Unknown"
 
 
 _SECTOR_STATIC: dict = {
@@ -1192,13 +1228,12 @@ async def _fetch_sector_yahoo(ticker: str, session) -> str | None:
 
 
 @app.get("/api/positions/sector-map")
-async def get_position_sector_map(token: str = ""):
+async def get_position_sector_map():
     """
     Return { ticker: sector } for all current position tickers.
-    Priority: Redis cache → OVTLYR signal data → DB → static map → Yahoo Finance type.
+    Priority: Redis cache → OVTLYR signal data → DB → static map → Massive MCP → Yahoo Finance.
     Results cached in Redis hash ticker:sectors (30 day TTL per field).
     """
-    check_token(token)
     import aiohttp as _aiohttp
 
     _redis = await get_redis()
@@ -1236,17 +1271,15 @@ async def get_position_sector_map(token: str = ""):
     # 3. DB historical signals
     if DB_URL:
         try:
-            conn = await asyncpg.connect(**_db_connect_kwargs())
-            try:
+            pool = await _get_db_pool()
+            async with pool.acquire() as conn:
                 rows = await conn.fetch(
                     "SELECT DISTINCT ON (ticker) ticker, sector FROM ovtlyr_signals "
                     "WHERE sector IS NOT NULL ORDER BY ticker, ts DESC"
                 )
-                for row in rows:
-                    if row["ticker"] not in result:
-                        result[row["ticker"]] = row["sector"]
-            finally:
-                await conn.close()
+            for row in rows:
+                if row["ticker"] not in result:
+                    result[row["ticker"]] = row["sector"]
         except Exception:
             pass
 
@@ -1255,7 +1288,28 @@ async def get_position_sector_map(token: str = ""):
         if sym not in result and sym in _SECTOR_STATIC:
             result[sym] = _SECTOR_STATIC[sym]
 
-    # 5. Yahoo Finance chart API for any still-missing tickers
+    # 5. Polygon.io ticker details → SIC-mapped sector
+    missing = [sym for sym in tickers if sym not in result]
+    _poly_key = os.getenv("MASSIVE_API_KEY", "") or _read_env_file().get("MASSIVE_API_KEY", "")
+    if missing and _poly_key:
+        try:
+            async with _aiohttp.ClientSession() as session:
+                for sym in missing[:20]:
+                    try:
+                        url = f"https://api.polygon.io/v3/reference/tickers/{sym}?apiKey={_poly_key}"
+                        async with session.get(url, timeout=_aiohttp.ClientTimeout(total=8)) as resp:
+                            if resp.status == 200:
+                                d = await resp.json()
+                                sic = (d.get("results") or {}).get("sic_code")
+                                sec = _sic_to_sector(sic) if sic else None
+                                if sec and sec != "Unknown":
+                                    result[sym] = sec
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    # 6. Yahoo Finance chart API as last resort
     missing = [sym for sym in tickers if sym not in result]
     if missing:
         try:
@@ -1279,6 +1333,83 @@ async def get_position_sector_map(token: str = ""):
             pass
 
     return result
+
+
+# ── API — Market bars (Massive MCP) ──────────────────────────────────────────
+
+@app.get("/api/market/bars")
+async def get_market_bars(ticker: str = "SPY", days: int = 90):
+    """
+    Daily OHLCV bars for a ticker.
+    Primary: Polygon.io REST API (MASSIVE_API_KEY).
+    Fallback: yfinance.
+    Returns LightweightCharts-compatible format: time as Unix seconds.
+    """
+    import aiohttp as _aiohttp
+    from datetime import date as _date, timedelta, datetime
+
+    sym       = ticker.upper()
+    to_date   = _date.today().isoformat()
+    from_date = (_date.today() - timedelta(days=days)).isoformat()
+    lc_bars: list = []
+
+    # Primary: Polygon.io REST API
+    api_key = os.getenv("MASSIVE_API_KEY", "")
+    if api_key:
+        url = (
+            f"https://api.polygon.io/v2/aggs/ticker/{sym}/range/1/day"
+            f"/{from_date}/{to_date}?adjusted=true&sort=asc&limit=365&apiKey={api_key}"
+        )
+        try:
+            async with _aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=_aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for b in data.get("results", []):
+                            ts_ms = b.get("t", 0)
+                            if not ts_ms:
+                                continue
+                            # Polygon timestamps are ms; convert to seconds for LightweightCharts
+                            ts = ts_ms // 1000
+                            lc_bars.append({
+                                "time":   ts,
+                                "open":   float(b.get("o") or 0),
+                                "high":   float(b.get("h") or 0),
+                                "low":    float(b.get("l") or 0),
+                                "close":  float(b.get("c") or 0),
+                                "volume": int(b.get("v")   or 0),
+                            })
+        except Exception as e:
+            log.warning("webui.market_bars.polygon_error", ticker=sym, error=str(e))
+
+    # Fallback: yfinance (already installed in webui)
+    if not lc_bars:
+        try:
+            import yfinance as _yf
+            import asyncio as _asyncio
+            df = await _asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: _yf.download(sym, period=f"{days}d", interval="1d", progress=False, auto_adjust=True),
+            )
+            if df is not None and not df.empty:
+                for ts_idx, row in df.iterrows():
+                    try:
+                        ts = int(ts_idx.timestamp())
+                        lc_bars.append({
+                            "time":   ts,
+                            "open":   float(row.get("Open",  0) or 0),
+                            "high":   float(row.get("High",  0) or 0),
+                            "low":    float(row.get("Low",   0) or 0),
+                            "close":  float(row.get("Close", 0) or 0),
+                            "volume": int(row.get("Volume",  0) or 0),
+                        })
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.warning("webui.market_bars.yfinance_error", ticker=sym, error=str(e))
+
+    lc_bars.sort(key=lambda x: x["time"])
+    return {"ticker": sym, "bars": lc_bars}
 
 
 # ── API — Stream stats ────────────────────────────────────────────────────────
@@ -2637,8 +2768,8 @@ async def get_ovtlyr_signals(list_type: str = "bull", limit: int = 100, token: s
     # Fallback: query DB for latest snapshot
     if DB_URL:
         try:
-            conn = await asyncpg.connect(**_db_connect_kwargs())
-            try:
+            pool = await _get_db_pool()
+            async with pool.acquire() as conn:
                 rows = await conn.fetch(
                     """
                     SELECT DISTINCT ON (ticker) ticker, name, sector, signal, signal_date, last_price, avg_vol_30d, ts
@@ -2649,15 +2780,13 @@ async def get_ovtlyr_signals(list_type: str = "bull", limit: int = 100, token: s
                     """,
                     list_type, limit,
                 )
-                entries = [dict(r) for r in rows]
-                # Convert date/datetime to string for JSON serialization
-                for e in entries:
-                    for k, v in e.items():
-                        if hasattr(v, 'isoformat'):
-                            e[k] = v.isoformat()
-                return {"list_type": list_type, "entries": entries, "count": len(entries), "source": "db"}
-            finally:
-                await conn.close()
+            entries = [dict(r) for r in rows]
+            # Convert date/datetime to string for JSON serialization
+            for e in entries:
+                for k, v in e.items():
+                    if hasattr(v, 'isoformat'):
+                        e[k] = v.isoformat()
+            return {"list_type": list_type, "entries": entries, "count": len(entries), "source": "db"}
         except Exception as ex:
             log.error("ovtlyr_signals.db_error", error=str(ex))
     return {"list_type": list_type, "entries": [], "count": 0, "source": "empty"}
@@ -2703,8 +2832,8 @@ async def get_sentiment():
     # Fallback: query DB directly if trend cache is empty
     if DB_URL and any(not scores[t].get("trend") for t in scores):
         try:
-            conn = await asyncpg.connect(**_db_connect_kwargs())
-            try:
+            pool = await _get_db_pool()
+            async with pool.acquire() as conn:
                 rows = await conn.fetch(
                     """
                     SELECT ticker, date, score
@@ -2715,20 +2844,18 @@ async def get_sentiment():
                     """,
                     ticker_list,
                 )
-                trend_map: dict = {}
-                for row in rows:
-                    t = row["ticker"]
-                    if t not in trend_map:
-                        trend_map[t] = []
-                    trend_map[t].append({
-                        "date":  row["date"].isoformat(),
-                        "score": float(row["score"]),
-                    })
-                for ticker in scores:
-                    if not scores[ticker].get("trend"):
-                        scores[ticker]["trend"] = trend_map.get(ticker, [])
-            finally:
-                await conn.close()
+            trend_map: dict = {}
+            for row in rows:
+                t = row["ticker"]
+                if t not in trend_map:
+                    trend_map[t] = []
+                trend_map[t].append({
+                    "date":  row["date"].isoformat(),
+                    "score": float(row["score"]),
+                })
+            for ticker in scores:
+                if not scores[ticker].get("trend"):
+                    scores[ticker]["trend"] = trend_map.get(ticker, [])
         except Exception as ex:
             log.warning("sentiment.db_trend_error", error=str(ex))
 
@@ -2761,8 +2888,8 @@ async def get_ovtlyr_breadth():
     # Fallback: query DB for history if Redis is empty (e.g. after restart)
     if not history and DB_URL:
         try:
-            conn = await asyncpg.connect(**_db_connect_kwargs())
-            try:
+            pool = await _get_db_pool()
+            async with pool.acquire() as conn:
                 rows = await conn.fetch(
                     """
                     SELECT ts, breadth_pct, bull_count, bear_count, signal
@@ -2771,18 +2898,16 @@ async def get_ovtlyr_breadth():
                     LIMIT 200
                     """
                 )
-                history = [
-                    {
-                        "ts":          row["ts"].isoformat(),
-                        "breadth_pct": float(row["breadth_pct"]),
-                        "bull_count":  row["bull_count"],
-                        "bear_count":  row["bear_count"],
-                        "signal":      row["signal"],
-                    }
-                    for row in rows
-                ]
-            finally:
-                await conn.close()
+            history = [
+                {
+                    "ts":          row["ts"].isoformat(),
+                    "breadth_pct": float(row["breadth_pct"]),
+                    "bull_count":  row["bull_count"],
+                    "bear_count":  row["bear_count"],
+                    "signal":      row["signal"],
+                }
+                for row in rows
+            ]
         except Exception as ex:
             log.warning("breadth.db_history_error", error=str(ex))
 
@@ -4525,14 +4650,26 @@ async def ws_endpoint(websocket: WebSocket):
             trades   = await get_trades(5)
             stored_mode = await redis.get("config:trade_mode")
             trade_mode  = stored_mode or _read_env_file().get("TRADE_MODE", "sandbox") or "sandbox"
+            # Count active directives
+            active_directives = 0
+            try:
+                raw_dir = await redis.get("trade:directives")
+                if raw_dir:
+                    active_directives = sum(
+                        1 for d in json.loads(raw_dir)
+                        if d.get("status") == "active"
+                    )
+            except Exception:
+                pass
             await websocket.send_json({
-                "type":       "update",
-                "overview":   overview,
-                "agents":     agents,
-                "signals":    signals,
-                "streams":    streams,
-                "trades":     trades,
-                "trade_mode": trade_mode,
+                "type":              "update",
+                "overview":          overview,
+                "agents":            agents,
+                "signals":           signals,
+                "streams":           streams,
+                "trades":            trades,
+                "trade_mode":        trade_mode,
+                "active_directives": active_directives,
             })
             await asyncio.sleep(4)
     except WebSocketDisconnect:
@@ -5203,6 +5340,7 @@ async def div_holdings(token: str = ""):
         accounts_out.append({
             "label":        lbl,
             "display_name": display_name,
+            "mode":         acct.get("mode", ""),
             "positions":    positions_out,
         })
 
@@ -6097,8 +6235,8 @@ async def get_options_log_summary():
                 cp = e["contract_price"]
                 rpnl = e["realized_pnl"]
                 if rpnl is None and cp and ep and qty:
-                    # Long option convention: profit = exit price - entry price
-                    rpnl = round((cp - ep) * abs(qty) * 100, 2)
+                    # Short option convention: profit = premium collected − cost to close
+                    rpnl = round((ep - cp) * abs(qty) * 100, 2)
                 # Running ROC at this milestone: P&L so far as % of cost basis
                 running_roc = round(rpnl / cost_basis * 100, 1) if (rpnl is not None and cost_basis) else None
                 milestones.append({
@@ -6156,7 +6294,11 @@ async def get_options_log_summary():
     closed_count = winning + losing
     closed_trades   = [t for t in trades if t["days_in_trade"] is not None and t["status"] != "active"]
     avg_dit         = round(sum(t["days_in_trade"] for t in closed_trades) / len(closed_trades), 1) if closed_trades else None
-    total_cost_basis = sum(t["cost_basis"] for t in trades if t["cost_basis"])
+    # Capital efficiency = realized P&L / cost basis of closed trades only.
+    # Excluding active positions ensures the denominator reflects capital that has
+    # cycled through a full open→close journey, giving a meaningful ROC metric.
+    total_cost_basis = sum(t["cost_basis"] for t in trades
+                          if t["cost_basis"] and t["status"] != "active")
     cap_eff         = round(total_pnl / total_cost_basis * 100, 1) if total_cost_basis else None
     active_count = sum(1 for t in trades if t["status"] == "active")
     return {
@@ -6189,7 +6331,8 @@ async def get_options_log_by_account():
             SUM(total_realized_pnl)  AS total_pnl,
             COUNT(*) FILTER (WHERE total_realized_pnl > 0) AS winning,
             COUNT(*) FILTER (WHERE total_realized_pnl < 0) AS losing,
-            SUM(COALESCE(entry_price,0) * ABS(COALESCE(qty,0)) * 100) AS total_cost_basis,
+            SUM(COALESCE(entry_price,0) * ABS(COALESCE(qty,0)) * 100)
+                FILTER (WHERE status IN ('closed','rolled','expired'))  AS total_cost_basis,
             ROUND(AVG(
                 CASE WHEN status IN ('closed','rolled','expired')
                      THEN COALESCE(closed_at::date, CURRENT_DATE) - entry_date

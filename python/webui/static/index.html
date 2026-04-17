@@ -423,7 +423,7 @@ select option{background:var(--surface2)}
           <div class="stat-value" id="stat-degraded" style="color:var(--amber)">—</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Dead</div>
+          <div class="stat-label">Dead / Unknown</div>
           <div class="stat-value" id="stat-dead" style="color:var(--red)">—</div>
         </div>
         <div class="stat-card">
@@ -433,6 +433,18 @@ select option{background:var(--surface2)}
         <div class="stat-card" id="stat-job-errors-card">
           <div class="stat-label">Job Errors (1h)</div>
           <div class="stat-value" id="stat-job-errors" style="color:var(--green)">0</div>
+        </div>
+        <div class="stat-card" id="stat-trade-mode-card">
+          <div class="stat-label">Trade Mode</div>
+          <div class="stat-value" id="stat-trade-mode" style="color:var(--muted)">—</div>
+        </div>
+        <div class="stat-card" id="stat-system-card">
+          <div class="stat-label">System</div>
+          <div class="stat-value" id="stat-system" style="color:var(--green)">Normal</div>
+        </div>
+        <div class="stat-card" id="stat-directives-card">
+          <div class="stat-label">Active Directives</div>
+          <div class="stat-value" id="stat-directives" style="color:var(--muted)">—</div>
         </div>
       </div>
 
@@ -447,7 +459,7 @@ select option{background:var(--surface2)}
         </div>
         <div class="card-body topology-wrap">
           <svg id="topology-svg" class="topo-svg"
-               viewBox="0 0 1100 515"
+               viewBox="0 0 1100 590"
                preserveAspectRatio="xMidYMid meet"
                style="width:100%;height:auto;min-height:200px">
             <defs>
@@ -532,7 +544,10 @@ select option{background:var(--surface2)}
               <option value="scraper-wsb">scraper-wsb</option>
               <option value="scraper-seekalpha">scraper-seekalpha</option>
               <option value="scraper-yahoo">scraper-yahoo</option>
+              <option value="scraper-yahoo-sentiment">scraper-yahoo-sentiment</option>
               <option value="aggregator">aggregator</option>
+              <option value="options-monitor">options-monitor</option>
+              <option value="directive-agent">directive-agent</option>
               <option value="review-agent">review-agent</option>
               <option value="broker-gateway">broker-gateway</option>
               <option value="mcp-yahoo">mcp-yahoo</option>
@@ -1063,6 +1078,30 @@ select option{background:var(--surface2)}
         </div>
       </div>
 
+      <!-- Market Overview — SPY / QQQ daily chart -->
+      <div class="card" style="margin-bottom:16px" id="market-overview-card">
+        <div class="card-header" style="padding:10px 16px">
+          <span class="card-title">Market Overview</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button id="mkt-btn-spy" class="btn btn-sm" onclick="loadMarketBarsChart('SPY')"
+              style="font-size:11px;background:var(--blue);color:#fff;border-color:var(--blue)">SPY</button>
+            <button id="mkt-btn-qqq" class="btn btn-sm" onclick="loadMarketBarsChart('QQQ')"
+              style="font-size:11px">QQQ</button>
+            <span id="mkt-chart-meta" style="font-size:10px;color:var(--dim)"></span>
+            <span style="font-size:10px;color:var(--dim)">
+              <span style="color:#4ade80">&#9644;</span> EMA10
+              <span style="color:#3b82f6;margin-left:6px">&#9644;</span> EMA20
+              <span style="color:#f59e0b;margin-left:6px">&#9644;</span> EMA50
+            </span>
+          </div>
+        </div>
+        <div style="padding:0 0 4px 0">
+          <div id="mkt-chart-container" style="width:100%;height:300px;position:relative">
+            <div id="mkt-chart-placeholder" style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--dim);font-size:12px">Loading…</div>
+          </div>
+        </div>
+      </div>
+
       <div class="card" style="margin-bottom:16px">
         <div class="card-header">
           <span class="card-title">Recent Activity</span>
@@ -1238,7 +1277,17 @@ select option{background:var(--surface2)}
     ════════════════════════════════════════ -->
     <div class="page" id="page-trading-dividends">
 
-      <!-- Pie Charts Row — very top -->
+      <!-- Page header row with filter -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);white-space:nowrap">Dividend Tracker</span>
+        <div style="flex:1;height:1px;background:var(--border)"></div>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;user-select:none">
+          <input type="checkbox" id="div-exclude-paper" onchange="_divApplyFilter()" style="cursor:pointer;accent-color:var(--blue)">
+          Exclude paper accounts
+        </label>
+      </div>
+
+      <!-- Pie Charts Row -->
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px;margin-bottom:16px">
         <div class="card">
           <div class="card-header"><span class="card-title">Income by Ticker</span></div>
@@ -1534,7 +1583,7 @@ select option{background:var(--surface2)}
           <div id="optlog-win-rate" style="font-size:26px;font-weight:700;color:var(--fg)">—</div>
         </div>
         <div class="card" style="padding:14px 16px;text-align:center">
-          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Capital Efficiency</div>
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px" title="Return on Capital: realized P&L ÷ closed cost basis">ROC %</div>
           <div id="optlog-cap-eff" style="font-size:26px;font-weight:700;color:var(--fg)">—</div>
         </div>
         <div class="card" style="padding:14px 16px;text-align:center">
@@ -2702,7 +2751,7 @@ function navigate(pageId) {
     case 'page-platform-scheduler': _initSchedThead(); loadSchedulerPage(); break;
     case 'page-platform-system':    _ctRenderThead();  loadSystemPage();   break;
     case 'page-platform-config':    loadConfigPage();    break;
-    case 'page-trading-dashboard':  _initTdHeaders(); loadOvtlyrMarketSignals(); ovtlyrSelectList(_ovtlyrCurrentList); loadTotalPositions(); _loadTdTradeStats(); _refreshBreadth(); break;
+    case 'page-trading-dashboard':  _initTdHeaders(); loadOvtlyrMarketSignals(); ovtlyrSelectList(_ovtlyrCurrentList); loadTotalPositions(); _loadTdTradeStats(); _refreshBreadth(); loadMarketBarsChart('SPY'); break;
     case 'page-trading-unified':    loadUnifiedPositions(); break;
 
     case 'page-trading-trades':     loadTradesPage();    break;
@@ -2810,20 +2859,76 @@ function renderMarketStatus(overview) {
 // ══════════════════════════════════════════════════════════════════════════════
 function renderPlatformDashboard(data) {
   const ov = data.overview;
+
+  // ── Agent health counts ───────────────────────────────────────────────────
   if (ov && ov.agents) {
     document.getElementById('stat-healthy').textContent  = ov.agents.healthy;
     document.getElementById('stat-degraded').textContent = ov.agents.degraded;
     document.getElementById('stat-dead').textContent     = ov.agents.dead;
   }
+
+  // ── Metrics ───────────────────────────────────────────────────────────────
   if (ov && ov.metrics) {
     document.getElementById('stat-signals').textContent = ov.metrics.signal_stream;
     const errs = ov.metrics.job_errors_1h || 0;
-    const errEl = document.getElementById('stat-job-errors');
-    const cardEl = document.getElementById('stat-job-errors-card');
+    const errEl  = document.getElementById('stat-job-errors');
+    const errCard = document.getElementById('stat-job-errors-card');
     errEl.textContent = errs;
     errEl.style.color = errs > 0 ? 'var(--red)' : 'var(--green)';
-    cardEl.style.borderColor = errs > 0 ? 'var(--red)' : 'var(--border)';
+    errCard.style.borderColor = errs > 0 ? 'var(--red)' : 'var(--border)';
   }
+
+  // ── Trade mode ────────────────────────────────────────────────────────────
+  if (data.trade_mode) {
+    const tm    = (data.trade_mode || 'sandbox').toLowerCase();
+    const tmEl  = document.getElementById('stat-trade-mode');
+    const tmCard = document.getElementById('stat-trade-mode-card');
+    tmEl.textContent = tm.charAt(0).toUpperCase() + tm.slice(1);
+    if (tm === 'live' || tm === 'all') {
+      tmEl.style.color = 'var(--red)';
+      tmCard.style.borderColor = 'var(--red)';
+      tmCard.title = 'Live trading is active — real orders will be placed';
+    } else {
+      tmEl.style.color = 'var(--amber)';
+      tmCard.style.borderColor = 'var(--border)';
+      tmCard.title = 'Sandbox / paper trading only';
+    }
+  }
+
+  // ── System status (circuit breaker / halt) ────────────────────────────────
+  if (ov && ov.system) {
+    const sysEl   = document.getElementById('stat-system');
+    const sysCard = document.getElementById('stat-system-card');
+    if (ov.system.circuit_broken) {
+      sysEl.textContent     = 'Circuit Broken';
+      sysEl.style.color     = 'var(--red)';
+      sysCard.style.borderColor = 'var(--red)';
+    } else if (ov.system.halted) {
+      sysEl.textContent     = 'Halted';
+      sysEl.style.color     = 'var(--amber)';
+      sysCard.style.borderColor = 'var(--amber)';
+    } else {
+      sysEl.textContent     = 'Normal';
+      sysEl.style.color     = 'var(--green)';
+      sysCard.style.borderColor = 'var(--border)';
+    }
+  }
+
+  // ── Active directives ─────────────────────────────────────────────────────
+  if (data.active_directives != null) {
+    const dEl   = document.getElementById('stat-directives');
+    const dCard = document.getElementById('stat-directives-card');
+    dEl.textContent = data.active_directives;
+    if (data.active_directives > 0) {
+      dEl.style.color = 'var(--blue)';
+      dCard.style.borderColor = 'var(--blue)';
+    } else {
+      dEl.style.color = 'var(--muted)';
+      dCard.style.borderColor = 'var(--border)';
+    }
+  }
+
+  // ── Topology + events ─────────────────────────────────────────────────────
   if (data.agents) {
     drawTopology(data.agents);
     const toggle = document.getElementById('topo-labels-toggle');
@@ -2848,42 +2953,104 @@ function renderRecentEvents(data) {
   const container = document.getElementById('events-list');
   const events = [];
 
-  // Collect heartbeat events from agents
-  if (data.agents) {
-    data.agents.forEach(a => {
-      if (a.last_seen_sec < 30) {
+  // ── System alerts (circuit breaker / halt) ────────────────────────────────
+  const sys = data.overview?.system;
+  if (sys) {
+    if (sys.circuit_broken) {
+      events.push({ time: 'now', body: '[CIRCUIT BROKEN] All automated trading halted', health: 'dead', priority: 0 });
+    } else if (sys.halted) {
+      events.push({ time: 'now', body: '[HALTED] System is paused by operator', health: 'degraded', priority: 0 });
+    }
+  }
+
+  // ── Recent order fills ────────────────────────────────────────────────────
+  if (data.trades) {
+    data.trades
+      .filter(t => t.event_type === 'fill')
+      .slice(0, 5)
+      .forEach(t => {
+        const dir  = (t.direction || '').toLowerCase() === 'long' ? 'BUY' : 'SELL';
+        const pnl  = t.pnl ? ` · P&L ${t.pnl >= 0 ? '+' : ''}$${(+t.pnl).toFixed(2)}` : '';
+        const acct = t.account ? ` [${t.account}]` : '';
         events.push({
-          time: formatAge(a.last_seen_sec) + ' ago',
-          body: `[heartbeat] ${a.name} — ${a.health}`,
-          health: a.health,
+          time:     fmtTs(t.ts),
+          body:     `[fill] ${dir} ${t.qty} ${t.ticker} @ $${(+t.price||0).toFixed(2)}${pnl}${acct}`,
+          health:   'fill',
+          priority: 1,
         });
-      }
+      });
+    // Rejected orders
+    data.trades
+      .filter(t => t.event_type === 'reject')
+      .slice(0, 3)
+      .forEach(t => {
+        events.push({
+          time:     fmtTs(t.ts),
+          body:     `[reject] ${t.ticker} — ${t.reject_reason || 'Rejected'}`,
+          health:   'dead',
+          priority: 1,
+        });
+      });
+  }
+
+  // ── Active directives notification ────────────────────────────────────────
+  if (data.active_directives > 0) {
+    events.push({
+      time: 'now',
+      body: `[directives] ${data.active_directives} active order directive${data.active_directives > 1 ? 's' : ''} pending execution`,
+      health: 'degraded',
+      priority: 1,
     });
   }
 
-  // Collect recent signals
+  // ── Recent signals ────────────────────────────────────────────────────────
   if (data.signals) {
-    data.signals.slice(0, 5).forEach(s => {
+    data.signals.slice(0, 4).forEach(s => {
       events.push({
-        time: fmtTs(s.ts),
-        body: `[signal] ${s.ticker} ${s.direction} conf=${s.confidence || '?'} from ${s.sender}`,
-        health: 'signal',
+        time:     fmtTs(s.ts),
+        body:     `[signal] ${s.ticker} ${s.direction} conf=${s.confidence || '?'} · ${s.sender}`,
+        health:   'signal',
+        priority: 2,
       });
     });
   }
 
-  // Sort by most recent (just render what we have)
-  const toShow = events.slice(0, 10);
+  // ── Recent heartbeats (only very fresh, to avoid noise) ───────────────────
+  if (data.agents) {
+    data.agents
+      .filter(a => a.last_seen_sec < 15 && a.health !== 'healthy')
+      .slice(0, 3)
+      .forEach(a => {
+        events.push({
+          time:     formatAge(a.last_seen_sec) + ' ago',
+          body:     `[agent] ${a.name} — ${a.health}`,
+          health:   a.health,
+          priority: 3,
+        });
+      });
+  }
+
+  // Sort: system alerts first, then by priority
+  events.sort((a, b) => (a.priority || 99) - (b.priority || 99));
+  const toShow = events.slice(0, 12);
 
   if (toShow.length === 0) {
     container.innerHTML = '<div class="empty-state">No recent events</div>';
     return;
   }
 
+  const _colorFor = h => ({
+    dead:     'var(--red)',
+    degraded: 'var(--amber)',
+    fill:     'var(--green)',
+    signal:   'var(--blue)',
+    healthy:  'var(--green)',
+  }[h] || 'var(--muted)');
+
   container.innerHTML = toShow.map(e => `
     <div class="event-item">
       <span class="event-time">${e.time}</span>
-      <span class="event-body">${e.body}</span>
+      <span class="event-body" style="color:${_colorFor(e.health)}">${e.body}</span>
     </div>
   `).join('');
 }
@@ -2892,92 +3059,101 @@ function renderRecentEvents(data) {
 // Topology Diagram
 // ══════════════════════════════════════════════════════════════════════════════
 const TOPO_NODES = [
-  { id: 'scraper-ovtlyr',   label: 'OVTLYR Scanner', x: 15,  y: 20,  group: 'scrapers' },
-  { id: 'scraper-wsb',      label: 'r/WSB',           x: 15,  y: 90,  group: 'scrapers' },
-  { id: 'scraper-seekalpha',label: 'Seeking Alpha',   x: 15,  y: 160, group: 'scrapers' },
-  { id: 'scraper-yahoo',    label: 'Yahoo Finance',   x: 15,  y: 230, group: 'scrapers' },
-  { id: 'aggregator',       label: 'Aggregator',      x: 200, y: 125, group: 'core'     },
-  { id: 'predictor',        label: 'Predictor',       x: 375, y: 80,  group: 'core'     },
-  { id: 'trader-equity',    label: 'Equity Trader',   x: 555, y: 40,  group: 'traders'  },
-  { id: 'trader-options',   label: 'Options Trader',  x: 555, y: 130, group: 'traders'  },
-  { id: 'review-agent',     label: 'Review Agent',    x: 735, y: 80,  group: 'review'   },
-  { id: 'scheduler',        label: 'Scheduler',       x: 15,  y: 310, group: 'infra'    },
-  { id: 'orchestrator',     label: 'Orchestrator',    x: 195, y: 310, group: 'infra'    },
-  { id: 'broker-gateway',   label: 'Broker Gateway',  x: 735, y: 200, group: 'brokers'  },
-  // MCP servers
-  { id: 'mcp-yahoo',        label: 'MCP Yahoo',        x: 15,  y: 375, group: 'mcp'      },
-  { id: 'mcp-alpaca',       label: 'MCP Alpaca',       x: 735, y: 310, group: 'mcp'      },
-  { id: 'mcp-tradingview',  label: 'MCP TradingView',  x: 555, y: 230, group: 'mcp'      },
-  { id: 'mcp-massive',         label: 'MCP Massive',        x: 280, y: 390, group: 'mcp'      },
-  { id: 'mcp-unusualwhales',   label: 'MCP Unusual Whales', x: 90,  y: 460, group: 'mcp'      },
-  { id: 'mcp-webull',          label: 'MCP Webull',         x: 735, y: 400, group: 'mcp'      },
-  // Chat agent
-  { id: 'chat-agent',       label: 'Chat Agent',       x: 930, y: 140, group: 'interface'},
+  // ── Scrapers (left column) ─────────────────────────────────────────────────
+  { id: 'scraper-ovtlyr',          label: 'OVTLYR Scanner',  x: 15,  y: 15,  group: 'scrapers' },
+  { id: 'scraper-wsb',             label: 'r/WSB',            x: 15,  y: 80,  group: 'scrapers' },
+  { id: 'scraper-seekalpha',       label: 'Seeking Alpha',    x: 15,  y: 145, group: 'scrapers' },
+  { id: 'scraper-yahoo',           label: 'Yahoo Finance',    x: 15,  y: 210, group: 'scrapers' },
+  { id: 'scraper-yahoo-sentiment', label: 'Yahoo Sentiment',  x: 15,  y: 275, group: 'scrapers' },
+  // ── Core pipeline ─────────────────────────────────────────────────────────
+  { id: 'aggregator',              label: 'Aggregator',       x: 200, y: 125, group: 'core'     },
+  { id: 'predictor',               label: 'Predictor',        x: 375, y: 80,  group: 'core'     },
+  // ── Traders ───────────────────────────────────────────────────────────────
+  { id: 'trader-equity',           label: 'Equity Trader',    x: 555, y: 40,  group: 'traders'  },
+  { id: 'trader-options',          label: 'Options Trader',   x: 555, y: 130, group: 'traders'  },
+  { id: 'directive-agent',         label: 'Directive Agent',  x: 555, y: 320, group: 'traders'  },
+  // ── Review & monitoring ───────────────────────────────────────────────────
+  { id: 'review-agent',            label: 'Review Agent',     x: 735, y: 80,  group: 'review'   },
+  { id: 'options-monitor',         label: 'Options Monitor',  x: 930, y: 260, group: 'review'   },
+  // ── Infrastructure ────────────────────────────────────────────────────────
+  { id: 'scheduler',               label: 'Scheduler',        x: 15,  y: 360, group: 'infra'    },
+  { id: 'orchestrator',            label: 'Orchestrator',     x: 195, y: 350, group: 'infra'    },
+  { id: 'broker-gateway',          label: 'Broker Gateway',   x: 735, y: 200, group: 'brokers'  },
+  // ── MCP servers ───────────────────────────────────────────────────────────
+  { id: 'mcp-yahoo',               label: 'MCP Yahoo',         x: 15,  y: 440, group: 'mcp'      },
+  { id: 'mcp-alpaca',              label: 'MCP Alpaca',         x: 735, y: 310, group: 'mcp'      },
+  { id: 'mcp-tradingview',         label: 'MCP TradingView',    x: 555, y: 230, group: 'mcp'      },
+  { id: 'mcp-massive',             label: 'MCP Massive',        x: 280, y: 450, group: 'mcp'      },
+  { id: 'mcp-unusualwhales',       label: 'MCP Unusual Whales', x: 90,  y: 515, group: 'mcp'      },
+  { id: 'mcp-webull',              label: 'MCP Webull',         x: 735, y: 405, group: 'mcp'      },
+  // ── Interface ─────────────────────────────────────────────────────────────
+  { id: 'chat-agent',              label: 'Chat Agent',         x: 930, y: 140, group: 'interface'},
 ];
 
 const NODE_W = 130, NODE_H = 38;
 
 const TOPO_EDGES = [
-  // Scheduler triggers all scrapers and the predictor
-  { from: 'scheduler',         to: 'scraper-ovtlyr',    label: 'scrape_ovtlyr',   color: '#6b7394', markerId: 'arrow-gray',   dashed: true  },
-  { from: 'scheduler',         to: 'scraper-wsb',       label: 'scrape_wsb',      color: '#6b7394', markerId: 'arrow-gray',   dashed: true  },
-  { from: 'scheduler',         to: 'scraper-seekalpha', label: 'scrape_seekalpha', color: '#6b7394', markerId: 'arrow-gray',   dashed: true  },
-  { from: 'scheduler',         to: 'scraper-yahoo',     label: 'scrape_yahoo',    color: '#6b7394', markerId: 'arrow-gray',   dashed: true  },
-  { from: 'scheduler',         to: 'predictor',         label: 'run_predictor',   color: '#6b7394', markerId: 'arrow-gray',   dashed: true  },
-  // Scrapers publish data
-  { from: 'scraper-ovtlyr',    to: 'predictor',         label: 'scanner.signals', color: '#3b82f6', markerId: 'arrow-blue',   dashed: false },
-  { from: 'scraper-wsb',       to: 'aggregator',        label: 'market.ticks',    color: '#8b5cf6', markerId: 'arrow-purple', dashed: false },
-  { from: 'scraper-seekalpha', to: 'aggregator',        label: 'market.ticks',    color: '#8b5cf6', markerId: 'arrow-purple', dashed: false },
-  { from: 'scraper-yahoo',     to: 'aggregator',        label: 'market.ticks',    color: '#8b5cf6', markerId: 'arrow-purple', dashed: false },
-  // Aggregator enriches and feeds predictor
-  { from: 'aggregator',        to: 'predictor',         label: 'intel',           color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
-  // Predictor sends signals to traders
-  { from: 'predictor',         to: 'trader-equity',     label: 'signals',         color: '#22c55e', markerId: 'arrow-green',  dashed: false },
-  { from: 'predictor',         to: 'trader-options',    label: 'signals',         color: '#22c55e', markerId: 'arrow-green',  dashed: false },
-  // Traders report to review agent
-  { from: 'trader-equity',     to: 'review-agent',      label: 'orders',          color: '#f59e0b', markerId: 'arrow-amber',  dashed: false },
-  { from: 'trader-options',    to: 'review-agent',      label: 'orders',          color: '#f59e0b', markerId: 'arrow-amber',  dashed: false },
-  // Orchestrator: all agents heartbeat in, orchestrator commands out
-  { from: 'scraper-ovtlyr',    to: 'orchestrator',      label: 'heartbeat',       color: '#334155', markerId: 'arrow-gray',   dashed: true  },
-  { from: 'scraper-wsb',       to: 'orchestrator',      label: 'heartbeat',       color: '#334155', markerId: 'arrow-gray',   dashed: true  },
-  { from: 'scraper-seekalpha', to: 'orchestrator',      label: 'heartbeat',       color: '#334155', markerId: 'arrow-gray',   dashed: true  },
-  { from: 'scraper-yahoo',     to: 'orchestrator',      label: 'heartbeat',       color: '#334155', markerId: 'arrow-gray',   dashed: true  },
-  { from: 'aggregator',        to: 'orchestrator',      label: 'heartbeat',       color: '#334155', markerId: 'arrow-gray',   dashed: true  },
-  { from: 'predictor',         to: 'orchestrator',      label: 'heartbeat',       color: '#334155', markerId: 'arrow-gray',   dashed: true  },
-  { from: 'trader-equity',     to: 'orchestrator',      label: 'heartbeat',       color: '#334155', markerId: 'arrow-gray',   dashed: true  },
-  { from: 'trader-options',    to: 'orchestrator',      label: 'heartbeat',       color: '#334155', markerId: 'arrow-gray',   dashed: true  },
-  { from: 'review-agent',      to: 'orchestrator',      label: 'heartbeat',       color: '#334155', markerId: 'arrow-gray',   dashed: true  },
-  { from: 'orchestrator',      to: 'scheduler',         label: 'system.commands', color: '#334155', markerId: 'arrow-gray',   dashed: true  },
-  // Traders send order commands to broker gateway
-  { from: 'trader-equity',     to: 'broker-gateway',    label: 'broker.commands', color: '#f97316', markerId: 'arrow-orange', dashed: false },
-  { from: 'trader-options',    to: 'broker-gateway',    label: 'broker.commands', color: '#f97316', markerId: 'arrow-orange', dashed: false },
-  // Broker gateway heartbeats
-  { from: 'broker-gateway',    to: 'orchestrator',      label: 'heartbeat',       color: '#334155', markerId: 'arrow-gray',   dashed: true  },
-  // MCP Massive heartbeat
-  { from: 'mcp-massive',       to: 'orchestrator',      label: 'heartbeat',       color: '#334155', markerId: 'arrow-gray',   dashed: true  },
-  // MCP Yahoo — used by scraper-yahoo
-  { from: 'mcp-yahoo',         to: 'scraper-yahoo',     label: 'mcp/tools',       color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
-  // MCP Alpaca — used by broker-gateway area
-  { from: 'mcp-alpaca',        to: 'broker-gateway',    label: 'mcp/tools',       color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
-  // MCP TradingView — confirms signals before traders place orders
-  { from: 'mcp-tradingview',   to: 'trader-equity',     label: 'tv confirm',      color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
-  { from: 'mcp-tradingview',   to: 'trader-options',    label: 'tv confirm',      color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
-  // Chat Agent queries all MCP servers
-  { from: 'chat-agent',        to: 'mcp-yahoo',         label: 'queries',         color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
-  { from: 'chat-agent',        to: 'mcp-alpaca',        label: 'queries',         color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
-  { from: 'chat-agent',        to: 'mcp-tradingview',   label: 'queries',         color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
-  { from: 'chat-agent',        to: 'mcp-massive',       label: 'queries',         color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
-  // MCP Massive — market data for predictor and aggregator
-  { from: 'mcp-massive',         to: 'predictor',         label: 'market data',    color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
-  { from: 'mcp-massive',         to: 'aggregator',        label: 'market data',    color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
-  // MCP Unusual Whales — options flow and dark pool data for predictor
-  { from: 'mcp-unusualwhales',   to: 'predictor',         label: 'options flow',   color: '#f97316', markerId: 'arrow-orange', dashed: false },
-  { from: 'chat-agent',          to: 'mcp-unusualwhales', label: 'queries',        color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
-  { from: 'mcp-unusualwhales',   to: 'orchestrator',      label: 'heartbeat',      color: '#334155', markerId: 'arrow-gray',   dashed: true  },
-  // MCP Webull — trading and real-time data for broker-gateway
-  { from: 'mcp-webull',          to: 'broker-gateway',    label: 'mcp/tools',      color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
-  { from: 'chat-agent',          to: 'mcp-webull',        label: 'queries',        color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
-  { from: 'mcp-webull',          to: 'orchestrator',      label: 'heartbeat',      color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  // ── Scheduler triggers ────────────────────────────────────────────────────
+  { from: 'scheduler',              to: 'scraper-ovtlyr',          label: 'scrape_ovtlyr',    color: '#6b7394', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'scheduler',              to: 'scraper-wsb',             label: 'scrape_wsb',       color: '#6b7394', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'scheduler',              to: 'scraper-seekalpha',       label: 'scrape_seekalpha', color: '#6b7394', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'scheduler',              to: 'scraper-yahoo',           label: 'scrape_yahoo',     color: '#6b7394', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'scheduler',              to: 'scraper-yahoo-sentiment', label: 'score_sentiment',  color: '#6b7394', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'scheduler',              to: 'predictor',               label: 'run_predictor',    color: '#6b7394', markerId: 'arrow-gray',   dashed: true  },
+  // ── Scrapers publish market data ──────────────────────────────────────────
+  { from: 'scraper-ovtlyr',         to: 'predictor',               label: 'scanner.signals',  color: '#3b82f6', markerId: 'arrow-blue',   dashed: false },
+  { from: 'scraper-wsb',            to: 'aggregator',              label: 'market.ticks',     color: '#8b5cf6', markerId: 'arrow-purple', dashed: false },
+  { from: 'scraper-seekalpha',      to: 'aggregator',              label: 'market.ticks',     color: '#8b5cf6', markerId: 'arrow-purple', dashed: false },
+  { from: 'scraper-yahoo',          to: 'aggregator',              label: 'market.ticks',     color: '#8b5cf6', markerId: 'arrow-purple', dashed: false },
+  { from: 'scraper-yahoo-sentiment',to: 'aggregator',              label: 'market.ticks',     color: '#8b5cf6', markerId: 'arrow-purple', dashed: false },
+  // ── Aggregator → Predictor ────────────────────────────────────────────────
+  { from: 'aggregator',             to: 'predictor',               label: 'intel',            color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
+  // ── Predictor → Traders ───────────────────────────────────────────────────
+  { from: 'predictor',              to: 'trader-equity',           label: 'signals',          color: '#22c55e', markerId: 'arrow-green',  dashed: false },
+  { from: 'predictor',              to: 'trader-options',          label: 'signals',          color: '#22c55e', markerId: 'arrow-green',  dashed: false },
+  // ── Traders → Review ─────────────────────────────────────────────────────
+  { from: 'trader-equity',          to: 'review-agent',            label: 'orders',           color: '#f59e0b', markerId: 'arrow-amber',  dashed: false },
+  { from: 'trader-options',         to: 'review-agent',            label: 'orders',           color: '#f59e0b', markerId: 'arrow-amber',  dashed: false },
+  // ── Traders / Directive → Broker Gateway ─────────────────────────────────
+  { from: 'trader-equity',          to: 'broker-gateway',          label: 'broker.commands',  color: '#f97316', markerId: 'arrow-orange', dashed: false },
+  { from: 'trader-options',         to: 'broker-gateway',          label: 'broker.commands',  color: '#f97316', markerId: 'arrow-orange', dashed: false },
+  { from: 'directive-agent',        to: 'broker-gateway',          label: 'broker.commands',  color: '#f97316', markerId: 'arrow-orange', dashed: false },
+  // ── Options Monitor → Broker Gateway (reads positions) ───────────────────
+  { from: 'options-monitor',        to: 'broker-gateway',          label: 'positions',        color: '#f97316', markerId: 'arrow-orange', dashed: false },
+  // ── Heartbeats → Orchestrator ─────────────────────────────────────────────
+  { from: 'scraper-ovtlyr',         to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'scraper-wsb',            to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'scraper-seekalpha',      to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'scraper-yahoo',          to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'scraper-yahoo-sentiment',to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'aggregator',             to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'predictor',              to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'trader-equity',          to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'trader-options',         to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'directive-agent',        to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'options-monitor',        to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'review-agent',           to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'broker-gateway',         to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'mcp-massive',            to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'mcp-unusualwhales',      to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'mcp-webull',             to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  { from: 'orchestrator',           to: 'scheduler',               label: 'system.commands',  color: '#334155', markerId: 'arrow-gray',   dashed: true  },
+  // ── MCP tool connections ──────────────────────────────────────────────────
+  { from: 'mcp-yahoo',              to: 'scraper-yahoo',           label: 'mcp/tools',        color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
+  { from: 'mcp-alpaca',             to: 'broker-gateway',          label: 'mcp/tools',        color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
+  { from: 'mcp-tradingview',        to: 'trader-equity',           label: 'tv confirm',       color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
+  { from: 'mcp-tradingview',        to: 'trader-options',          label: 'tv confirm',       color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
+  { from: 'mcp-massive',            to: 'predictor',               label: 'market data',      color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
+  { from: 'mcp-massive',            to: 'aggregator',              label: 'market data',      color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
+  { from: 'mcp-unusualwhales',      to: 'predictor',               label: 'options flow',     color: '#f97316', markerId: 'arrow-orange', dashed: false },
+  { from: 'mcp-webull',             to: 'broker-gateway',          label: 'mcp/tools',        color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
+  // ── Chat Agent queries ────────────────────────────────────────────────────
+  { from: 'chat-agent',             to: 'mcp-yahoo',               label: 'queries',          color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
+  { from: 'chat-agent',             to: 'mcp-alpaca',              label: 'queries',          color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
+  { from: 'chat-agent',             to: 'mcp-tradingview',         label: 'queries',          color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
+  { from: 'chat-agent',             to: 'mcp-massive',             label: 'queries',          color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
+  { from: 'chat-agent',             to: 'mcp-unusualwhales',       label: 'queries',          color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
+  { from: 'chat-agent',             to: 'mcp-webull',              label: 'queries',          color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
 ];
 
 function healthColor(health) {
@@ -4375,6 +4551,122 @@ function _renderBreadth(d) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// Market Overview Chart — SPY / QQQ daily bars + EMA 10/20/50
+// ══════════════════════════════════════════════════════════════════════════════
+let _mktChartInst  = null;
+let _mktActiveTicker = 'SPY';
+
+async function loadMarketBarsChart(ticker) {
+  _mktActiveTicker = ticker;
+
+  // Update tab button styles
+  ['SPY', 'QQQ'].forEach(t => {
+    const btn = document.getElementById(`mkt-btn-${t.toLowerCase()}`);
+    if (!btn) return;
+    if (t === ticker) {
+      btn.style.background  = 'var(--blue)';
+      btn.style.color       = '#fff';
+      btn.style.borderColor = 'var(--blue)';
+    } else {
+      btn.style.background  = 'transparent';
+      btn.style.color       = 'var(--muted)';
+      btn.style.borderColor = 'var(--border)';
+    }
+  });
+
+  const container   = document.getElementById('mkt-chart-container');
+  const placeholder = document.getElementById('mkt-chart-placeholder');
+  const meta        = document.getElementById('mkt-chart-meta');
+  if (!container) return;
+
+  placeholder.style.display = 'flex';
+  placeholder.textContent   = 'Loading…';
+  if (_mktChartInst) { try { _mktChartInst.remove(); } catch(_){} _mktChartInst = null; }
+  container.querySelectorAll('.mkt-tv-chart').forEach(el => el.remove());
+
+  // Ensure LightweightCharts is loaded (lazy CDN inject, shared with Charts page)
+  await new Promise(resolve => _ensureLwc(resolve));
+
+  try {
+    const data = await apiFetch(`/api/market/bars?ticker=${ticker}&days=120`);
+    const bars = (data.bars || []).filter(b => b.open && b.high && b.low && b.close);
+    if (!bars.length) {
+      placeholder.textContent = `No bar data for ${ticker}`;
+      return;
+    }
+
+    placeholder.style.display = 'none';
+    const closes = bars.map(b => b.close);
+    const times  = bars.map(b => b.time);
+
+    function toSeries(vals) {
+      return vals.map((v, i) => v != null ? { time: times[i], value: v } : null).filter(Boolean);
+    }
+
+    const LC = LightweightCharts;
+    const chartDiv = document.createElement('div');
+    chartDiv.className = 'mkt-tv-chart';
+    chartDiv.style.cssText = 'width:100%;height:300px';
+    container.appendChild(chartDiv);
+
+    const chart = LC.createChart(chartDiv, {
+      layout:   { background: { color: '#0a0e1a' }, textColor: '#94a3b8' },
+      grid:     { vertLines: { color: '#1e2a4a' }, horzLines: { color: '#1e2a4a' } },
+      crosshair:{ mode: LC.CrosshairMode.Normal },
+      rightPriceScale: { borderColor: '#1e2a4a' },
+      timeScale: { borderColor: '#1e2a4a', timeVisible: false, secondsVisible: false },
+      width:  chartDiv.clientWidth,
+      height: 300,
+    });
+    _mktChartInst = chart;
+    new ResizeObserver(() => chart.applyOptions({ width: chartDiv.clientWidth })).observe(chartDiv);
+
+    // Candlesticks
+    const cSeries = chart.addCandlestickSeries({
+      upColor:'#22c55e', downColor:'#ef4444',
+      borderUpColor:'#22c55e', borderDownColor:'#ef4444',
+      wickUpColor:'#22c55e', wickDownColor:'#ef4444',
+    });
+    cSeries.setData(bars);
+
+    // Volume histogram
+    const vSeries = chart.addHistogramSeries({
+      priceFormat: { type: 'volume' }, priceScaleId: 'vol',
+      scaleMargins: { top: 0.84, bottom: 0 },
+    });
+    vSeries.setData(bars.map(b => ({
+      time: b.time, value: b.volume,
+      color: b.close >= b.open ? 'rgba(34,197,94,.25)' : 'rgba(239,68,68,.25)',
+    })));
+
+    // EMA overlays
+    function addLine(vals, color, title) {
+      const s = chart.addLineSeries({ color, lineWidth: 1, title, lastValueVisible: true, priceLineVisible: false });
+      s.setData(toSeries(vals));
+    }
+    addLine(_calcEMA(closes, 10),  '#4ade80', 'EMA10');
+    addLine(_calcEMA(closes, 20),  '#3b82f6', 'EMA20');
+    addLine(_calcEMA(closes, 50),  '#f59e0b', 'EMA50');
+
+    chart.timeScale().fitContent();
+
+    // Update meta label
+    const last = bars[bars.length - 1];
+    const prev = bars[bars.length - 2];
+    if (last && prev && meta) {
+      const chg    = last.close - prev.close;
+      const chgPct = (chg / prev.close * 100).toFixed(2);
+      const clr    = chg >= 0 ? '#22c55e' : '#ef4444';
+      meta.innerHTML = `<span style="color:${clr};font-weight:700">${chg >= 0 ? '+' : ''}${chgPct}%</span>
+        <span style="margin-left:6px">$${last.close.toFixed(2)}</span>`;
+    }
+  } catch(e) {
+    placeholder.style.display = 'flex';
+    placeholder.textContent   = `Error: ${e.message}`;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Generic column drag / reorder  (shared by all tables)
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -5083,6 +5375,13 @@ function _renderUnifiedCard(acct, signalMap, sentMap, sectorMap) {
                     ?? (mv && costBasis ? mv - costBasis : qty * last - costBasis));
     const plCls  = pl >= 0 ? 'color:var(--green)' : 'color:var(--red)';
     const plStr  = (pl >= 0 ? '+' : '') + _fmtUsd(Math.abs(pl));
+    // P&L %: use broker-provided unrealized_plpc (Alpaca: decimal), else compute from cost basis
+    const rawPlpc = p.unrealized_plpc;
+    let plPct = rawPlpc != null ? parseFloat(rawPlpc) * 100
+                : (costBasis > 0 ? (pl / costBasis) * 100 : null);
+    const plPctStr = plPct != null
+      ? `<span style="${plCls};font-size:11px">${plPct >= 0 ? '+' : ''}${plPct.toFixed(2)}%</span>`
+      : '<span style="color:var(--dim)">—</span>';
     const side   = qty >= 0 ? 'sell' : 'buy_to_cover';
     const safeLabel = acct.label.replace(/'/g, "\\'");
 
@@ -5128,19 +5427,21 @@ function _renderUnifiedCard(acct, signalMap, sentMap, sectorMap) {
       <td><button class="btn btn-sm" style="padding:3px 8px;font-size:11px;background:rgba(99,102,241,.18);color:#a5b4fc;border:1px solid rgba(99,102,241,.3)" onclick="openLiquidateDialog('${sym}',${Math.abs(qty)},'${side}','${safeLabel}',${last})">Liquidate</button></td>
       <td style="font-size:11px;color:var(--muted);white-space:nowrap">${dateStr}</td>
       <td style="font-size:11px;color:var(--muted)">${daysStr}</td>
-      <td style="font-weight:700">${sym}<div style="font-size:10px;color:var(--muted);font-weight:400">${sector !== '—' ? sector : ''}</div></td>
+      <td style="font-weight:700">${sym}</td>
+      <td style="font-size:11px;color:var(--muted);max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${sector !== '—' ? sector : ''}">${sector !== '—' ? sector : '<span style="color:var(--dim)">—</span>'}</td>
       <td>${cost > 0 ? '$'+cost.toFixed(2) : '—'}</td>
       <td>${qty.toLocaleString()}</td>
       <td>${last > 0 ? '$'+last.toFixed(2) : '—'}</td>
       <td>${_fmtUsd(mv)}</td>
       <td style="${plCls}">${plStr}</td>
+      <td>${plPctStr}</td>
       <td style="border-left:2px solid var(--border)">${sigCell}</td>
       <td style="min-width:110px">${scoreCell}</td>
       <td style="white-space:nowrap">${fgBadgeHtml}</td>
       <td>${fgSparkHtml}</td>
       <td style="font-size:11px;color:var(--muted)">${ageStr}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="14" class="empty-state" style="padding:12px">No open positions</td></tr>`;
+  }).join('') || `<tr><td colspan="16" class="empty-state" style="padding:12px">No open positions</td></tr>`;
 
   const heatmap = _renderAccountHeatmap(equityPositions, acctKey);
   const bodyId = `unified-card-${acctKey}`;
@@ -5181,11 +5482,13 @@ function _renderUnifiedCard(acct, signalMap, sentMap, sectorMap) {
           <th>Date</th>
           <th>Days</th>
           <th>Symbol</th>
+          <th>Sector</th>
           <th>Avg Entry</th>
           <th>Qty</th>
           <th>Current Price</th>
           <th>Market Value</th>
-          <th>P&amp;L</th>
+          <th>P&amp;L $</th>
+          <th title="Unrealized return as % of cost basis">P&amp;L %</th>
           <th style="border-left:2px solid var(--border)">Signal</th>
           <th title="OVTLYR conviction score (0–100)">Confidence</th>
           <th>Fear &amp; Greed</th>
@@ -7436,7 +7739,7 @@ function _ensureLwc(cb) {
   const s = document.createElement('script');
   s.src = 'https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js';
   s.onload = cb;
-  s.onerror = () => { document.getElementById('chart-status').textContent = 'Failed to load charting library'; };
+  s.onerror = () => { const el = document.getElementById('chart-status'); if (el) el.textContent = 'Failed to load charting library'; };
   document.head.appendChild(s);
 }
 
@@ -10830,11 +11133,7 @@ async function loadDividendPage(forceRefresh = false) {
     _divData = holdings;
     _divForecast = forecast;
     _divActiveAccount = '';
-    _divRenderStats(holdings.summary);
-    _divRenderAccountCards(holdings.accounts || []);
-    _divRenderHoldings(holdings.accounts || []);
-    _divRenderBar(forecast.monthly || []);
-    _divRenderPies(forecast);
+    _divApplyFilter();
     _divRenderHistory(history.records || []);
     document.getElementById('div-status').textContent = `Updated ${new Date().toLocaleTimeString()}`;
   } catch(e) {
@@ -10913,18 +11212,7 @@ function _divRenderAccountCards(accounts) {
 function _divSelectAccount(label) {
   _divActiveAccount = (_divActiveAccount === label) ? '' : label;
   if (!_divData) return;
-  const accounts = _divActiveAccount
-    ? (_divData.accounts||[]).filter(a => a.label === _divActiveAccount)
-    : (_divData.accounts||[]);
-  _divRenderAccountCards(_divData.accounts||[]);
-  _divRenderHoldings(accounts);
-  // Re-render bar chart filtered to the selected account's symbols
-  if (_divForecast) {
-    const months = _divActiveAccount
-      ? _divFilterMonthlyByAccount(_divForecast.monthly || [], _divActiveAccount)
-      : (_divForecast.monthly || []);
-    _divRenderBar(months);
-  }
+  _divApplyFilter();
 }
 
 function _divFilterMonthlyByAccount(months, accountLabel) {
@@ -10937,12 +11225,109 @@ function _divFilterMonthlyByAccount(months, accountLabel) {
   });
 }
 
+function _divExcludePaper() {
+  return document.getElementById('div-exclude-paper')?.checked || false;
+}
+
+function _divFilterAccounts(accounts) {
+  let result = accounts || [];
+  if (_divExcludePaper()) {
+    result = result.filter(a => {
+      const m = (a.mode || '').toLowerCase();
+      const l = (a.label || '').toLowerCase();
+      return m !== 'paper' && m !== 'sandbox' && !l.includes('paper') && !l.includes('sandbox');
+    });
+  }
+  if (_divActiveAccount) {
+    result = result.filter(a => a.label === _divActiveAccount);
+  }
+  return result;
+}
+
+// Recompute forecast aggregates from a filtered set of accounts client-side,
+// so that pies, bar chart, and stats all reflect the active filter.
+function _divComputeFromAccounts(accounts) {
+  const positions = [];
+  for (const a of accounts) {
+    for (const p of (a.positions || [])) {
+      if (p.is_dividend_payer) positions.push({ ...p, _account_label: a.label, _display_name: a.display_name || a.label });
+    }
+  }
+
+  // by_ticker
+  const tickerTotals = {}, tickerYield = {};
+  for (const p of positions) {
+    tickerTotals[p.symbol] = (tickerTotals[p.symbol] || 0) + (p.projected_annual_income || 0);
+    const fyp = parseFloat(p.forward_yield_pct || 0);
+    if (fyp > (tickerYield[p.symbol] || 0)) tickerYield[p.symbol] = fyp;
+  }
+  const totalAnnual = Object.values(tickerTotals).reduce((s, v) => s + v, 0) || 1;
+  const by_ticker = Object.entries(tickerTotals)
+    .map(([s, v]) => ({ symbol: s, annual_income: v, forward_yield_pct: tickerYield[s] || 0 }))
+    .sort((a, b) => b.annual_income - a.annual_income);
+
+  // by_sector
+  const sectorTotals = {};
+  for (const p of positions) {
+    const sec = p.sector || 'Unknown';
+    sectorTotals[sec] = (sectorTotals[sec] || 0) + (p.projected_annual_income || 0);
+  }
+  const by_sector = Object.entries(sectorTotals)
+    .map(([s, v]) => ({ sector: s, annual_income: v }))
+    .sort((a, b) => b.annual_income - a.annual_income);
+
+  // by_account
+  const acctTotals = {};
+  for (const p of positions) {
+    const lbl = p._account_label;
+    if (!acctTotals[lbl]) acctTotals[lbl] = { label: lbl, display_name: p._display_name, annual_income: 0 };
+    acctTotals[lbl].annual_income += (p.projected_annual_income || 0);
+  }
+  const by_account = Object.values(acctTotals).sort((a, b) => b.annual_income - a.annual_income);
+
+  // by_yield
+  const by_yield = Object.entries(tickerYield)
+    .filter(([, v]) => v > 0)
+    .map(([s, v]) => ({ symbol: s, forward_yield_pct: v }))
+    .sort((a, b) => b.forward_yield_pct - a.forward_yield_pct)
+    .slice(0, 12);
+
+  // monthly — filter existing server monthly data to only symbols in these accounts
+  const symbols = new Set(positions.map(p => p.symbol));
+  const monthly = (_divForecast?.monthly || []).map(m => {
+    const bd = (m.breakdown || []).filter(b => symbols.has(b.symbol));
+    return { ...m, projected_income: bd.reduce((s, b) => s + b.income, 0), breakdown: bd };
+  });
+
+  // summary stats
+  const totalValue  = accounts.reduce((s, a) => s + (a.positions||[]).reduce((s2, p) => s2 + (p.market_value||0), 0), 0);
+  const totalPayers = new Set(positions.map(p => p.symbol)).size;
+  const annIncome   = Object.values(tickerTotals).reduce((s, v) => s + v, 0);
+
+  return { by_ticker, by_sector, by_account, by_yield, monthly, totalValue, totalPayers, annIncome,
+           totalHoldings: accounts.reduce((s, a) => s + (a.positions||[]).length, 0) };
+}
+
 function _divApplyFilter() {
   if (!_divData) return;
-  const accounts = _divActiveAccount
-    ? (_divData.accounts||[]).filter(a => a.label === _divActiveAccount)
-    : (_divData.accounts||[]);
-  _divRenderHoldings(accounts);
+  const allAccounts = _divData.accounts || [];
+  const filtered    = _divFilterAccounts(allAccounts);
+  const computed    = _divComputeFromAccounts(filtered);
+
+  _divRenderAccountCards(filtered);
+  _divRenderHoldings(filtered);
+  _divRenderBar(computed.monthly);
+  _divRenderPies(computed);
+
+  // Update stats from filtered data
+  const fwdYield = computed.totalValue > 0 ? computed.annIncome / computed.totalValue * 100 : 0;
+  _divRenderStats({
+    annual_projected_income:        computed.annIncome,
+    forward_yield_on_portfolio_pct: fwdYield,
+    dividend_payers:                computed.totalPayers,
+    total_holdings:                 computed.totalHoldings,
+    total_portfolio_value:          computed.totalValue,
+  });
 }
 
 function _divFreqLabel(f) {
@@ -12160,7 +12545,7 @@ function _renderOptlogAccounts(accounts) {
       <th style="padding:8px 12px;text-align:right">Positions</th>
       <th style="padding:8px 12px;text-align:right">Win Rate</th>
       <th style="padding:8px 12px;text-align:right">Avg DIT</th>
-      <th style="padding:8px 12px;text-align:right">Cap Efficiency</th>
+      <th style="padding:8px 12px;text-align:right" title="Return on Capital: realized P&L ÷ closed cost basis">ROC %</th>
       <th style="padding:8px 12px;text-align:right">Total P&amp;L</th>
     </tr></thead>
     <tbody>${accounts.map(a => {
@@ -12232,7 +12617,7 @@ function _renderOptlogTree(trades) {
     if (!basis) return '';
     const ce = Math.round(pnl / basis * 1000) / 10;
     const c  = ce >= 0 ? '#22c55e' : '#ef4444';
-    return `<span style="background:${c}22;color:${c};border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700">cap eff ${ce >= 0 ? '+' : ''}${ce}%</span>`;
+    return `<span style="background:${c}22;color:${c};border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700" title="Return on Capital">ROC ${ce >= 0 ? '+' : ''}${ce}%</span>`;
   }
 
   let html = '';
@@ -12242,7 +12627,8 @@ function _renderOptlogTree(trades) {
       for (const positions of Object.values(acTickers))
         for (const p of positions) {
           if (p.realized_pnl !== null) brkPnl += p.realized_pnl;
-          if (p.cost_basis)   brkBasis += p.cost_basis;
+          // Only closed trades contribute to capital efficiency denominator
+          if (p.cost_basis && p.status !== 'active') brkBasis += p.cost_basis;
           if (p.days_in_trade != null && p.status !== 'active') { brkDitSum += p.days_in_trade; brkDitCount++; }
         }
     const brkPnlColor = brkPnl >= 0 ? '#22c55e' : '#ef4444';
