@@ -14,6 +14,8 @@ volumes:
   prometheus-data:
   grafana-data:
   webull-token:
+  caddy-data:      # Let's Encrypt certs + ACME account
+  caddy-config:    # Caddy runtime config
 
 services:
 
@@ -586,6 +588,33 @@ services:
 
   # ── Command Center WebUI ────────────────────────────────────────────────────
 
+  caddy:
+    image: docker.io/caddy:2-alpine
+    container_name: ot-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"     # HTTP → HTTPS redirect
+      - "443:443"   # HTTPS (Let's Encrypt cert)
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN:-localhost}
+      ACME_EMAIL:   ${ACME_EMAIL:-}
+    env_file: [.env]
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+      - ./logs/caddy:/var/log/caddy
+    networks:
+      trading-net:
+        ipv4_address: 10.89.0.200
+    depends_on:
+      - webui
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   webui:
     build:
       context: ./python
@@ -601,6 +630,8 @@ services:
       WEBUI_TOKEN: ${WEBUI_TOKEN:-opentrader}
       TIMEZONE: America/New_York
       ENV_FILE_PATH: /app/.env
+      CADDY_ADMIN_URL: "http://ot-caddy:2019"
+      CADDY_DOMAIN: ${CADDY_DOMAIN:-}
     env_file: [.env]
     volumes:
       - /run/user/1003/podman/podman.sock:/var/run/podman.sock:ro
@@ -611,6 +642,7 @@ services:
       - ./python/webui/main.py:/app/webui/main.py # live-reload backend without rebuild
       - ./python/webui/backtest_runner.py:/app/webui/backtest_runner.py # live-reload backtest engine
       - ./VERSION:/app/VERSION:ro               # expose version file for sidebar display
+      - caddy-data:/caddy-data:ro              # read cert metadata from Caddy volume
     networks: [trading-net]
     depends_on:
       redis:

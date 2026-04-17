@@ -4452,6 +4452,204 @@ async def save_risk_controls_api(body: dict, token: str = ""):
     return {"ok": True, **controls}
 
 
+# ── SSL / TLS (Caddy) ─────────────────────────────────────────────────────────
+
+CADDY_ADMIN_URL = os.getenv("CADDY_ADMIN_URL", "http://ot-caddy:2019")
+_CADDY_CERT_ROOT = "/caddy-data/caddy/certificates"
+_ACME_DIR        = "acme-v02.api.letsencrypt.org-directory"
+
+
+def _parse_cert_file(cert_path: str) -> dict:
+    """
+    Parse a PEM certificate file using the openssl CLI.
+    Returns expiry ISO string, days remaining, subject CN, and issuer O.
+    Falls back to empty dict if openssl is unavailable or cert not found.
+    """
+    import subprocess, re
+    from pathlib import Path
+    from datetime import datetime, timezone
+
+    if not Path(cert_path).exists():
+        return {}
+    try:
+        r = subprocess.run(
+            ["openssl", "x509", "-in", cert_path, "-noout",
+             "-enddate", "-startdate", "-subject", "-issuer"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode != 0:
+            return {}
+        out = r.stdout
+        def _field(key):
+            m = re.search(rf"{key}=(.+)", out)
+            return m.group(1).strip() if m else ""
+
+        not_after  = _field("notAfter")
+        not_before = _field("notBefore")
+        subject    = _field("CN")
+        issuer_o   = _field("O")  # first O= match (could be in subject or issuer)
+
+        # Parse "Apr 17 12:00:00 2026 GMT"
+        def _parse_dt(s):
+            for fmt in ("%b %d %H:%M:%S %Y %Z", "%b  %d %H:%M:%S %Y %Z"):
+                try:
+                    return datetime.strptime(s.strip(), fmt).replace(tzinfo=timezone.utc)
+                except ValueError:
+                    continue
+            return None
+
+        expiry = _parse_dt(not_after)
+        issued = _parse_dt(not_before)
+        now    = datetime.now(timezone.utc)
+        days   = (expiry - now).days if expiry else None
+
+        # Get issuer O specifically (second O= occurrence is usually issuer)
+        issuer_matches = re.findall(r"O\s*=\s*([^,\n/]+)", out)
+        issuer_name = issuer_matches[-1].strip() if issuer_matches else issuer_o
+
+        return {
+            "expiry":         expiry.isoformat() if expiry else None,
+            "issued_at":      issued.isoformat() if issued else None,
+            "days_remaining": days,
+            "subject":        subject,
+            "issuer":         issuer_name,
+        }
+    except Exception as e:
+        log.warning("ssl.cert_parse_failed", error=str(e))
+        return {}
+
+
+@app.get("/api/ssl/status")
+async def get_ssl_status(token: str = ""):
+    """
+    Return SSL/TLS status: Caddy health, certificate expiry, configured domain,
+    and pipeline encryption posture for Redis/PostgreSQL/MCP.
+    """
+    check_token(token)
+
+    domain      = os.getenv("CADDY_DOMAIN", "")
+    caddy_up    = False
+    cert_info   = {}
+
+    # 1. Check Caddy admin API
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(
+                f"{CADDY_ADMIN_URL}/config/",
+                timeout=aiohttp.ClientTimeout(total=3),
+            ) as r:
+                caddy_up = (r.status == 200)
+    except Exception:
+        pass
+
+    # 2. Read cert file from mounted Caddy data volume
+    if domain and domain not in ("localhost", ""):
+        cert_path = f"{_CADDY_CERT_ROOT}/{_ACME_DIR}/{domain}/{domain}.crt"
+        cert_info = _parse_cert_file(cert_path)
+        # Fallback: staging CA path
+        if not cert_info:
+            staging = "acme-staging-v02.api.letsencrypt.org-directory"
+            cert_path_staging = f"{_CADDY_CERT_ROOT}/{staging}/{domain}/{domain}.crt"
+            cert_info = _parse_cert_file(cert_path_staging)
+
+    return {
+        "caddy_running":   caddy_up,
+        "domain":          domain,
+        "cert_valid":      bool(cert_info.get("expiry")),
+        "expiry":          cert_info.get("expiry"),
+        "issued_at":       cert_info.get("issued_at"),
+        "days_remaining":  cert_info.get("days_remaining"),
+        "subject":         cert_info.get("subject", domain),
+        "issuer":          cert_info.get("issuer", ""),
+        "auto_renew":      True,           # Caddy always auto-renews
+        # Pipeline encryption posture
+        "pipeline": {
+            "webui_https":   caddy_up and bool(cert_info.get("expiry")),
+            "redis_tls":     False,        # internal network only — TLS not yet enabled
+            "postgres_tls":  False,        # internal network only — TLS not yet enabled
+            "mcp_tls":       False,        # internal Podman network (10.89.0.0/24)
+        },
+    }
+
+
+@app.post("/api/ssl/configure")
+async def configure_ssl(body: dict, token: str = ""):
+    """
+    Save CADDY_DOMAIN and ACME_EMAIL to .env and reload Caddy config.
+    Caddy will automatically obtain a Let's Encrypt certificate on next request.
+    """
+    check_token(token)
+    domain = str(body.get("domain", "")).strip().lower()
+    email  = str(body.get("email", "")).strip()
+
+    if not domain:
+        raise HTTPException(status_code=400, detail="domain is required")
+
+    # Write domain + email to .env file
+    env_path = os.getenv("ENV_FILE_PATH", "/app/.env")
+    try:
+        lines = []
+        replaced_domain = replaced_email = False
+        if os.path.exists(env_path):
+            with open(env_path) as f:
+                for line in f:
+                    if line.startswith("CADDY_DOMAIN="):
+                        lines.append(f"CADDY_DOMAIN={domain}\n"); replaced_domain = True
+                    elif line.startswith("ACME_EMAIL=") and email:
+                        lines.append(f"ACME_EMAIL={email}\n"); replaced_email = True
+                    else:
+                        lines.append(line)
+        if not replaced_domain:
+            lines.append(f"CADDY_DOMAIN={domain}\n")
+        if not replaced_email and email:
+            lines.append(f"ACME_EMAIL={email}\n")
+        with open(env_path, "w") as f:
+            f.writelines(lines)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to write .env: {e}")
+
+    # Update runtime env so status endpoint reflects new domain immediately
+    os.environ["CADDY_DOMAIN"] = domain
+    if email:
+        os.environ["ACME_EMAIL"] = email
+
+    # Signal Caddy to reload its config (picks up new CADDY_DOMAIN env var)
+    reloaded = False
+    try:
+        import subprocess
+        r = subprocess.run(
+            ["podman", "exec", "ot-caddy", "caddy", "reload",
+             "--config", "/etc/caddy/Caddyfile"],
+            capture_output=True, timeout=10,
+        )
+        reloaded = (r.returncode == 0)
+    except Exception:
+        pass
+
+    return {"ok": True, "domain": domain, "email": email, "caddy_reloaded": reloaded}
+
+
+@app.post("/api/ssl/renew")
+async def force_ssl_renew(token: str = ""):
+    """
+    Force immediate certificate renewal by reloading Caddy.
+    Caddy will re-check and renew the cert if it is within 30 days of expiry.
+    """
+    check_token(token)
+    try:
+        import subprocess
+        r = subprocess.run(
+            ["podman", "exec", "ot-caddy", "caddy", "reload",
+             "--config", "/etc/caddy/Caddyfile"],
+            capture_output=True, timeout=15,
+        )
+        if r.returncode == 0:
+            return {"ok": True, "message": "Caddy reloaded — renewal will complete in the background"}
+        return {"ok": False, "message": r.stderr.decode().strip() or "Caddy reload failed"}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
 # ── Trade Directives ──────────────────────────────────────────────────────────
 
 _DIRECTIVES_KEY = "trade:directives"

@@ -1,0 +1,53 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# OpenTrader — Caddyfile
+# Caddy handles TLS automatically via Let's Encrypt (ACME).
+#
+# Required env vars (set in .env):
+#   CADDY_DOMAIN  — your public domain, e.g. trading.example.com
+#   ACME_EMAIL    — contact email for Let's Encrypt certificate notices
+#
+# If CADDY_DOMAIN is not set, Caddy serves on localhost with a self-signed cert.
+# ══════════════════════════════════════════════════════════════════════════════
+
+{
+    # Expose admin API on internal network only (used by webui for cert status)
+    admin 0.0.0.0:2019
+
+    # Let's Encrypt contact email
+    email {$ACME_EMAIL:noreply@localhost}
+
+    # Use Let's Encrypt production CA (switch to staging for testing)
+    # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$CADDY_DOMAIN:localhost} {
+    # Reverse-proxy all traffic to the webui container
+    reverse_proxy ot-webui:8080 {
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Real-IP {remote_host}
+        health_uri /api/ping
+        health_interval 30s
+    }
+
+    # Compress responses
+    encode gzip
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    # Access log
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 50mb
+            roll_keep 5
+        }
+        format json
+    }
+}

@@ -3,6 +3,15 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.59] - 2026-04-17
+
+### Added
+- **SSL / TLS management page** (Platform → SSL / TLS): cert status cards (Caddy health, validity, days until expiry, issuer, auto-renew), domain + ACME email configuration form, pipeline encryption status panel (web portal, Redis, PostgreSQL, MCP), Force Renewal action, and step-by-step setup guide
+- **Caddy reverse proxy** (`ot-caddy` service in `compose.yml`): listens on ports 80/443, auto-obtains Let's Encrypt certificate for `CADDY_DOMAIN`, redirects HTTP→HTTPS, adds HSTS + security headers, gzip compression, access log rotation
+- **`config/Caddyfile`**: template using `$CADDY_DOMAIN` / `$ACME_EMAIL` env vars; admin API on port 2019 for status queries; upstream health-check on `/api/ping`
+- **API endpoints**: `GET /api/ssl/status` (Caddy health + cert file parse via openssl), `POST /api/ssl/configure` (writes domain/email to .env, reloads Caddy), `POST /api/ssl/renew` (force renewal via caddy reload)
+- **`caddy-data` / `caddy-config` volumes** added to compose; `caddy-data` mounted read-only into webui container for cert file inspection; `CADDY_ADMIN_URL` env var wired to webui
+
 ## [3.5.58] - 2026-04-17
 
 ### Added

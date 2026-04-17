@@ -347,6 +347,10 @@ select option{background:var(--surface2)}
         <span class="nav-dot" style="background:var(--amber)"></span>
         System
       </div>
+      <div class="nav-item" onclick="navigate('page-platform-ssl')" data-page="page-platform-ssl">
+        <span class="nav-dot" style="background:var(--teal)"></span>
+        SSL / TLS
+      </div>
     </div>
   </nav>
   <div class="sidebar-footer">
@@ -671,6 +675,116 @@ select option{background:var(--surface2)}
         </div>
       </div>
     </div>
+
+    <!-- ════════════════════════════════════════
+         PAGE: SSL / TLS
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-platform-ssl">
+
+      <!-- Status cards row -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:20px" id="ssl-stat-cards">
+        <div class="card">
+          <div class="card-body" style="padding:14px 16px">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Caddy Status</div>
+            <div id="ssl-caddy-status" style="font-size:15px;font-weight:600;color:var(--dim)">—</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-body" style="padding:14px 16px">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Certificate</div>
+            <div id="ssl-cert-status" style="font-size:15px;font-weight:600;color:var(--dim)">—</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-body" style="padding:14px 16px">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Expires In</div>
+            <div id="ssl-expiry-days" style="font-size:15px;font-weight:600;color:var(--dim)">—</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-body" style="padding:14px 16px">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Issuer</div>
+            <div id="ssl-issuer" style="font-size:13px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">—</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-body" style="padding:14px 16px">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Auto-Renew</div>
+            <div id="ssl-autorenew" style="font-size:15px;font-weight:600;color:var(--dim)">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Domain configuration -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <span class="card-title">Domain Configuration</span>
+          <button class="btn btn-ghost btn-sm" onclick="loadSslPage()">&#8635; Refresh</button>
+        </div>
+        <div class="card-body" style="padding:16px">
+          <p style="font-size:12px;color:var(--muted);margin-bottom:14px">
+            Caddy automatically obtains and renews a Let's Encrypt certificate for your domain.
+            The domain must be publicly resolvable and ports 80/443 must be open.
+          </p>
+          <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;max-width:700px">
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Domain</label>
+              <input id="ssl-domain-input" type="text" class="input-field"
+                placeholder="trading.example.com" style="width:100%">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">ACME Contact Email</label>
+              <input id="ssl-email-input" type="email" class="input-field"
+                placeholder="admin@example.com" style="width:100%">
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="sslConfigure()" style="white-space:nowrap">Save &amp; Apply</button>
+          </div>
+          <div id="ssl-configure-status" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
+        </div>
+      </div>
+
+      <!-- Pipeline encryption status -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><span class="card-title">Pipeline Encryption</span></div>
+        <div class="card-body" style="padding:16px">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px" id="ssl-pipeline-grid">
+            <!-- populated by JS -->
+          </div>
+          <p style="font-size:11px;color:var(--muted);margin-top:14px;line-height:1.6">
+            Redis and PostgreSQL run on the internal Podman network (<code>10.89.0.0/24</code>).
+            Traffic never leaves the host — enabling TLS on these services is optional but
+            can be done by passing TLS flags to Redis and <code>sslmode=require</code> to PostgreSQL.
+          </p>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="card">
+        <div class="card-header"><span class="card-title">Certificate Actions</span></div>
+        <div class="card-body" style="padding:16px">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-ghost btn-sm" onclick="sslForceRenew()" id="ssl-renew-btn">&#8635; Force Renewal</button>
+            <span style="font-size:11px;color:var(--muted)">
+              Caddy auto-renews 30 days before expiry. Use Force Renewal only if the cert is in an error state.
+            </span>
+          </div>
+          <div id="ssl-renew-status" style="margin-top:10px;font-size:12px;color:var(--muted)"></div>
+
+          <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+            <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:8px">Quick Setup Guide</div>
+            <ol style="font-size:11px;color:var(--muted);line-height:2;margin:0;padding-left:18px">
+              <li>Point your domain's A record to this server's public IP</li>
+              <li>Ensure ports <strong>80</strong> and <strong>443</strong> are open in your firewall</li>
+              <li>Enter the domain and contact email above and click <strong>Save &amp; Apply</strong></li>
+              <li>Start Caddy: <code style="background:var(--surface-2);padding:1px 5px;border-radius:3px">podman-compose up -d caddy</code></li>
+              <li>Caddy will obtain the Let's Encrypt certificate automatically on first HTTPS request</li>
+              <li>The webui will be accessible at <code style="background:var(--surface-2);padding:1px 5px;border-radius:3px">https://&lt;your-domain&gt;</code></li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /page-platform-ssl -->
 
     <!-- ════════════════════════════════════════
          PAGE: Configuration
@@ -2638,6 +2752,7 @@ const PAGE_TITLES = {
   'page-platform-logs':      'Logs',
   'page-platform-scheduler': 'Scheduler',
   'page-platform-system':    'System',
+  'page-platform-ssl':       'SSL / TLS',
   'page-platform-config':    'Configuration',
   'page-trading-dashboard':  'Trading Dashboard',
   'page-trading-unified':    'Active Positions',
@@ -2760,6 +2875,7 @@ function navigate(pageId) {
     case 'page-platform-agents':    loadAgentsPage();    break;
     case 'page-platform-scheduler': _initSchedThead(); loadSchedulerPage(); break;
     case 'page-platform-system':    _ctRenderThead();  loadSystemPage();   break;
+    case 'page-platform-ssl':       loadSslPage();       break;
     case 'page-platform-config':    loadConfigPage();    break;
     case 'page-trading-dashboard':  _initTdHeaders(); loadOvtlyrMarketSignals(); ovtlyrSelectList(_ovtlyrCurrentList); loadTotalPositions(); _loadTdTradeStats(); _refreshBreadth(); loadMarketBarsChart('SPY'); break;
     case 'page-trading-unified':    loadUnifiedPositions(); break;
@@ -6302,6 +6418,139 @@ async function saveSysSettings() {
     });
     toast('success', 'System Settings', 'Saved to .env');
   } catch(e) { toast('error', 'Save Failed', e.message); }
+}
+
+// ── SSL / TLS ─────────────────────────────────────────────────────────────────
+
+async function loadSslPage() {
+  // Reset cards to loading state
+  ['ssl-caddy-status','ssl-cert-status','ssl-expiry-days','ssl-issuer','ssl-autorenew']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '…'; });
+
+  try {
+    const token = getToken();
+    const d = await apiFetch(`/api/ssl/status?token=${encodeURIComponent(token)}`);
+
+    // Caddy running
+    const caddyEl = document.getElementById('ssl-caddy-status');
+    if (d.caddy_running) {
+      caddyEl.textContent = 'Running';
+      caddyEl.style.color = 'var(--green)';
+    } else {
+      caddyEl.textContent = 'Offline';
+      caddyEl.style.color = 'var(--red)';
+    }
+
+    // Certificate validity
+    const certEl = document.getElementById('ssl-cert-status');
+    if (d.cert_valid) {
+      certEl.textContent = d.subject || d.domain || 'Valid';
+      certEl.style.color = 'var(--green)';
+    } else if (d.domain && d.domain !== 'localhost' && d.domain !== '') {
+      certEl.textContent = 'Pending';
+      certEl.style.color = 'var(--amber)';
+    } else {
+      certEl.textContent = 'Not configured';
+      certEl.style.color = 'var(--dim)';
+    }
+
+    // Days remaining
+    const daysEl = document.getElementById('ssl-expiry-days');
+    if (d.days_remaining != null) {
+      const days = d.days_remaining;
+      daysEl.textContent = `${days}d`;
+      daysEl.style.color = days > 30 ? 'var(--green)' : days > 7 ? 'var(--amber)' : 'var(--red)';
+    } else {
+      daysEl.textContent = '—';
+      daysEl.style.color = 'var(--dim)';
+    }
+
+    // Issuer
+    const issuerEl = document.getElementById('ssl-issuer');
+    issuerEl.textContent = d.issuer || (d.cert_valid ? 'Let\'s Encrypt' : '—');
+    issuerEl.style.color = d.issuer ? 'var(--text)' : 'var(--dim)';
+
+    // Auto-renew
+    const arEl = document.getElementById('ssl-autorenew');
+    arEl.textContent = d.auto_renew ? 'Enabled' : 'Disabled';
+    arEl.style.color = d.auto_renew ? 'var(--green)' : 'var(--red)';
+
+    // Populate domain/email inputs if not yet filled
+    const domainInput = document.getElementById('ssl-domain-input');
+    const emailInput  = document.getElementById('ssl-email-input');
+    if (d.domain && !domainInput.value) domainInput.value = d.domain;
+
+    // Pipeline encryption grid
+    const pipelineItems = [
+      { label: 'Web Portal (HTTPS)', key: 'webui_https',  note: 'Caddy + Let\'s Encrypt' },
+      { label: 'Redis Streams',      key: 'redis_tls',    note: 'Internal network (10.89.0.0/24)' },
+      { label: 'PostgreSQL',         key: 'postgres_tls', note: 'Internal network (10.89.0.0/24)' },
+      { label: 'MCP Endpoints',      key: 'mcp_tls',      note: 'Internal network (10.89.0.0/24)' },
+    ];
+    const pipeline = d.pipeline || {};
+    const grid = document.getElementById('ssl-pipeline-grid');
+    grid.innerHTML = pipelineItems.map(item => {
+      const on   = pipeline[item.key];
+      const icon = on ? '&#10003;' : '&#8212;';
+      const clr  = on ? 'var(--green)' : 'var(--amber)';
+      const lbl  = on ? 'Encrypted' : 'Unencrypted';
+      return `<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:12px 14px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="font-size:16px;color:${clr};font-weight:700">${icon}</span>
+          <span style="font-size:12px;font-weight:600;color:var(--text)">${item.label}</span>
+        </div>
+        <div style="font-size:11px;color:${clr};font-weight:500">${lbl}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">${item.note}</div>
+      </div>`;
+    }).join('');
+
+  } catch(e) {
+    toast('error', 'SSL Status', e.message);
+  }
+}
+
+async function sslConfigure() {
+  const domain = document.getElementById('ssl-domain-input').value.trim();
+  const email  = document.getElementById('ssl-email-input').value.trim();
+  const status = document.getElementById('ssl-configure-status');
+  if (!domain) { status.textContent = 'Domain is required.'; status.style.color = 'var(--red)'; return; }
+
+  status.textContent = 'Saving…'; status.style.color = 'var(--muted)';
+  try {
+    const token = getToken();
+    const d = await apiFetch(`/api/ssl/configure?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain, email }),
+    });
+    if (d.ok) {
+      status.textContent = `Saved. Caddy reload: ${d.caddy_reloaded ? 'OK' : 'pending restart'}.`;
+      status.style.color = 'var(--green)';
+      setTimeout(loadSslPage, 1500);
+    } else {
+      status.textContent = 'Save failed.'; status.style.color = 'var(--red)';
+    }
+  } catch(e) {
+    status.textContent = e.message; status.style.color = 'var(--red)';
+  }
+}
+
+async function sslForceRenew() {
+  const btn    = document.getElementById('ssl-renew-btn');
+  const status = document.getElementById('ssl-renew-status');
+  btn.disabled = true;
+  status.textContent = 'Triggering renewal…'; status.style.color = 'var(--muted)';
+  try {
+    const token = getToken();
+    const d = await apiFetch(`/api/ssl/renew?token=${encodeURIComponent(token)}`, { method: 'POST' });
+    status.textContent = d.message || (d.ok ? 'Renewal triggered.' : 'Failed.');
+    status.style.color = d.ok ? 'var(--green)' : 'var(--red)';
+    if (d.ok) setTimeout(loadSslPage, 3000);
+  } catch(e) {
+    status.textContent = e.message; status.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function loadConfigPage() {
