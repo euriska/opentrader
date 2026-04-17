@@ -351,6 +351,10 @@ select option{background:var(--surface2)}
         <span class="nav-dot" style="background:var(--teal)"></span>
         SSL / TLS
       </div>
+      <div class="nav-item" onclick="navigate('page-platform-profile')" data-page="page-platform-profile">
+        <span class="nav-dot" style="background:var(--purple)"></span>
+        My Profile
+      </div>
     </div>
   </nav>
   <div class="sidebar-footer">
@@ -408,6 +412,8 @@ select option{background:var(--surface2)}
       <span id="ovtlyr-qqq-chip" class="chip chip-muted" title="OVTLYR signal for QQQ" style="font-size:11px;letter-spacing:.01em">QQQ —</span>
       <span id="trade-mode-chip" class="chip chip-amber" style="display:none">Sandbox</span>
       <span id="ws-status" class="chip chip-muted">Connecting…</span>
+      <span id="topbar-user" style="font-size:11px;color:var(--muted);cursor:pointer;padding:3px 8px;border-radius:4px;border:1px solid var(--border)" onclick="navigate('page-platform-profile')" title="My Profile"></span>
+      <button class="btn btn-ghost btn-xs" onclick="doLogout()" title="Sign out" style="font-size:11px;padding:3px 8px">Sign out</button>
     </div>
   </div>
 
@@ -675,6 +681,68 @@ select option{background:var(--surface2)}
         </div>
       </div>
     </div>
+
+    <!-- ════════════════════════════════════════
+         PAGE: My Profile
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-platform-profile">
+
+      <!-- Account info -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <span class="card-title">Account</span>
+          <button class="btn btn-ghost btn-sm" onclick="loadProfilePage()">&#8635; Refresh</button>
+        </div>
+        <div class="card-body" style="padding:16px">
+          <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+            <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#1d4ed8);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#fff;flex-shrink:0" id="profile-avatar">—</div>
+            <div>
+              <div id="profile-username" style="font-size:15px;font-weight:600;color:var(--text)">—</div>
+              <div style="font-size:11px;color:var(--muted)">Administrator</div>
+            </div>
+          </div>
+
+          <!-- Change password -->
+          <div style="border-top:1px solid var(--border);padding-top:16px">
+            <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:12px">Change Password</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;max-width:700px">
+              <div>
+                <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Current Password</label>
+                <input type="password" id="pwd-current" class="input-field" placeholder="Current password" style="width:100%">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">New Password</label>
+                <input type="password" id="pwd-new" class="input-field" placeholder="Min 8 characters" style="width:100%">
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Confirm New</label>
+                <input type="password" id="pwd-confirm" class="input-field" placeholder="Repeat new password" style="width:100%">
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="profileChangePassword()" style="white-space:nowrap">Update</button>
+            </div>
+            <div id="pwd-status" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Keys / Secrets -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">API Keys &amp; Secrets</span>
+          <span style="font-size:11px;color:var(--muted)">Stored encrypted in the database — never written to .env</span>
+        </div>
+        <div class="card-body" style="padding:16px">
+          <p style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">
+            Save your API keys here once — they are encrypted with AES-128 and loaded into the platform on login.
+            Values are write-only; existing values are never returned to the browser.
+          </p>
+          <div id="secrets-grid" style="display:flex;flex-direction:column;gap:8px">
+            <div class="empty-state">Loading…</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /page-platform-profile -->
 
     <!-- ════════════════════════════════════════
          PAGE: SSL / TLS
@@ -2753,6 +2821,7 @@ const PAGE_TITLES = {
   'page-platform-scheduler': 'Scheduler',
   'page-platform-system':    'System',
   'page-platform-ssl':       'SSL / TLS',
+  'page-platform-profile':   'My Profile',
   'page-platform-config':    'Configuration',
   'page-trading-dashboard':  'Trading Dashboard',
   'page-trading-unified':    'Active Positions',
@@ -2876,6 +2945,7 @@ function navigate(pageId) {
     case 'page-platform-scheduler': _initSchedThead(); loadSchedulerPage(); break;
     case 'page-platform-system':    _ctRenderThead();  loadSystemPage();   break;
     case 'page-platform-ssl':       loadSslPage();       break;
+    case 'page-platform-profile':   loadProfilePage();   break;
     case 'page-platform-config':    loadConfigPage();    break;
     case 'page-trading-dashboard':  _initTdHeaders(); loadOvtlyrMarketSignals(); ovtlyrSelectList(_ovtlyrCurrentList); loadTotalPositions(); _loadTdTradeStats(); _refreshBreadth(); loadMarketBarsChart('SPY'); break;
     case 'page-trading-unified':    loadUnifiedPositions(); break;
@@ -6553,6 +6623,114 @@ async function sslForceRenew() {
   }
 }
 
+// ── Profile / Auth ────────────────────────────────────────────────────────────
+
+async function doLogout() {
+  await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+  window.location.href = '/login';
+}
+
+async function _initUserDisplay() {
+  try {
+    const d = await fetch('/api/auth/me', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : null);
+    if (d && d.username) {
+      const el = document.getElementById('topbar-user');
+      if (el) el.textContent = '⚡ ' + d.username;
+    }
+  } catch(_) {}
+}
+
+async function loadProfilePage() {
+  // Username display
+  try {
+    const d = await fetch('/api/auth/me', { credentials: 'same-origin' }).then(r => r.json());
+    document.getElementById('profile-username').textContent = d.username || '—';
+    document.getElementById('profile-avatar').textContent   = (d.username || '?')[0].toUpperCase();
+  } catch(_) {}
+
+  // Secrets list
+  const grid = document.getElementById('secrets-grid');
+  grid.innerHTML = '<div class="empty-state">Loading…</div>';
+  try {
+    const token   = getToken();
+    const secrets = await apiFetch(`/api/user/secrets?token=${encodeURIComponent(token)}`);
+    grid.innerHTML = secrets.map(s => `
+      <div style="display:grid;grid-template-columns:180px 1fr auto;gap:8px;align-items:center;padding:8px 10px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px">
+        <div>
+          <div style="font-size:12px;font-weight:500;color:var(--text)">${s.key}</div>
+          <div style="font-size:10px;color:var(--muted)">${s.description}</div>
+        </div>
+        <input type="password" id="secret-${s.key}" class="input-field"
+          placeholder="${s.is_set ? '••••••••  (set — enter new value to update)' : 'Enter value…'}"
+          style="font-size:12px;padding:6px 10px"
+          autocomplete="off">
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-ghost btn-xs" onclick="secretSave('${s.key}')"
+            style="font-size:11px;white-space:nowrap">
+            ${s.is_set ? 'Update' : 'Save'}
+          </button>
+          ${s.is_set ? `<button class="btn btn-ghost btn-xs" onclick="secretDelete('${s.key}')" style="font-size:11px;color:var(--red)">✕</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    grid.innerHTML = `<div class="empty-state">Error: ${e.message}</div>`;
+  }
+}
+
+async function secretSave(key) {
+  const input = document.getElementById(`secret-${key}`);
+  const value = input ? input.value.trim() : '';
+  if (!value) { toast('warning', 'Secret', 'Enter a value first'); return; }
+  try {
+    const token = getToken();
+    await apiFetch(`/api/user/secrets?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, value }),
+    });
+    toast('success', 'Saved', `${key} stored securely`);
+    if (input) { input.value = ''; input.placeholder = '••••••••  (set — enter new value to update)'; }
+    loadProfilePage();
+  } catch(e) { toast('error', 'Save Failed', e.message); }
+}
+
+async function secretDelete(key) {
+  if (!confirm(`Remove stored secret for ${key}?`)) return;
+  try {
+    const token = getToken();
+    await apiFetch(`/api/user/secrets/${encodeURIComponent(key)}?token=${encodeURIComponent(token)}`,
+      { method: 'DELETE' });
+    toast('success', 'Removed', key);
+    loadProfilePage();
+  } catch(e) { toast('error', 'Delete Failed', e.message); }
+}
+
+async function profileChangePassword() {
+  const current = document.getElementById('pwd-current').value;
+  const newPwd  = document.getElementById('pwd-new').value;
+  const confirm = document.getElementById('pwd-confirm').value;
+  const status  = document.getElementById('pwd-status');
+  status.textContent = ''; status.style.color = 'var(--muted)';
+  if (!current || !newPwd) { status.textContent = 'All fields required.'; status.style.color = 'var(--red)'; return; }
+  if (newPwd !== confirm)  { status.textContent = 'New passwords do not match.'; status.style.color = 'var(--red)'; return; }
+  if (newPwd.length < 8)   { status.textContent = 'Password must be at least 8 characters.'; status.style.color = 'var(--red)'; return; }
+  try {
+    const token = getToken();
+    const d = await apiFetch(`/api/user/change-password?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_password: current, new_password: newPwd }),
+    });
+    if (d.ok) {
+      status.textContent = 'Password updated.'; status.style.color = 'var(--green)';
+      ['pwd-current','pwd-new','pwd-confirm'].forEach(id => document.getElementById(id).value = '');
+    }
+  } catch(e) {
+    status.textContent = e.message; status.style.color = 'var(--red)';
+  }
+}
+
 async function loadConfigPage() {
   const grid = document.getElementById('cfg-connector-grid');
   grid.innerHTML = '<div class="empty-state">Loading…</div>';
@@ -9834,6 +10012,7 @@ async function loadOvtlyrListSignals(listType) {
 // Init
 // ══════════════════════════════════════════════════════════════════════════════
 connectWS();
+_initUserDisplay();
 loadOvtlyrMarketSignals();
 setInterval(loadOvtlyrMarketSignals, 5 * 60 * 1000); // refresh every 5 min
 

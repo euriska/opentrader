@@ -4,13 +4,17 @@ Central station for all agent containers.
 Sections: Overview · Agents · Scheduler · Trades · Signals · Sentiment · Logs · System
 """
 import asyncio
+import base64
 import csv
+import hashlib
+import hmac
 import http.client
 import io
 import json
 import os
 import re
 import socket
+import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor
 from datetime import date, datetime, timezone
@@ -19,8 +23,8 @@ from zoneinfo import ZoneInfo
 
 import asyncpg
 import structlog
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -40,6 +44,377 @@ app = FastAPI(title="OpenTrader Command Center", version="2.0.0")
 app.mount("/static", StaticFiles(directory="/app/webui/static"), name="static")
 
 WEBUI_TOKEN    = os.getenv("WEBUI_TOKEN", "opentrader")
+SECRET_KEY     = os.getenv("SECRET_KEY", "change-me-please-set-SECRET_KEY-in-env")
+
+# ── Auth helpers ──────────────────────────────────────────────────────────────
+
+def _hash_password(password: str) -> str:
+    """PBKDF2-SHA256 with random salt. Returns base64(salt + hash)."""
+    salt = os.urandom(32)
+    key  = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 260_000)
+    return base64.b64encode(salt + key).decode()
+
+def _verify_password(password: str, stored: str) -> bool:
+    """Constant-time verify of a password against a stored PBKDF2 hash."""
+    try:
+        decoded = base64.b64decode(stored.encode())
+        salt, key = decoded[:32], decoded[32:]
+        new_key   = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 260_000)
+        return hmac.compare_digest(key, new_key)
+    except Exception:
+        return False
+
+def _make_jwt(user_id: str, username: str, exp_hours: int = 24) -> str:
+    """Create an HMAC-SHA256 signed JWT (HS256) without external libraries."""
+    header  = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').rstrip(b"=").decode()
+    payload = base64.urlsafe_b64encode(json.dumps({
+        "sub": user_id, "usr": username,
+        "iat": int(time.time()), "exp": int(time.time()) + exp_hours * 3600,
+    }).encode()).rstrip(b"=").decode()
+    msg = f"{header}.{payload}".encode()
+    sig = base64.urlsafe_b64encode(
+        hmac.new(SECRET_KEY.encode(), msg, hashlib.sha256).digest()
+    ).rstrip(b"=").decode()
+    return f"{header}.{payload}.{sig}"
+
+def _verify_jwt(token: str) -> dict | None:
+    """Verify signature and expiry. Returns payload dict or None."""
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None
+        msg          = f"{parts[0]}.{parts[1]}".encode()
+        expected_sig = base64.urlsafe_b64encode(
+            hmac.new(SECRET_KEY.encode(), msg, hashlib.sha256).digest()
+        ).rstrip(b"=").decode()
+        if not hmac.compare_digest(parts[2], expected_sig):
+            return None
+        padding = 4 - len(parts[1]) % 4
+        payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * padding))
+        if payload.get("exp", 0) < time.time():
+            return None
+        return payload
+    except Exception:
+        return None
+
+def _fernet():
+    """Return a Fernet instance keyed from SECRET_KEY (URL-safe base64, 32 bytes)."""
+    from cryptography.fernet import Fernet
+    raw = hashlib.sha256(SECRET_KEY.encode()).digest()
+    return Fernet(base64.urlsafe_b64encode(raw))
+
+def _encrypt_secret(value: str) -> str:
+    return _fernet().encrypt(value.encode()).decode()
+
+def _decrypt_secret(token: str) -> str:
+    return _fernet().decrypt(token.encode()).decode()
+
+# ── Auth DB helpers ───────────────────────────────────────────────────────────
+
+async def _ensure_auth_tables():
+    """Create users and user_secrets tables if they don't exist."""
+    if not DB_URL:
+        return
+    pool = await _get_db_pool()
+    await pool.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+            username      VARCHAR(64) UNIQUE NOT NULL,
+            email         VARCHAR(255),
+            password_hash TEXT        NOT NULL,
+            is_admin      BOOLEAN     NOT NULL DEFAULT TRUE,
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+    await pool.execute("""
+        CREATE TABLE IF NOT EXISTS user_secrets (
+            id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id          UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            key              VARCHAR(128) NOT NULL,
+            encrypted_value  TEXT        NOT NULL,
+            description      VARCHAR(255),
+            updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE(user_id, key)
+        )
+    """)
+
+async def _count_users() -> int:
+    try:
+        pool = await _get_db_pool()
+        return await pool.fetchval("SELECT COUNT(*) FROM users") or 0
+    except Exception:
+        return 0
+
+async def _get_user(username: str) -> dict | None:
+    try:
+        pool = await _get_db_pool()
+        row  = await pool.fetchrow(
+            "SELECT id::text, username, email, password_hash, is_admin FROM users WHERE username=$1",
+            username,
+        )
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+async def _load_user_secrets_to_env(user_id: str):
+    """Decrypt and inject all stored secrets for this user into os.environ."""
+    try:
+        pool = await _get_db_pool()
+        rows = await pool.fetch(
+            "SELECT key, encrypted_value FROM user_secrets WHERE user_id=$1::uuid",
+            user_id,
+        )
+        for row in rows:
+            try:
+                os.environ[row["key"]] = _decrypt_secret(row["encrypted_value"])
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+# ── Auth middleware ───────────────────────────────────────────────────────────
+
+_PUBLIC_PATHS = {"/login", "/setup", "/api/auth/login",
+                 "/api/auth/logout", "/api/auth/setup", "/api/auth/check"}
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+
+    # Always allow public auth paths and static assets
+    if path in _PUBLIC_PATHS or path.startswith("/static"):
+        return await call_next(request)
+
+    # Check session cookie (JWT)
+    session = request.cookies.get("ot_session", "")
+    if session and _verify_jwt(session):
+        return await call_next(request)
+
+    # Fall back to ?token= query param (backwards compat for existing bookmarks + WS)
+    token = request.query_params.get("token", "")
+    if token and token == WEBUI_TOKEN:
+        return await call_next(request)
+
+    # Unauthenticated — decide response based on request type
+    accepts_html = "text/html" in request.headers.get("accept", "")
+    if accepts_html:
+        users = await _count_users()
+        return RedirectResponse("/setup" if users == 0 else "/login")
+    return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+# ── Auth endpoints ────────────────────────────────────────────────────────────
+
+@app.get("/login", response_class=HTMLResponse)
+async def serve_login():
+    try:
+        with open("/app/webui/static/login.html") as f:
+            return f.read()
+    except FileNotFoundError:
+        return HTMLResponse("<h1>Login page not found</h1>", status_code=500)
+
+@app.get("/setup", response_class=HTMLResponse)
+async def serve_setup():
+    """Only accessible when no users exist yet."""
+    if await _count_users() > 0:
+        return RedirectResponse("/login")
+    try:
+        with open("/app/webui/static/setup.html") as f:
+            return f.read()
+    except FileNotFoundError:
+        return HTMLResponse("<h1>Setup page not found</h1>", status_code=500)
+
+@app.get("/api/auth/check")
+async def auth_check():
+    """Returns whether any users exist — used by login/setup pages."""
+    return {"has_users": await _count_users() > 0}
+
+@app.post("/api/auth/setup")
+async def auth_setup(body: dict):
+    """Create the first admin user. Only works when no users exist."""
+    if await _count_users() > 0:
+        raise HTTPException(status_code=403, detail="Setup already complete")
+    username = str(body.get("username", "")).strip()
+    password = str(body.get("password", "")).strip()
+    email    = str(body.get("email", "")).strip()
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="Username and password required")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    pool = await _get_db_pool()
+    try:
+        row = await pool.fetchrow(
+            """INSERT INTO users (username, email, password_hash, is_admin)
+               VALUES ($1, $2, $3, TRUE) RETURNING id::text, username""",
+            username, email or None, _hash_password(password),
+        )
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(status_code=409, detail="Username already exists")
+    log.info("auth.first_user_created", username=username)
+    return {"ok": True, "username": row["username"]}
+
+@app.post("/api/auth/login")
+async def auth_login(request: Request, body: dict):
+    username = str(body.get("username", "")).strip()
+    password = str(body.get("password", "")).strip()
+    user     = await _get_user(username)
+    if not user or not _verify_password(password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    # Load stored secrets into env so API keys are immediately available
+    await _load_user_secrets_to_env(user["id"])
+
+    token    = _make_jwt(user["id"], user["username"])
+    is_https = request.headers.get("x-forwarded-proto", "http") == "https"
+
+    response = JSONResponse({"ok": True, "username": user["username"]})
+    response.set_cookie(
+        "ot_session", token,
+        httponly=True,
+        secure=is_https,
+        samesite="strict",
+        max_age=86400,
+        path="/",
+    )
+    log.info("auth.login", username=username)
+    return response
+
+@app.post("/api/auth/logout")
+async def auth_logout():
+    response = JSONResponse({"ok": True})
+    response.delete_cookie("ot_session", path="/")
+    return response
+
+@app.get("/api/auth/me")
+async def auth_me(request: Request):
+    session = request.cookies.get("ot_session", "")
+    payload = _verify_jwt(session)
+    if not payload:
+        raise HTTPException(status_code=401)
+    return {"username": payload.get("usr"), "user_id": payload.get("sub")}
+
+# ── User secrets (encrypted API key storage) ─────────────────────────────────
+
+# Well-known secrets — shown in the profile UI with friendly descriptions
+KNOWN_SECRETS = [
+    ("AGENTMAIL_API_KEY",       "AgentMail email delivery"),
+    ("REPORT_RECIPIENT_EMAIL",  "Report recipient email address"),
+    ("TELEGRAM_BOT_TOKEN",      "Telegram bot token"),
+    ("TELEGRAM_CHAT_ID",        "Telegram chat / channel ID"),
+    ("DISCORD_BOT_TOKEN",       "Discord bot token"),
+    ("DISCORD_CHANNEL_ID",      "Discord channel ID"),
+    ("OPENROUTER_API_KEY",      "OpenRouter — LLM inference"),
+    ("UNUSUAL_WHALES_API_KEY",  "Unusual Whales options flow"),
+    ("POLYGON_API_KEY",         "Polygon.io market data"),
+    ("OVTLYR_EMAIL",            "OVTLYR scraper login email"),
+    ("OVTLYR_PASSWORD",         "OVTLYR scraper login password"),
+    ("WEBULL_APP_KEY",          "Webull MCP app key"),
+    ("WEBULL_APP_SECRET",       "Webull MCP app secret"),
+    ("GOOGLE_BOOKS_API_KEY",    "Google Books"),
+    ("ALPACA_API_KEY",          "Alpaca paper API key"),
+    ("ALPACA_API_SECRET",       "Alpaca paper API secret"),
+    ("ALPACA_LIVE_API_KEY",     "Alpaca live API key"),
+    ("ALPACA_LIVE_API_SECRET",  "Alpaca live API secret"),
+    ("TRADIER_ACCOUNT_ID",      "Tradier sandbox account ID"),
+    ("TRADIER_TOKEN",           "Tradier sandbox token"),
+    ("TRADIER_LIVE_ACCOUNT_ID", "Tradier live account ID"),
+    ("TRADIER_LIVE_TOKEN",      "Tradier live token"),
+    ("CLOUDFLARE_TUNNEL_TOKEN", "Cloudflare Tunnel token"),
+]
+
+def _current_user_id(request: Request) -> str | None:
+    payload = _verify_jwt(request.cookies.get("ot_session", ""))
+    return payload.get("sub") if payload else None
+
+@app.get("/api/user/secrets")
+async def list_user_secrets(request: Request, token: str = ""):
+    check_token(token) if token else None
+    user_id = _current_user_id(request)
+    if not user_id and not token:
+        raise HTTPException(status_code=401)
+
+    stored: dict[str, bool] = {}
+    if user_id:
+        try:
+            pool = await _get_db_pool()
+            rows = await pool.fetch(
+                "SELECT key FROM user_secrets WHERE user_id=$1::uuid", user_id
+            )
+            stored = {r["key"]: True for r in rows}
+        except Exception:
+            pass
+
+    # Merge known secrets with stored state; also reflect env vars as "set"
+    result = []
+    for key, desc in KNOWN_SECRETS:
+        in_db  = stored.get(key, False)
+        in_env = bool(os.environ.get(key))
+        result.append({"key": key, "description": desc,
+                       "is_set": in_db or in_env, "source": "db" if in_db else ("env" if in_env else "")})
+    return result
+
+@app.post("/api/user/secrets")
+async def save_user_secret(request: Request, body: dict, token: str = ""):
+    check_token(token) if token else None
+    user_id = _current_user_id(request)
+    if not user_id:
+        raise HTTPException(status_code=401)
+    key   = str(body.get("key", "")).strip().upper()
+    value = str(body.get("value", "")).strip()
+    desc  = str(body.get("description", "")).strip() or None
+    if not key or not value:
+        raise HTTPException(status_code=400, detail="key and value required")
+    encrypted = _encrypt_secret(value)
+    pool = await _get_db_pool()
+    await pool.execute("""
+        INSERT INTO user_secrets (user_id, key, encrypted_value, description, updated_at)
+        VALUES ($1::uuid, $2, $3, $4, NOW())
+        ON CONFLICT (user_id, key) DO UPDATE
+            SET encrypted_value=$3, description=COALESCE($4, user_secrets.description),
+                updated_at=NOW()
+    """, user_id, key, encrypted, desc)
+    # Immediately available in this process
+    os.environ[key] = value
+    log.info("auth.secret_saved", key=key)
+    return {"ok": True, "key": key}
+
+@app.delete("/api/user/secrets/{key}")
+async def delete_user_secret(key: str, request: Request, token: str = ""):
+    check_token(token) if token else None
+    user_id = _current_user_id(request)
+    if not user_id:
+        raise HTTPException(status_code=401)
+    key = key.upper()
+    pool = await _get_db_pool()
+    await pool.execute(
+        "DELETE FROM user_secrets WHERE user_id=$1::uuid AND key=$2",
+        user_id, key,
+    )
+    return {"ok": True, "key": key}
+
+@app.post("/api/user/change-password")
+async def change_password(request: Request, body: dict, token: str = ""):
+    user_id = _current_user_id(request)
+    if not user_id:
+        raise HTTPException(status_code=401)
+    current  = str(body.get("current_password", ""))
+    new_pwd  = str(body.get("new_password", ""))
+    if not current or not new_pwd:
+        raise HTTPException(status_code=400, detail="current_password and new_password required")
+    if len(new_pwd) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    pool = await _get_db_pool()
+    row  = await pool.fetchrow(
+        "SELECT password_hash FROM users WHERE id=$1::uuid", user_id
+    )
+    if not row or not _verify_password(current, row["password_hash"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    await pool.execute(
+        "UPDATE users SET password_hash=$2, updated_at=NOW() WHERE id=$1::uuid",
+        user_id, _hash_password(new_pwd),
+    )
+    return {"ok": True}
+
 
 def _read_app_version() -> str:
     """Read version from VERSION file (local dev + Docker) or APP_VERSION env var (CI fallback)."""
@@ -614,6 +989,18 @@ async def _load_jobs_from_db_to_redis(redis):
 async def on_startup():
     redis = await get_redis()
     await _load_jobs_from_db_to_redis(redis)
+    await _ensure_auth_tables()
+    # Load the first (admin) user's secrets into env on startup
+    if DB_URL:
+        try:
+            pool = await _get_db_pool()
+            row  = await pool.fetchrow(
+                "SELECT id::text FROM users ORDER BY created_at LIMIT 1"
+            )
+            if row:
+                await _load_user_secrets_to_env(row["id"])
+        except Exception:
+            pass
     if DB_URL:
         try:
             pool = await _get_db_pool()

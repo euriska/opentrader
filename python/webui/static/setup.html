@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenTrader — First-Time Setup</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:      #070b14;
+    --surface: #0d1525;
+    --border:  #1a2540;
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+    --blue:    #3b82f6;
+    --blue-h:  #2563eb;
+    --green:   #22c55e;
+    --red:     #ef4444;
+    --amber:   #f59e0b;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 40px;
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.6);
+  }
+  .logo { text-align: center; margin-bottom: 28px; }
+  .logo-mark {
+    width: 52px; height: 52px;
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    border-radius: 14px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 24px; margin-bottom: 14px;
+  }
+  .logo h1 { font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+  .logo p  { font-size: 13px; color: var(--muted); margin-top: 5px; line-height: 1.5; }
+  .step-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.25);
+    border-radius: 20px; padding: 4px 12px;
+    font-size: 11px; font-weight: 600; color: var(--green);
+    text-transform: uppercase; letter-spacing: .08em;
+    margin-bottom: 24px;
+  }
+  label {
+    display: block; font-size: 12px; font-weight: 500;
+    color: var(--muted); margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: .06em;
+  }
+  input {
+    width: 100%;
+    background: #0a0e1a;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+    padding: 10px 14px;
+    outline: none;
+    transition: border-color .15s;
+    margin-bottom: 16px;
+  }
+  input:focus { border-color: var(--blue); }
+  .hint { font-size: 11px; color: var(--muted); margin-top: -12px; margin-bottom: 16px; }
+  button[type=submit] {
+    width: 100%;
+    background: var(--green);
+    color: #fff;
+    border: none; border-radius: 8px;
+    font-size: 14px; font-weight: 600;
+    padding: 11px; cursor: pointer;
+    transition: background .15s; margin-top: 4px;
+  }
+  button[type=submit]:hover { background: #16a34a; }
+  button[type=submit]:disabled { opacity: .5; cursor: not-allowed; }
+  .error {
+    background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
+    border-radius: 8px; color: #fca5a5; font-size: 13px;
+    padding: 10px 14px; margin-bottom: 16px; display: none;
+  }
+  .strength { height: 3px; border-radius: 2px; margin-top: -12px; margin-bottom: 16px; background: var(--border); transition: background .2s; }
+  .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,.3); border-top-color: #fff;
+    border-radius: 50%; animation: spin .7s linear infinite;
+    vertical-align: middle; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="logo-mark">⚡</div>
+    <h1>Welcome to OpenTrader</h1>
+    <p>Create your admin account to get started.<br>This only appears once.</p>
+  </div>
+
+  <div class="step-badge">
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+    First-Time Setup
+  </div>
+
+  <div id="error-box" class="error"></div>
+
+  <form id="setup-form" onsubmit="doSetup(event)">
+    <label for="username">Username</label>
+    <input type="text" id="username" name="username" autocomplete="username"
+           placeholder="Choose a username" autofocus required minlength="3">
+
+    <label for="email">Email <span style="color:var(--muted);font-weight:400;text-transform:none">(optional — for reports)</span></label>
+    <input type="email" id="email" name="email" autocomplete="email"
+           placeholder="you@example.com">
+
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" autocomplete="new-password"
+           placeholder="At least 8 characters" required minlength="8"
+           oninput="checkStrength(this.value)">
+    <div id="strength-bar" class="strength"></div>
+
+    <label for="confirm">Confirm Password</label>
+    <input type="password" id="confirm" name="confirm" autocomplete="new-password"
+           placeholder="Repeat password" required>
+
+    <button type="submit" id="submit-btn">Create Account &amp; Sign In</button>
+  </form>
+</div>
+
+<script>
+function checkStrength(pwd) {
+  const bar = document.getElementById('strength-bar');
+  let score = 0;
+  if (pwd.length >= 8)  score++;
+  if (pwd.length >= 12) score++;
+  if (/[A-Z]/.test(pwd)) score++;
+  if (/[0-9]/.test(pwd)) score++;
+  if (/[^A-Za-z0-9]/.test(pwd)) score++;
+  const colors = ['', '#ef4444', '#f97316', '#f59e0b', '#22c55e', '#22c55e'];
+  bar.style.background = colors[score] || 'var(--border)';
+  bar.style.width = (score / 5 * 100) + '%';
+}
+
+async function doSetup(e) {
+  e.preventDefault();
+  const errBox   = document.getElementById('error-box');
+  const btn      = document.getElementById('submit-btn');
+  const username = document.getElementById('username').value.trim();
+  const email    = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const confirm  = document.getElementById('confirm').value;
+
+  errBox.style.display = 'none';
+
+  if (password !== confirm) {
+    errBox.textContent = 'Passwords do not match.';
+    errBox.style.display = 'block';
+    return;
+  }
+  if (password.length < 8) {
+    errBox.textContent = 'Password must be at least 8 characters.';
+    errBox.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Creating account…';
+
+  try {
+    const r = await fetch('/api/auth/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, email, password }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      errBox.textContent = d.detail || 'Setup failed.';
+      errBox.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Create Account & Sign In';
+      return;
+    }
+    // Auto-login after setup
+    const lr = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+      credentials: 'same-origin',
+    });
+    if (lr.ok) {
+      window.location.href = '/';
+    } else {
+      window.location.href = '/login';
+    }
+  } catch(err) {
+    errBox.textContent = 'Connection error — try again.';
+    errBox.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Create Account & Sign In';
+  }
+}
+</script>
+</body>
+</html>

@@ -3,6 +3,19 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.60] - 2026-04-17
+
+### Added
+- **Secure login system**: PBKDF2-SHA256 (260k iterations) password hashing, HMAC-SHA256 JWT session tokens stored in httpOnly + SameSite=Strict cookies; `Secure` flag set automatically when served over HTTPS via Caddy/Cloudflare
+- **First-time setup flow**: `/setup` page shown when no users exist — creates the admin account then auto-logs in; redirects to `/login` if users already exist
+- **Auth middleware**: all routes protected by session cookie or `?token=` query param (backwards compat); unauthenticated browser requests redirect to `/setup` or `/login` as appropriate
+- **Encrypted secret storage** (`user_secrets` DB table): API keys stored encrypted with Fernet (AES-128-CBC + HMAC-SHA256) keyed from `SECRET_KEY` env var; loaded into process env on login and on startup; never returned to the browser
+- **Platform → My Profile page**: avatar + username display, change-password form, full API key management grid (22 known secrets with set/unset status, inline update and delete)
+- **Topbar**: username chip (links to profile) and Sign Out button added to all pages
+- **New DB tables**: `users` (id, username, email, password_hash, is_admin, timestamps) and `user_secrets` (user_id FK, key, encrypted_value, description) — created via `CREATE TABLE IF NOT EXISTS` on startup
+- **`cryptography>=42.0.0`** added to `requirements.webui.txt` for Fernet encryption
+- **`SECRET_KEY` env var**: used for JWT signing and Fernet key derivation — should be set to a random 32+ char string in `.env`
+
 ## [3.5.59] - 2026-04-17
 
 ### Added
