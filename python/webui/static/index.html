@@ -29,6 +29,7 @@ nav{padding:8px;flex:1;overflow-y:auto}
 .market-pill{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
 .pulse{animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 
 /* ── Main ── */
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
@@ -1276,6 +1277,14 @@ select option{background:var(--surface2)}
          PAGE: Dividend Tracker
     ════════════════════════════════════════ -->
     <div class="page" id="page-trading-dividends">
+
+      <!-- Loading overlay — shown while broker data is being fetched -->
+      <div id="div-loading-banner" style="display:none;align-items:center;gap:10px;padding:12px 16px;margin-bottom:14px;background:color-mix(in srgb,var(--blue) 12%,transparent);border:1px solid color-mix(in srgb,var(--blue) 30%,transparent);border-radius:6px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2.5" stroke-linecap="round" style="animation:spin 1s linear infinite;flex-shrink:0">
+          <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+        </svg>
+        <span style="font-size:12px;color:var(--blue);font-weight:500">Pulling broker data across all accounts&hellip; this may take a moment</span>
+      </div>
 
       <!-- Page header row with filter -->
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
@@ -11118,7 +11127,10 @@ const _DIV_PALETTE = [
 let _divData = null, _divForecast = null;
 
 async function loadDividendPage(forceRefresh = false) {
-  document.getElementById('div-status').textContent = 'Loading broker data… this may take a moment.';
+  const banner = document.getElementById('div-loading-banner');
+  const status = document.getElementById('div-status');
+  banner.style.display = 'flex';
+  status.textContent = '';
   document.getElementById('div-refresh-btn').disabled = true;
   try {
     const token = getToken();
@@ -11135,11 +11147,12 @@ async function loadDividendPage(forceRefresh = false) {
     _divActiveAccount = '';
     _divApplyFilter();
     _divRenderHistory(history.records || []);
-    document.getElementById('div-status').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    status.textContent = `Updated ${new Date().toLocaleTimeString()}`;
   } catch(e) {
-    document.getElementById('div-status').textContent = 'Error: ' + e.message;
+    status.textContent = 'Error: ' + e.message;
     toast('error', 'Dividends', e.message);
   } finally {
+    banner.style.display = 'none';
     document.getElementById('div-refresh-btn').disabled = false;
   }
 }

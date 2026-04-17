@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.57] - 2026-04-17
+
+### Changed
+- **Dividends page — loading banner**: animated spinning indicator appears at the top of the page while broker data is being fetched; hides on completion or error. Added `@keyframes spin` CSS used by the banner icon.
+
 ## [3.5.56] - 2026-04-16
 
 ### Fixed
