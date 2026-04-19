@@ -50,6 +50,7 @@ class BrokerGatewayAgent(BaseAgent):
         await asyncio.gather(
             self.heartbeat_loop(),
             self._command_loop(),
+            self._order_poll_loop(),
         )
 
     async def _ensure_consumer_group(self):
@@ -165,6 +166,72 @@ class BrokerGatewayAgent(BaseAgent):
             results=len(results),
             statuses=[r["status"] for r in results],
         )
+
+    async def _order_poll_loop(self):
+        """Every 60 s, fetch open orders from all brokers and emit fill events for any that closed."""
+        POLL_INTERVAL = int(os.getenv("ORDER_POLL_INTERVAL_SEC", "60"))
+        known_open: dict[str, set] = {}  # account_label → set of order_ids
+
+        await asyncio.sleep(15)  # let the command loop start first
+        log.info("broker-gateway.order_poll_start", interval=POLL_INTERVAL)
+
+        while self._running:
+            try:
+                for rec in self.registry.all_records():
+                    try:
+                        orders = await rec.connector.get_orders(status="all")
+                    except Exception as e:
+                        log.warning("broker-gateway.order_poll_fetch_error",
+                                    account=rec.label, error=str(e))
+                        continue
+
+                    prev_open = known_open.get(rec.label, set())
+                    curr_open: set[str] = set()
+                    newly_filled = []
+
+                    for o in orders:
+                        if not isinstance(o, dict):
+                            continue
+                        oid = str(o.get("id") or o.get("order_id") or o.get("clientOrderId") or "")
+                        if not oid:
+                            continue
+                        status = str(o.get("status", "")).lower()
+                        if status in ("open", "partially_filled", "pending_new", "new", "accepted", "held"):
+                            curr_open.add(oid)
+                        elif oid in prev_open and status in ("filled", "complete", "completed"):
+                            newly_filled.append(o)
+
+                    known_open[rec.label] = curr_open
+
+                    for o in newly_filled:
+                        try:
+                            await self.redis.xadd(
+                                STREAMS.get("orders", "orders.events"),
+                                {
+                                    "event_type":    "fill",
+                                    "account_label": rec.label,
+                                    "broker":        rec.broker,
+                                    "mode":          rec.mode,
+                                    "ticker":        o.get("symbol", ""),
+                                    "order_id":      str(o.get("id") or ""),
+                                    "qty":           str(o.get("quantity") or o.get("qty") or ""),
+                                    "fill_price":    str(o.get("avg_fill_price") or o.get("filledPrice") or ""),
+                                    "side":          str(o.get("side") or ""),
+                                    "source":        "order_poll",
+                                },
+                                maxlen=10_000,
+                            )
+                            log.info("broker-gateway.order_fill_detected",
+                                     account=rec.label, order_id=o.get("id"), symbol=o.get("symbol"))
+                        except Exception as e:
+                            log.warning("broker-gateway.order_poll_emit_error", error=str(e))
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error("broker-gateway.order_poll_error", error=str(e))
+
+            await asyncio.sleep(POLL_INTERVAL)
 
     async def shutdown(self):
         self._running = False

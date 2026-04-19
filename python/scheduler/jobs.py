@@ -19,6 +19,7 @@ from .calendar import (
 log = structlog.get_logger("scheduler.jobs")
 
 
+import json
 import time as _time
 import functools
 
@@ -34,18 +35,41 @@ async def record_job_error(redis: aioredis.Redis, job_name: str, error: str):
 
 
 def tracked(fn):
-    """Decorator: log job errors to Redis on exception."""
+    """Decorator: record last_run/last_status/run_count in Redis on every execution."""
     @functools.wraps(fn)
     async def wrapper(redis, *args, **kwargs):
+        # Strip "job_" prefix to match the APScheduler job ID used in _publish_jobs
+        job_id  = fn.__name__[4:] if fn.__name__.startswith("job_") else fn.__name__
+        job_key = f"scheduler:job:{job_id}"
+        now_iso = now_et().isoformat()
+        error_str = None
         try:
-            return await fn(redis, *args, **kwargs)
+            result = await fn(redis, *args, **kwargs)
+            status = "ok"
+            return result
         except Exception as e:
-            log.error("scheduler.job_error", job=fn.__name__, error=str(e))
+            status = "error"
+            error_str = str(e)
+            log.error("scheduler.job_error", job=fn.__name__, error=error_str)
             try:
-                await record_job_error(redis, fn.__name__, str(e))
+                await record_job_error(redis, fn.__name__, error_str)
             except Exception:
                 pass
             raise
+        finally:
+            try:
+                raw = await redis.get(job_key)
+                rec = json.loads(raw) if raw else {}
+                rec["last_run"]    = now_iso
+                rec["last_status"] = status
+                rec["run_count"]   = rec.get("run_count", 0) + 1
+                if error_str is not None:
+                    rec["last_error"] = error_str
+                elif "last_error" in rec:
+                    del rec["last_error"]
+                await redis.set(job_key, json.dumps(rec), ex=3600)
+            except Exception:
+                pass
     return wrapper
 
 

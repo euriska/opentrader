@@ -14,7 +14,7 @@ An AI-driven algorithmic trading platform built on a microservices architecture 
 - **Multi-broker support** — Tradier, Alpaca, and Webull (paper + live accounts)
 - **AI-powered signals** — LLM predictor via OpenRouter (Claude, GPT-4o, and more)
 - **Real-time WebUI** — Dark-themed SPA dashboard with live WebSocket updates
-- **TradingView Charts** — Embedded charts with EMA/SMA/BB/RSI/MACD overlays and live position picker
+- **TradingView Charts** — Embedded charts with EMA/SMA/BB/RSI/MACD overlays, live position picker, and per-ticker sentiment sub-panel (F&G score, component breakdown, 30-day trend sparkline)
 - **Market Breadth** — OVTLYR bull/bear breadth gauge with crossover detection and sparkline history
 - **Equity / Options separation** — Active Positions, Trades, and Dividends pages show equity-only data; Options Dashboard is a dedicated section
 - **Options Dashboard** — Live options position tracker with DTE, strike, delta, ATR levels, current underlying price, buy/sell signal (OVTLYR → predictor → Yahoo Finance chain), and Yahoo Finance chain enrichment; includes download and scheduled email report
@@ -24,8 +24,7 @@ An AI-driven algorithmic trading platform built on a microservices architecture 
 - **Trade Directives** — Natural-language GTC directives evaluated every 5 minutes by an LLM agent and executed automatically
 - **Market Intelligence** — Per-ticker intelligence pipeline: WSB sentiment, SeekingAlpha, Yahoo Finance news, analyst ratings, earnings proximity, and Unusual Whales options flow + dark pool data
 - **Unusual Whales MCP** — Real-time options flow, dark pool prints, market tide, greek exposure, and short interest via MCP server
-- **Webull MCP** — Webull account data, positions, and order management via Webull OpenAPI MCP server
-- **Scheduler** — Market-hours-aware job runner with DB-persisted configuration
+- **Scheduler** — Market-hours-aware job runner with DB-persisted configuration and per-job execution history (last run, status, error, run count)
 - **MCP Agents** — Model Context Protocol servers for Yahoo Finance, Alpaca, TradingView, Webull, and Unusual Whales
 - **Dividends** — Dividend tracking with yield, history, and per-account breakdown (equity positions only)
 - **Library** — Trading book library with ISBN lookup, cover art, ratings, and reader rank achievement system
@@ -67,7 +66,7 @@ An AI-driven algorithmic trading platform built on a microservices architecture 
 │  job + intel cache  │
 └─────────────────────┘
 
-MCP Layer: Yahoo Finance · Alpaca · TradingView · Webull · Unusual Whales
+MCP Layer: Yahoo Finance · Alpaca · TradingView · Unusual Whales
 ```
 
 ---
@@ -92,7 +91,6 @@ MCP Layer: Yahoo Finance · Alpaca · TradingView · Webull · Unusual Whales
 | `ot-mcp-yahoo` | Yahoo Finance MCP server | — |
 | `ot-mcp-alpaca` | Alpaca MCP server | — |
 | `ot-mcp-tradingview` | TradingView MCP server | — |
-| `ot-mcp-webull` | Webull OpenAPI MCP server | — |
 | `ot-mcp-unusualwhales` | Unusual Whales MCP server | — |
 | `ot-redis` | Redis 7 | — |
 | `ot-timescaledb` | TimescaleDB (PostgreSQL) | — |
@@ -143,13 +141,12 @@ cp .env.sample .env && nano .env
 cp config/accounts.toml.sample config/accounts.toml
 
 # Pull images (replace X.Y.Z with the release version)
-export OT_VERSION=3.5.54
+export OT_VERSION=3.5.61
 podman pull ghcr.io/euriska/ot-webui:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-python:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-mcp-yahoo:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-mcp-tradingview:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-mcp-unusualwhales:${OT_VERSION}
-podman pull ghcr.io/euriska/ot-mcp-webull:${OT_VERSION}
 
 podman-compose up -d
 ```
@@ -188,8 +185,6 @@ The script bumps `VERSION`, opens `CHANGELOG.md` for release notes, commits, tag
 | `ALPACA_LIVE_API_SECRET` | Alpaca live API secret |
 | `WEBULL_API_KEY` | Webull API key |
 | `WEBULL_SECRET_KEY` | Webull secret key |
-| `WEBULL_APP_KEY` | Webull app key (for OpenAPI MCP server) |
-| `WEBULL_APP_SECRET` | Webull app secret (for OpenAPI MCP server) |
 | `UNUSUAL_WHALES_API_KEY` | Unusual Whales API key (options flow + dark pool) |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token (optional) |
 | `DISCORD_WEBHOOK_URL` | Discord webhook (optional) |
@@ -213,7 +208,7 @@ The dashboard is organized into six sections:
 |---|---|
 | Trading Dashboard | Live stat cards (equity/options split), market breadth, recent activity |
 | Trade Directives | Natural-language GTC directives with LLM evaluation and order execution |
-| Charts | TradingView charts with indicator overlays and position picker |
+| Charts | TradingView charts with indicator overlays, position picker, and sentiment sub-panel |
 | Broker | Broker credential configuration and account management |
 
 ### Equities
@@ -247,7 +242,7 @@ The dashboard is organized into six sections:
 | Agents | Per-container status, log viewer, and health indicators |
 | Configuration | Connector credentials, sector/stock exclusions, risk controls |
 | Logs | Live container log viewer |
-| Scheduler | Job manager — create, edit, enable/disable, run now |
+| Scheduler | Job manager — create, edit, enable/disable, run now; per-job execution history with last run, status chip, and run count |
 | System | Circuit breaker, halt/resume, container table |
 
 ---

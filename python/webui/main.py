@@ -138,6 +138,15 @@ async def _ensure_auth_tables():
             UNIQUE(user_id, key)
         )
     """)
+    await pool.execute("""
+        CREATE TABLE IF NOT EXISTS user_preferences (
+            user_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            key         VARCHAR(128) NOT NULL,
+            value_json  TEXT        NOT NULL,
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (user_id, key)
+        )
+    """)
 
 async def _count_users() -> int:
     try:
@@ -297,39 +306,63 @@ async def auth_me(request: Request):
 
 # Well-known secrets — shown in the profile UI with friendly descriptions
 KNOWN_SECRETS = [
-    ("AGENTMAIL_API_KEY",       "AgentMail email delivery"),
-    ("REPORT_RECIPIENT_EMAIL",  "Report recipient email address"),
-    ("TELEGRAM_BOT_TOKEN",      "Telegram bot token"),
-    ("TELEGRAM_CHAT_ID",        "Telegram chat / channel ID"),
-    ("DISCORD_BOT_TOKEN",       "Discord bot token"),
-    ("DISCORD_CHANNEL_ID",      "Discord channel ID"),
-    ("OPENROUTER_API_KEY",      "OpenRouter — LLM inference"),
-    ("UNUSUAL_WHALES_API_KEY",  "Unusual Whales options flow"),
-    ("POLYGON_API_KEY",         "Polygon.io market data"),
-    ("OVTLYR_EMAIL",            "OVTLYR scraper login email"),
-    ("OVTLYR_PASSWORD",         "OVTLYR scraper login password"),
-    ("WEBULL_APP_KEY",          "Webull MCP app key"),
-    ("WEBULL_APP_SECRET",       "Webull MCP app secret"),
-    ("GOOGLE_BOOKS_API_KEY",    "Google Books"),
-    ("ALPACA_API_KEY",          "Alpaca paper API key"),
-    ("ALPACA_API_SECRET",       "Alpaca paper API secret"),
-    ("ALPACA_LIVE_API_KEY",     "Alpaca live API key"),
-    ("ALPACA_LIVE_API_SECRET",  "Alpaca live API secret"),
-    ("TRADIER_ACCOUNT_ID",      "Tradier sandbox account ID"),
-    ("TRADIER_TOKEN",           "Tradier sandbox token"),
-    ("TRADIER_LIVE_ACCOUNT_ID", "Tradier live account ID"),
-    ("TRADIER_LIVE_TOKEN",      "Tradier live token"),
-    ("CLOUDFLARE_TUNNEL_TOKEN", "Cloudflare Tunnel token"),
+    # ── Brokers ───────────────────────────────────────────────────────────────
+    ("---", "Brokers"),
+    ("ALPACA_API_KEY",             "Alpaca — Paper API Key"),
+    ("ALPACA_API_SECRET",          "Alpaca — Paper API Secret"),
+    ("ALPACA_LIVE_API_KEY",        "Alpaca — Live API Key"),
+    ("ALPACA_LIVE_API_SECRET",     "Alpaca — Live API Secret"),
+    ("TRADIER_SANDBOX_API_KEY",    "Tradier — Sandbox API Key"),
+    ("TRADIER_PRODUCTION_API_KEY", "Tradier — Production API Key"),
+    ("WEBULL_API_KEY",             "Webull — API Key"),
+    ("WEBULL_SECRET_KEY",          "Webull — Secret Key"),
+    # ── Market Data ───────────────────────────────────────────────────────────
+    ("---", "Market Data"),
+    ("POLYGON_API_KEY",            "Polygon.io — API Key"),
+    ("UNUSUAL_WHALES_API_KEY",     "Unusual Whales — API Key"),
+    # ── AI / LLM ──────────────────────────────────────────────────────────────
+    ("---", "AI / LLM"),
+    ("OPENROUTER_API_KEY",         "OpenRouter — API Key"),
+    # ── Notifications ─────────────────────────────────────────────────────────
+    ("---", "Notifications"),
+    ("TELEGRAM_BOT_TOKEN",         "Telegram — Bot Token"),
+    ("TELEGRAM_CHAT_ID",           "Telegram — Chat ID"),
+    ("DISCORD_BOT_TOKEN",          "Discord — Bot Token"),
+    ("DISCORD_CHANNEL_ID",         "Discord — Channel ID"),
+    ("AGENTMAIL_API_KEY",          "AgentMail — API Key"),
+    ("REPORT_RECIPIENT_EMAIL",     "Report Recipient Email"),
+    # ── Data Sources ──────────────────────────────────────────────────────────
+    ("---", "Data Sources"),
+    ("OVTLYR_EMAIL",               "OVTLYR — Login Email"),
+    ("OVTLYR_PASSWORD",            "OVTLYR — Login Password"),
+    ("GOOGLE_BOOKS_API_KEY",       "Google Books — API Key"),
+    # ── Infrastructure ────────────────────────────────────────────────────────
+    ("---", "Infrastructure"),
+    ("CLOUDFLARE_TUNNEL_TOKEN",    "Cloudflare Tunnel — Token"),
 ]
 
 def _current_user_id(request: Request) -> str | None:
     payload = _verify_jwt(request.cookies.get("ot_session", ""))
     return payload.get("sub") if payload else None
 
+async def _resolve_user_id(request: Request, token: str = "") -> str | None:
+    """Return user_id from session cookie, or first user when token auth is used."""
+    uid = _current_user_id(request)
+    if uid:
+        return uid
+    if token and token == WEBUI_TOKEN:
+        try:
+            pool = await _get_db_pool()
+            row = await pool.fetchrow("SELECT id FROM users ORDER BY created_at LIMIT 1")
+            return str(row["id"]) if row else None
+        except Exception:
+            return None
+    return None
+
 @app.get("/api/user/secrets")
 async def list_user_secrets(request: Request, token: str = ""):
     check_token(token) if token else None
-    user_id = _current_user_id(request)
+    user_id = await _resolve_user_id(request, token)
     if not user_id and not token:
         raise HTTPException(status_code=401)
 
@@ -344,9 +377,11 @@ async def list_user_secrets(request: Request, token: str = ""):
         except Exception:
             pass
 
-    # Merge known secrets with stored state; also reflect env vars as "set"
     result = []
     for key, desc in KNOWN_SECRETS:
+        if key == "---":
+            result.append({"separator": True, "label": desc})
+            continue
         in_db  = stored.get(key, False)
         in_env = bool(os.environ.get(key))
         result.append({"key": key, "description": desc,
@@ -356,9 +391,9 @@ async def list_user_secrets(request: Request, token: str = ""):
 @app.post("/api/user/secrets")
 async def save_user_secret(request: Request, body: dict, token: str = ""):
     check_token(token) if token else None
-    user_id = _current_user_id(request)
+    user_id = await _resolve_user_id(request, token)
     if not user_id:
-        raise HTTPException(status_code=401)
+        raise HTTPException(status_code=401, detail="No user session found")
     key   = str(body.get("key", "")).strip().upper()
     value = str(body.get("value", "")).strip()
     desc  = str(body.get("description", "")).strip() or None
@@ -373,17 +408,45 @@ async def save_user_secret(request: Request, body: dict, token: str = ""):
             SET encrypted_value=$3, description=COALESCE($4, user_secrets.description),
                 updated_at=NOW()
     """, user_id, key, encrypted, desc)
-    # Immediately available in this process
     os.environ[key] = value
     log.info("auth.secret_saved", key=key)
     return {"ok": True, "key": key}
 
+@app.post("/api/user/secrets/import-env")
+async def import_secrets_from_env(request: Request, token: str = ""):
+    check_token(token) if token else None
+    user_id = await _resolve_user_id(request, token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No user session found")
+    pool = await _get_db_pool()
+    rows = await pool.fetch("SELECT key FROM user_secrets WHERE user_id=$1::uuid", user_id)
+    already_in_db = {r["key"] for r in rows}
+    imported, skipped = [], []
+    for key, desc in KNOWN_SECRETS:
+        if key == "---":
+            continue
+        value = os.environ.get(key, "").strip()
+        if not value:
+            continue
+        if key in already_in_db:
+            skipped.append(key)
+            continue
+        encrypted = _encrypt_secret(value)
+        await pool.execute("""
+            INSERT INTO user_secrets (user_id, key, encrypted_value, description, updated_at)
+            VALUES ($1::uuid, $2, $3, $4, NOW())
+            ON CONFLICT (user_id, key) DO NOTHING
+        """, user_id, key, encrypted, desc)
+        imported.append(key)
+    log.info("auth.secrets_imported_from_env", count=len(imported))
+    return {"ok": True, "imported": imported, "skipped": skipped}
+
 @app.delete("/api/user/secrets/{key}")
 async def delete_user_secret(key: str, request: Request, token: str = ""):
     check_token(token) if token else None
-    user_id = _current_user_id(request)
+    user_id = await _resolve_user_id(request, token)
     if not user_id:
-        raise HTTPException(status_code=401)
+        raise HTTPException(status_code=401, detail="No user session found")
     key = key.upper()
     pool = await _get_db_pool()
     await pool.execute(
@@ -391,6 +454,56 @@ async def delete_user_secret(key: str, request: Request, token: str = ""):
         user_id, key,
     )
     return {"ok": True, "key": key}
+
+@app.get("/api/user/secrets/{key}/reveal")
+async def reveal_user_secret(key: str, request: Request, token: str = ""):
+    check_token(token) if token else None
+    user_id = await _resolve_user_id(request, token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No user session found")
+    key = key.upper()
+    pool = await _get_db_pool()
+    row = await pool.fetchrow(
+        "SELECT encrypted_value FROM user_secrets WHERE user_id=$1::uuid AND key=$2",
+        user_id, key,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Secret not found")
+    try:
+        value = _decrypt_secret(row["encrypted_value"])
+    except Exception:
+        raise HTTPException(status_code=500, detail="Decryption failed")
+    return {"key": key, "value": value}
+
+@app.get("/api/user/preferences")
+async def get_user_preferences(request: Request, token: str = ""):
+    check_token(token) if token else None
+    user_id = await _resolve_user_id(request, token)
+    if not user_id:
+        raise HTTPException(status_code=401)
+    pool = await _get_db_pool()
+    rows = await pool.fetch("SELECT key, value_json FROM user_preferences WHERE user_id=$1::uuid", user_id)
+    import json as _json
+    return {r["key"]: _json.loads(r["value_json"]) for r in rows}
+
+@app.post("/api/user/preferences")
+async def set_user_preference(request: Request, body: dict, token: str = ""):
+    check_token(token) if token else None
+    user_id = await _resolve_user_id(request, token)
+    if not user_id:
+        raise HTTPException(status_code=401)
+    key = str(body.get("key", "")).strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="key required")
+    import json as _json
+    value_json = _json.dumps(body.get("value"))
+    pool = await _get_db_pool()
+    await pool.execute("""
+        INSERT INTO user_preferences (user_id, key, value_json, updated_at)
+        VALUES ($1::uuid, $2, $3, NOW())
+        ON CONFLICT (user_id, key) DO UPDATE SET value_json=$3, updated_at=NOW()
+    """, user_id, key, value_json)
+    return {"ok": True}
 
 @app.post("/api/user/change-password")
 async def change_password(request: Request, body: dict, token: str = ""):
@@ -498,11 +611,11 @@ KNOWN_AGENTS = [
     "scraper-yahoo-sentiment",
     "aggregator", "review-agent", "broker-gateway", "directive-agent",
     # MCP servers & chat agent — health derived from Podman (no heartbeat)
-    "mcp-yahoo", "mcp-alpaca", "mcp-tradingview", "mcp-massive", "mcp-unusualwhales", "mcp-webull", "chat-agent",
+    "mcp-yahoo", "mcp-alpaca", "mcp-tradingview", "mcp-massive", "mcp-unusualwhales", "chat-agent",
 ]
 
 # Containers that don't publish heartbeats — health is read from Podman status
-PODMAN_HEALTH_ONLY = {"mcp-yahoo", "mcp-alpaca", "mcp-tradingview", "mcp-massive", "mcp-unusualwhales", "mcp-webull", "chat-agent"}
+PODMAN_HEALTH_ONLY = {"mcp-yahoo", "mcp-alpaca", "mcp-tradingview", "mcp-massive", "mcp-unusualwhales", "chat-agent"}
 
 CONTAINER_MAP = {
     "orchestrator":    "ot-orchestrator",
@@ -525,7 +638,6 @@ CONTAINER_MAP = {
     "mcp-tradingview":    "ot-mcp-tradingview",
     "mcp-massive":        "ot-mcp-massive",
     "mcp-unusualwhales":  "ot-mcp-unusualwhales",
-    "mcp-webull":         "ot-mcp-webull",
     "chat-agent":         "ot-chat-agent",
     "redis":           "ot-redis",
     "timescaledb":     "ot-timescaledb",
@@ -2442,7 +2554,7 @@ async def _restart_broker_gateway() -> None:
     await asyncio.sleep(1)  # let the HTTP response return first
     dependents = [
         "ot-trader-equity", "ot-trader-options", "ot-chat-agent",
-        "ot-mcp-tradingview", "ot-mcp-alpaca", "ot-mcp-yahoo", "ot-mcp-webull",
+        "ot-mcp-tradingview", "ot-mcp-alpaca", "ot-mcp-yahoo",
     ]
     restart_order = dependents + ["ot-broker-gateway"]
     try:
@@ -2719,25 +2831,6 @@ async def test_config_connector(service: str, body: CfgTestBody = CfgTestBody())
                     return {"ok": True, "message": f"Alpaca {mode} account {acct} — status: {status}"}
                 raise HTTPException(status_code=400, detail=f"Alpaca API returned HTTP {resp.status}")
 
-            elif service == "webull_mcp":
-                app_key    = ev("WEBULL_APP_KEY")
-                app_secret = ev("WEBULL_APP_SECRET")
-                if not app_key or not app_secret:
-                    raise HTTPException(status_code=400, detail="WEBULL_APP_KEY and WEBULL_APP_SECRET are required")
-                environment = ev("WEBULL_ENVIRONMENT") or "prod"
-                region      = ev("WEBULL_REGION_ID") or "us"
-                # Ping the MCP server health endpoint (internal container network)
-                mcp_url = ev("WEBULL_MCP_URL") or "http://ot-mcp-webull:8000"
-                base = mcp_url.rstrip("/").removesuffix("/mcp")
-                try:
-                    resp = await s.get(f"{base}/", timeout=_aiohttp.ClientTimeout(total=5))
-                    reachable = resp.status < 500
-                except Exception:
-                    reachable = False
-                if reachable:
-                    return {"ok": True, "message": f"Webull MCP server reachable — env: {environment}, region: {region}. Run 'webull-openapi-mcp auth' in the container if not yet authenticated."}
-                raise HTTPException(status_code=400, detail="Webull MCP container not reachable — ensure ot-mcp-webull is running and credentials are set")
-
             else:
                 raise HTTPException(status_code=404, detail=f"Unknown service: {service}")
 
@@ -2882,16 +2975,13 @@ async def test_broker_connection(broker: str):
             return {"ok": ok, "message": " | ".join(results)}
 
         elif broker == "alpaca":
-            paper_key = ev("ALPACA_API_SECRET")
-            live_key  = ev("ALPACA_LIVE_API_SECRET")
             results = []
             async with _aiohttp.ClientSession() as s:
-                for label, key, url in [
-                    ("paper", paper_key, "https://paper-api.alpaca.markets/v2/account"),
-                    ("live",  live_key,  "https://api.alpaca.markets/v2/account"),
+                for label, key_id, secret, url in [
+                    ("paper", ev("ALPACA_API_KEY"),      ev("ALPACA_API_SECRET"),      "https://paper-api.alpaca.markets/v2/account"),
+                    ("live",  ev("ALPACA_LIVE_API_KEY"), ev("ALPACA_LIVE_API_SECRET"), "https://api.alpaca.markets/v2/account"),
                 ]:
-                    key_id, secret = key, key
-                    if not secret or _is_placeholder(secret):
+                    if not key_id or not secret or _is_placeholder(key_id) or _is_placeholder(secret):
                         continue
                     async with s.get(
                         url,
@@ -6763,7 +6853,7 @@ async def get_options_log_summary():
                 "ts":               ev["ts"].strftime("%Y-%m-%d"),
                 "event_type":       ev["event_type"],
                 "underlying_price": float(ev["underlying_price"]) if ev["underlying_price"] else None,
-                "contract_price":   float(ev["contract_price"]) if ev["contract_price"] else None,
+                "contract_price":   float(ev["contract_price"]) if ev["contract_price"] is not None else None,
                 "realized_pnl":     float(ev["realized_pnl"]) if ev["realized_pnl"] is not None else None,
                 "risk_level":       rl,
                 "notes":            ev["notes"],
@@ -6791,7 +6881,7 @@ async def get_options_log_summary():
         # For active positions compute unrealised P&L from last event price
         last_contract_price = None
         for e in reversed(pos_events):
-            if e["contract_price"]:
+            if e["contract_price"] is not None:
                 last_contract_price = e["contract_price"]
                 break
         if last_contract_price is None and len(pos_events) == 0:
@@ -7018,11 +7108,20 @@ async def get_options_log_ticker(ticker: str):
             # Compute realized_pnl for close/roll events if not already stored
             rpnl = float(ev["realized_pnl"]) if ev["realized_pnl"] is not None else None
             if rpnl is None and ev["event_type"] in ("closed", "expired", "alert_roll_1", "alert_roll_2", "alert_roll_3"):
-                ep = float(pos["entry_price"]) if pos["entry_price"] else None
-                cp = float(ev["contract_price"]) if ev["contract_price"] else None
+                ep = float(pos["entry_price"]) if pos["entry_price"] is not None else None
+                cp = float(ev["contract_price"]) if ev["contract_price"] is not None else None
                 q  = abs(float(pos["qty"])) if pos["qty"] else 1.0
                 if ep is not None and cp is not None:
                     rpnl = round((ep - cp) * q * 100, 2)  # short option: profit = credit - debit
+                    # Persist computed P&L back so it's not recomputed every request
+                    try:
+                        await pool.execute(
+                            """UPDATE option_trade_log SET realized_pnl=$1
+                               WHERE position_id=$2 AND ts=$3 AND realized_pnl IS NULL""",
+                            rpnl, pos_id, ev["ts"],
+                        )
+                    except Exception:
+                        pass
 
             event_list.append({
                 "ts":                ev["ts"].isoformat(),
@@ -7060,6 +7159,20 @@ async def get_options_log_ticker(ticker: str):
             "ai_analyzed_at":   pos["ai_analyzed_at"].isoformat() if pos["ai_analyzed_at"] else None,
             "events":           event_list,
         })
+
+        # Persist total_realized_pnl if not stored but computable from events
+        if pos["total_realized_pnl"] is None and result and result[-1]["total_realized_pnl"] is None:
+            ev_sum = sum(e["realized_pnl"] for e in event_list if e.get("realized_pnl") is not None)
+            if ev_sum != 0:
+                try:
+                    await pool.execute(
+                        """UPDATE option_positions SET total_realized_pnl=$1
+                           WHERE id=$2 AND total_realized_pnl IS NULL""",
+                        ev_sum, pos_id,
+                    )
+                    result[-1]["total_realized_pnl"] = round(ev_sum, 2)
+                except Exception:
+                    pass
 
     # Ticker-level summary
     total_pnl = sum(

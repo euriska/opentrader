@@ -303,6 +303,11 @@ class Scheduler(BaseAgent):
                 "intraday_end":         existing.get("intraday_end"),
                 "intraday_interval_min": existing.get("intraday_interval_min"),
                 "intraday_days":        existing.get("intraday_days"),
+                # Preserve execution history — written by @tracked on each run
+                "last_run":             existing.get("last_run"),
+                "last_status":          existing.get("last_status"),
+                "last_error":           existing.get("last_error"),
+                "run_count":            existing.get("run_count", 0),
             })
             pipe.set(f"{JOB_KEY_PREFIX}{j.id}", record, ex=3600)
             ids.append(j.id)

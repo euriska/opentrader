@@ -728,7 +728,7 @@ class OptionsMonitor(BaseAgent):
         }
         active_rows = await pool.fetch(
             """SELECT id, contract_symbol, account_label, underlying,
-                      entry_price, qty
+                      entry_price, qty, expiration_date
                FROM option_positions WHERE status='active'"""
         )
         for row in active_rows:
@@ -745,6 +745,10 @@ class OptionsMonitor(BaseAgent):
                 last_cp = float(last_scan["contract_price"]) if last_scan else None
                 ep      = float(row["entry_price"]) if row["entry_price"] else None
                 qty     = float(row["qty"]) if row["qty"] else None
+
+                # If no price captured but option is past expiration, treat as expired worthless
+                if last_cp is None and row["expiration_date"] and row["expiration_date"] < date.today():
+                    last_cp = 0.0
 
                 # Short option P&L: profit = premium collected − cost to close
                 pnl = None

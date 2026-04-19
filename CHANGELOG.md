@@ -3,6 +3,23 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.61] - 2026-04-19
+
+### Added
+- **Sentiment sub-panel on Charts page**: after loading any chart, a new card appears below MACD showing the ticker's F&G composite score (0–100), color-coded label (Extreme Fear → Extreme Greed), four component progress bars (RSI, MA Score, Momentum, Volatility), and a 30-day sparkline trend line; hides automatically if no sentiment data exists for the symbol
+- **Order fill status polling** (`broker_gateway/main.py`): new `_order_poll_loop` runs every 60 s alongside the command loop; tracks open order IDs per account, detects fills by comparing successive `get_orders` results, and emits fill events to `orders.events` stream so the review agent can flip trade status in the DB; interval configurable via `ORDER_POLL_INTERVAL_SEC`
+- **Scheduler job execution history**: `@tracked` decorator now writes `last_run`, `last_status`, `last_error`, and `run_count` to Redis after every job execution (success and failure); `_publish_jobs` preserves these fields instead of overwriting with None; Scheduler UI now has a **Status** column — green "ok" chip, red "error" chip with hover tooltip showing the last error message, and run count badge
+- **Market Clock color picker** (User Configuration → Clock & Display): `<input type="color">` sets the LED glow color on all six clock elements and the "OpenTrader" brand text simultaneously; persisted to `localStorage`; Reset button restores default blue (`#3b9eff`)
+- **12hr/24hr time format toggle** (User Configuration → Clock & Display): radio buttons replace the old checkbox in Configuration; `_fmtTime(date, opts)` global helper respects `_clock12hr` and is used by all time-display call sites (trade tables, dividends, options formatter); AM/PM indicator appears inline next to the seconds digit in 12hr mode
+- **User Configuration page** (renamed from My Profile): draggable nav items with persistent order stored in `user_preferences` DB table; Sector + Industry Exclusion panels side-by-side; Stock Exclusion + Risk Controls side-by-side; Industry Exclusion styled with green left border; Report Delivery moved into the Account card
+
+### Fixed
+- **`option_trade_log.realized_pnl` NULL for most positions**: three-part fix — (1) `not_in_scan` handler now sets `last_cp = 0.0` when option is past expiration and no price was captured (expired worthless); (2) `if ev["contract_price"]` truthiness checks replaced with `is not None` so `$0.00` prices are not discarded; (3) webui ticker endpoint now writes computed P&L back to `option_trade_log` and `option_positions.total_realized_pnl` on first fetch, preventing re-computation on every request
+- **Scheduler execution history key mismatch**: `@tracked` was writing `scheduler:job:job_scrape_ovtlyr` while `_publish_jobs` reads `scheduler:job:scrape_ovtlyr`; fixed by stripping the `job_` prefix in the decorator
+
+### Removed
+- **Webull MCP server** (`ot-mcp-webull`): removed `mcp/webull-mcp/` directory, compose service, `webull-token` named volume, `MCP_SERVERS` entry, `WEBULL_APP_KEY` / `WEBULL_APP_SECRET` from `.env.sample`, topology node + 3 edges, logs dropdown option, and service connector config block; broker API key/secret (used by the broker gateway directly) are retained
+
 ## [3.5.60] - 2026-04-17
 
 ### Added

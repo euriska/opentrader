@@ -24,6 +24,9 @@ nav{padding:8px;flex:1;overflow-y:auto}
 .nav-item{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:8px;cursor:pointer;color:var(--muted);transition:.12s;font-size:13px;user-select:none}
 .nav-item:hover{background:var(--surface2);color:var(--text)}
 .nav-item.active{background:rgba(59,130,246,.15);color:var(--blue)}
+.nav-item.drag-over{border-top:2px solid var(--blue);margin-top:-2px}
+.nav-item[draggable="true"]{cursor:grab}
+.nav-item[draggable="true"]:active{cursor:grabbing;opacity:.6}
 .nav-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
 .sidebar-footer{padding:12px 16px;border-top:1px solid var(--border)}
 .market-pill{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
@@ -249,111 +252,111 @@ select option{background:var(--surface2)}
 
 <!-- ── Sidebar ── -->
 <div class="sidebar">
-  <div class="brand">
+  <div class="brand" id="brand-title">
     OpenTrader
     <span>Command Center <span id="sidebar-version">v2</span></span>
   </div>
-  <nav>
-    <div class="nav-group">
+  <nav id="main-nav">
+    <div class="nav-group" data-group="trading">
       <div class="nav-label">Trading</div>
-      <div class="nav-item" onclick="navigate('page-trading-dashboard')" data-page="page-trading-dashboard">
+      <div class="nav-item" draggable="true" onclick="navigate('page-trading-dashboard')" data-page="page-trading-dashboard">
         <span class="nav-dot" style="background:var(--teal)"></span>
         Trading Dashboard
       </div>
-      <div class="nav-item" onclick="navigate('page-trading-directives')" data-page="page-trading-directives">
+      <div class="nav-item" draggable="true" onclick="navigate('page-trading-directives')" data-page="page-trading-directives">
         <span class="nav-dot" style="background:var(--green)"></span>
         Trade Directives
       </div>
-      <div class="nav-item" onclick="navigate('page-trading-charts')" data-page="page-trading-charts">
+      <div class="nav-item" draggable="true" onclick="navigate('page-trading-charts')" data-page="page-trading-charts">
         <span class="nav-dot" style="background:#f59e0b"></span>
         Charts
       </div>
-      <div class="nav-item" onclick="navigate('page-trading-broker')" data-page="page-trading-broker">
+      <div class="nav-item" draggable="true" onclick="navigate('page-trading-broker')" data-page="page-trading-broker">
         <span class="nav-dot" style="background:var(--blue)"></span>
         Broker
       </div>
     </div>
-    <div class="nav-group">
+    <div class="nav-group" data-group="equities">
       <div class="nav-label">Equities</div>
-      <div class="nav-item" onclick="navigate('page-trading-trades')" data-page="page-trading-trades">
+      <div class="nav-item" draggable="true" onclick="navigate('page-trading-trades')" data-page="page-trading-trades">
         <span class="nav-dot" style="background:var(--amber)"></span>
         Trades
       </div>
-      <div class="nav-item" onclick="navigate('page-trading-unified')" data-page="page-trading-unified">
+      <div class="nav-item" draggable="true" onclick="navigate('page-trading-unified')" data-page="page-trading-unified">
         <span class="nav-dot" style="background:var(--coral)"></span>
         Active Positions
       </div>
-      <div class="nav-item" onclick="navigate('page-trading-dividends')" data-page="page-trading-dividends">
+      <div class="nav-item" draggable="true" onclick="navigate('page-trading-dividends')" data-page="page-trading-dividends">
         <span class="nav-dot" style="background:var(--green)"></span>
         Dividends
       </div>
     </div>
-    <div class="nav-group">
+    <div class="nav-group" data-group="options">
       <div class="nav-label">Options</div>
-      <div class="nav-item" onclick="navigate('page-trading-options')" data-page="page-trading-options">
+      <div class="nav-item" draggable="true" onclick="navigate('page-trading-options')" data-page="page-trading-options">
         <span class="nav-dot" style="background:#a855f7"></span>
         Options Dashboard
       </div>
-      <div class="nav-item" onclick="navigate('page-options-log')" data-page="page-options-log">
+      <div class="nav-item" draggable="true" onclick="navigate('page-options-log')" data-page="page-options-log">
         <span class="nav-dot" style="background:#c084fc"></span>
         Trading Log
       </div>
     </div>
-    <div class="nav-group">
+    <div class="nav-group" data-group="plan">
       <div class="nav-label">Trading Plan</div>
-      <div class="nav-item" onclick="navigate('page-plan-engineer')" data-page="page-plan-engineer">
+      <div class="nav-item" draggable="true" onclick="navigate('page-plan-engineer')" data-page="page-plan-engineer">
         <span class="nav-dot" style="background:var(--purple)"></span>
         Strategy Engineer
       </div>
-      <div class="nav-item" onclick="navigate('page-plan-library')" data-page="page-plan-library">
+      <div class="nav-item" draggable="true" onclick="navigate('page-plan-library')" data-page="page-plan-library">
         <span class="nav-dot" style="background:var(--teal)"></span>
         Strategy Library
       </div>
-      <div class="nav-item" onclick="navigate('page-plan-assignment')" data-page="page-plan-assignment">
+      <div class="nav-item" draggable="true" onclick="navigate('page-plan-assignment')" data-page="page-plan-assignment">
         <span class="nav-dot" style="background:#f59e0b"></span>
         Strategy Assignment
       </div>
     </div>
-    <div class="nav-group">
+    <div class="nav-group" data-group="resources">
       <div class="nav-label">Resources</div>
-      <div class="nav-item" onclick="navigate('page-resources-library')" data-page="page-resources-library">
+      <div class="nav-item" draggable="true" onclick="navigate('page-resources-library')" data-page="page-resources-library">
         <span class="nav-dot" style="background:#a78bfa"></span>
         Library
       </div>
     </div>
-    <div class="nav-group">
+    <div class="nav-group" data-group="platform">
       <div class="nav-label">Platform</div>
-      <div class="nav-item active" onclick="navigate('page-platform-dashboard')" data-page="page-platform-dashboard">
+      <div class="nav-item active" draggable="true" onclick="navigate('page-platform-dashboard')" data-page="page-platform-dashboard">
         <span class="nav-dot" style="background:var(--blue)"></span>
         Platform Dashboard
       </div>
-      <div class="nav-item" onclick="navigate('page-platform-agents')" data-page="page-platform-agents">
+      <div class="nav-item" draggable="true" onclick="navigate('page-platform-agents')" data-page="page-platform-agents">
         <span class="nav-dot" style="background:var(--green)"></span>
         Agents
       </div>
-      <div class="nav-item" onclick="navigate('page-platform-config')" data-page="page-platform-config">
+      <div class="nav-item" draggable="true" onclick="navigate('page-platform-config')" data-page="page-platform-config">
         <span class="nav-dot" style="background:var(--teal)"></span>
         Configuration
       </div>
-      <div class="nav-item" onclick="navigate('page-platform-logs')" data-page="page-platform-logs">
+      <div class="nav-item" draggable="true" onclick="navigate('page-platform-logs')" data-page="page-platform-logs">
         <span class="nav-dot" style="background:var(--muted)"></span>
         Logs
       </div>
-      <div class="nav-item" onclick="navigate('page-platform-scheduler')" data-page="page-platform-scheduler">
+      <div class="nav-item" draggable="true" onclick="navigate('page-platform-scheduler')" data-page="page-platform-scheduler">
         <span class="nav-dot" style="background:var(--purple)"></span>
         Scheduler
       </div>
-      <div class="nav-item" onclick="navigate('page-platform-system')" data-page="page-platform-system">
+      <div class="nav-item" draggable="true" onclick="navigate('page-platform-system')" data-page="page-platform-system">
         <span class="nav-dot" style="background:var(--amber)"></span>
         System
       </div>
-      <div class="nav-item" onclick="navigate('page-platform-ssl')" data-page="page-platform-ssl">
+      <div class="nav-item" draggable="true" onclick="navigate('page-platform-ssl')" data-page="page-platform-ssl">
         <span class="nav-dot" style="background:var(--teal)"></span>
         SSL / TLS
       </div>
-      <div class="nav-item" onclick="navigate('page-platform-profile')" data-page="page-platform-profile">
+      <div class="nav-item" draggable="true" onclick="navigate('page-platform-profile')" data-page="page-platform-profile">
         <span class="nav-dot" style="background:var(--purple)"></span>
-        My Profile
+        User Configuration
       </div>
     </div>
   </nav>
@@ -396,6 +399,7 @@ select option{background:var(--surface2)}
         <span id="led-mm" style="font-family:'Courier New',monospace;font-size:20px;font-weight:700;color:#3b9eff;text-shadow:0 0 10px #3b9eff,0 0 4px #3b9eff;letter-spacing:3px;line-height:1">00</span>
         <span id="led-colon2" style="font-family:'Courier New',monospace;font-size:20px;font-weight:700;color:#3b9eff;text-shadow:0 0 10px #3b9eff;line-height:1;margin:0 1px;opacity:.35">:</span>
         <span id="led-ss" style="font-family:'Courier New',monospace;font-size:13px;font-weight:700;color:#2a7dd4;text-shadow:0 0 8px #2a7dd4;letter-spacing:2px;line-height:1;align-self:flex-end;padding-bottom:2px">00</span>
+        <span id="led-ampm" style="font-family:'Courier New',monospace;font-size:9px;font-weight:700;color:#2a7dd4;letter-spacing:.05em;line-height:1;align-self:flex-end;padding-bottom:3px;margin-left:3px;display:none"></span>
       </div>
       <div id="led-date" style="font-size:8px;color:#4a6fa5;letter-spacing:.04em;margin-top:3px">—</div>
       <div id="led-market-status" style="font-size:8px;font-weight:600;padding:2px 7px;border-radius:20px;background:#0d1628;border:1px solid #1e3a5a;color:#4a6fa5;margin-top:4px;display:inline-block">—</div>
@@ -412,7 +416,7 @@ select option{background:var(--surface2)}
       <span id="ovtlyr-qqq-chip" class="chip chip-muted" title="OVTLYR signal for QQQ" style="font-size:11px;letter-spacing:.01em">QQQ —</span>
       <span id="trade-mode-chip" class="chip chip-amber" style="display:none">Sandbox</span>
       <span id="ws-status" class="chip chip-muted">Connecting…</span>
-      <span id="topbar-user" style="font-size:11px;color:var(--muted);cursor:pointer;padding:3px 8px;border-radius:4px;border:1px solid var(--border)" onclick="navigate('page-platform-profile')" title="My Profile"></span>
+      <span id="topbar-user" style="font-size:11px;color:var(--muted);cursor:pointer;padding:3px 8px;border-radius:4px;border:1px solid var(--border)" onclick="navigate('page-platform-profile')" title="User Configuration"></span>
       <button class="btn btn-ghost btn-xs" onclick="doLogout()" title="Sign out" style="font-size:11px;padding:3px 8px">Sign out</button>
     </div>
   </div>
@@ -567,7 +571,6 @@ select option{background:var(--surface2)}
               <option value="mcp-tradingview">mcp-tradingview</option>
               <option value="mcp-massive">mcp-massive</option>
               <option value="mcp-unusualwhales">mcp-unusualwhales</option>
-              <option value="mcp-webull">mcp-webull</option>
               <option value="chat-agent">chat-agent</option>
             </select>
             <select class="select-input" id="logs-lines-select">
@@ -603,7 +606,7 @@ select option{background:var(--surface2)}
           <table>
             <thead id="scheduler-thead"><tr>
               <th>ID</th><th>Name</th><th>Schedule</th>
-              <th>Enabled</th><th>Next Run</th><th>Last Run</th><th>Actions</th>
+              <th>Enabled</th><th>Next Run</th><th>Last Run</th><th>Status</th><th>Actions</th>
             </tr></thead>
             <tbody id="scheduler-tbody">
               <tr><td colspan="6" class="empty-state">Loading…</td></tr>
@@ -683,7 +686,7 @@ select option{background:var(--surface2)}
     </div>
 
     <!-- ════════════════════════════════════════
-         PAGE: My Profile
+         PAGE: User Configuration
     ════════════════════════════════════════ -->
     <div class="page" id="page-platform-profile">
 
@@ -722,6 +725,196 @@ select option{background:var(--surface2)}
             </div>
             <div id="pwd-status" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
           </div>
+
+          <!-- Report Delivery -->
+          <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
+            <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px">Report Delivery</div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Email address where downloaded/emailed option position reports are sent.</div>
+            <div style="display:flex;align-items:end;gap:8px;max-width:400px">
+              <div style="flex:1">
+                <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Recipient Email</label>
+                <input id="us-report-recipient-email" type="email" class="input-field" style="width:100%" placeholder="you@example.com">
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="_saveReportEmail()" style="white-space:nowrap">Save</button>
+            </div>
+            <div id="us-report-email-status" style="font-size:11px;margin-top:8px;display:none"></div>
+          </div>
+
+          <!-- Clock & Display -->
+          <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
+            <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px">Clock &amp; Display</div>
+            <div style="display:flex;align-items:flex-start;gap:24px;flex-wrap:wrap">
+              <div>
+                <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Market Clock Color</label>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <input id="uc-clock-color" type="color" value="#3b9eff"
+                    style="width:38px;height:32px;padding:2px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);cursor:pointer"
+                    oninput="_applyClockColor(this.value)">
+                  <button class="btn btn-ghost btn-sm" onclick="_applyClockColor('#3b9eff');document.getElementById('uc-clock-color').value='#3b9eff'">Reset</button>
+                </div>
+                <div style="font-size:9px;color:var(--dim);margin-top:4px">Changes the LED glow color of the Market Clock</div>
+              </div>
+              <div>
+                <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Time Format</label>
+                <div style="display:flex;gap:8px">
+                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text)">
+                    <input type="radio" name="uc-timefmt" value="24" style="accent-color:var(--blue)" ${_clock12hr ? '' : 'checked'} onchange="_setClock12hr(false)"> 24-hour
+                  </label>
+                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text)">
+                    <input type="radio" name="uc-timefmt" value="12" style="accent-color:var(--blue)" ${_clock12hr ? 'checked' : ''} onchange="_setClock12hr(true)"> 12-hour (AM/PM)
+                  </label>
+                </div>
+                <div style="font-size:9px;color:var(--dim);margin-top:4px">Applies to the LED clock and all time displays in the application</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- User Settings -->
+      <div class="card" style="margin-bottom:18px">
+        <div class="card-header">
+          <span class="card-title">User Settings</span>
+        </div>
+        <div class="card-body" style="padding:16px">
+          <div id="user-settings-body">
+
+            <!-- Sector + Industry Exclusion — side by side -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+
+              <!-- Sector Exclusion -->
+              <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--blue);border-radius:8px;padding:12px 14px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                  <div style="font-size:12px;font-weight:600;color:var(--text)">Sector Exclusion</div>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-ghost btn-xs" onclick="_resetSectors()">Reset</button>
+                    <button class="btn btn-primary btn-xs" onclick="_saveSectors()">Save</button>
+                  </div>
+                </div>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:8px">Double-click to move. Excluded sectors are ignored by all scrapers and strategies.</div>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <div style="flex:1;display:flex;flex-direction:column;gap:3px">
+                    <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">All</div>
+                    <select id="sectors-available" multiple ondblclick="_sectorMove('right')" style="width:100%;height:120px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;padding:3px;outline:none">
+                      <option>Basic Materials</option>
+                      <option>Communication Services</option>
+                      <option>Consumer Cyclical</option>
+                      <option>Consumer Defensive</option>
+                      <option>Energy</option>
+                      <option>Financial Services</option>
+                      <option>Healthcare</option>
+                      <option>Industrials</option>
+                      <option>Real Estate</option>
+                      <option>Technology</option>
+                      <option>Utilities</option>
+                    </select>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:4px;align-items:center">
+                    <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_sectorMove('right')" title="Exclude selected">&gt;</button>
+                    <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_sectorMove('left')"  title="Restore selected">&lt;</button>
+                    <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_sectorMove('allRight')" title="Exclude all" style="font-size:9px">ALL&nbsp;&gt;</button>
+                    <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_sectorMove('allLeft')"  title="Restore all" style="font-size:9px">&lt;&nbsp;ALL</button>
+                  </div>
+                  <div style="flex:1;display:flex;flex-direction:column;gap:3px">
+                    <div style="font-size:9px;color:var(--red);text-transform:uppercase;letter-spacing:.06em">Excluded</div>
+                    <select id="sectors-excluded" multiple ondblclick="_sectorMove('left')" style="width:100%;height:120px;background:var(--bg);border:1px solid var(--red);border-radius:6px;color:var(--text);font-size:11px;padding:3px;outline:none"></select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Industry Exclusion -->
+              <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:8px;padding:12px 14px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                  <div style="font-size:12px;font-weight:600;color:var(--text)">Industry Exclusion</div>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-ghost btn-xs" onclick="_resetIndustries()">Reset</button>
+                    <button class="btn btn-primary btn-xs" onclick="_saveIndustries()">Save</button>
+                  </div>
+                </div>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:8px">Double-click to move. Filter by typing below.</div>
+                <div style="display:flex;align-items:flex-start;gap:6px">
+                  <div style="flex:1;display:flex;flex-direction:column;gap:3px">
+                    <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">All</div>
+                    <input id="industry-filter" type="text" placeholder="Filter…" class="select-input" style="margin-bottom:3px;font-size:10px;padding:3px 6px" oninput="_filterIndustries(this.value)">
+                    <select id="industries-available" multiple ondblclick="_industryMove('right')" style="width:100%;height:100px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;padding:3px;outline:none"></select>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:4px;align-items:center;margin-top:32px">
+                    <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_industryMove('right')" title="Exclude selected">&gt;</button>
+                    <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_industryMove('left')"  title="Restore selected">&lt;</button>
+                  </div>
+                  <div style="flex:1;display:flex;flex-direction:column;gap:3px">
+                    <div style="font-size:9px;color:var(--red);text-transform:uppercase;letter-spacing:.06em">Excluded</div>
+                    <div style="height:26px"></div>
+                    <select id="industries-excluded" multiple ondblclick="_industryMove('left')" style="width:100%;height:100px;background:var(--bg);border:1px solid var(--red);border-radius:6px;color:var(--text);font-size:11px;padding:3px;outline:none"></select>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Stock Exclusion + Risk Controls — side by side -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+
+              <!-- Stock Exclusion -->
+              <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--red);border-radius:8px;padding:12px 14px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                  <div style="font-size:12px;font-weight:600;color:var(--text)">Stock Exclusion</div>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-ghost btn-xs" onclick="_resetTickers()">Reset</button>
+                    <button class="btn btn-primary btn-xs" onclick="_saveTickers()">Save</button>
+                  </div>
+                </div>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:8px">Tickers listed here are ignored by all scrapers, strategies, and news feeds.</div>
+                <div style="display:flex;gap:6px;margin-bottom:10px">
+                  <input id="ticker-exclusion-input" class="select-input" type="text" placeholder="Enter ticker e.g. TSLA" style="flex:1;text-transform:uppercase;font-size:11px" onkeydown="if(event.key==='Enter')_tickerAdd()">
+                  <button class="btn btn-ghost btn-sm" onclick="_tickerAdd()">Add</button>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                  <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);white-space:nowrap">Search</span>
+                  <div style="flex:1;height:1px;background:var(--border)"></div>
+                </div>
+                <div style="display:flex;gap:6px;margin-bottom:8px">
+                  <input id="stock-search-input" class="select-input" type="text" placeholder='e.g. airlines, semiconductor…' style="flex:1;font-size:11px" onkeydown="if(event.key==='Enter')_stockSearch()">
+                  <button class="btn btn-ghost btn-sm" onclick="_stockSearch()">Search</button>
+                </div>
+                <div id="stock-search-results" style="display:none;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:8px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--surface2);border-bottom:1px solid var(--border)">
+                    <span id="stock-search-count" style="font-size:11px;color:var(--muted)"></span>
+                    <div style="display:flex;gap:6px">
+                      <button class="btn btn-ghost btn-xs" onclick="_stockAddSelected()">Add Selected</button>
+                      <button class="btn btn-ghost btn-xs" onclick="_stockGrabAll()">Grab All</button>
+                    </div>
+                  </div>
+                  <div id="stock-search-list" style="max-height:160px;overflow-y:auto"></div>
+                </div>
+                <div id="ticker-exclusion-list" style="display:flex;flex-wrap:wrap;gap:5px;min-height:24px"></div>
+              </div>
+
+              <!-- Risk Controls -->
+              <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--amber);border-radius:8px;padding:12px 14px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                  <div style="font-size:12px;font-weight:600;color:var(--text)">Risk Controls</div>
+                  <button class="btn btn-primary btn-xs" onclick="_saveRiskControls()">Save</button>
+                </div>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:12px">Filter trades that exceed slippage or liquidity thresholds. Set to 0 to disable.</div>
+                <div style="display:flex;flex-direction:column;gap:14px">
+                  <div>
+                    <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Max Slippage %</div>
+                    <div style="font-size:10px;color:var(--dim);margin-bottom:6px">Bid-ask spread as % of mid price. Block trades above this threshold.</div>
+                    <input id="rc-max-slippage" type="number" min="0" max="10" step="0.1" class="select-input" style="width:120px" placeholder="0 = off" value="0">
+                  </div>
+                  <div>
+                    <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Min Volume (K shares/day)</div>
+                    <div style="font-size:10px;color:var(--dim);margin-bottom:6px">Minimum average daily volume in thousands. Block illiquid stocks.</div>
+                    <input id="rc-min-volume" type="number" min="0" step="10" class="select-input" style="width:120px" placeholder="0 = off" value="0">
+                  </div>
+                </div>
+                <div id="rc-status" style="font-size:11px;color:var(--green);margin-top:8px;display:none">Saved.</div>
+              </div>
+
+            </div>
+
+          </div>
         </div>
       </div>
 
@@ -729,12 +922,14 @@ select option{background:var(--surface2)}
       <div class="card">
         <div class="card-header">
           <span class="card-title">API Keys &amp; Secrets</span>
-          <span style="font-size:11px;color:var(--muted)">Stored encrypted in the database — never written to .env</span>
+          <div style="display:flex;align-items:center;gap:12px">
+            <span style="font-size:11px;color:var(--muted)">Stored encrypted in the database — never written to .env</span>
+            <button class="btn btn-ghost btn-sm" onclick="secretsImportEnv()" id="secrets-import-btn" style="white-space:nowrap">Import from .env</button>
+          </div>
         </div>
         <div class="card-body" style="padding:16px">
           <p style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">
             Save your API keys here once — they are encrypted with AES-128 and loaded into the platform on login.
-            Values are write-only; existing values are never returned to the browser.
           </p>
           <div id="secrets-grid" style="display:flex;flex-direction:column;gap:8px">
             <div class="empty-state">Loading…</div>
@@ -879,173 +1074,6 @@ select option{background:var(--surface2)}
             <button class="btn btn-primary btn-sm" onclick="saveSysSettings()">Save Settings</button>
           </div>
 
-          <!-- User Settings -->
-          <div style="display:flex;align-items:center;gap:10px;margin-top:18px;margin-bottom:10px">
-            <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);white-space:nowrap">User Settings</span>
-            <div style="flex:1;height:1px;background:var(--border)"></div>
-          </div>
-          <div id="user-settings-body">
-
-            <!-- Sector Exclusion -->
-            <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--blue);border-radius:8px;padding:14px 16px;margin-bottom:14px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                <div style="font-size:12px;font-weight:600;color:var(--text)">Sector Exclusion</div>
-                <div style="display:flex;gap:6px">
-                  <button class="btn btn-ghost btn-xs" onclick="_resetSectors()">Reset</button>
-                  <button class="btn btn-primary btn-xs" onclick="_saveSectors()">Save</button>
-                </div>
-              </div>
-              <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Sectors moved to Excluded are ignored by all scrapers, strategies, and news feeds.</div>
-              <div style="display:flex;align-items:center;gap:10px">
-                <!-- Available -->
-                <div style="flex:1;display:flex;flex-direction:column;gap:4px">
-                  <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">All Sectors</div>
-                  <select id="sectors-available" multiple ondblclick="_sectorMove('right')" style="width:100%;height:160px;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:12px;padding:4px;outline:none">
-                    <option>Basic Materials</option>
-                    <option>Communication Services</option>
-                    <option>Consumer Cyclical</option>
-                    <option>Consumer Defensive</option>
-                    <option>Energy</option>
-                    <option>Financial Services</option>
-                    <option>Healthcare</option>
-                    <option>Industrials</option>
-                    <option>Real Estate</option>
-                    <option>Technology</option>
-                    <option>Utilities</option>
-                  </select>
-                </div>
-                <!-- Transfer buttons -->
-                <div style="display:flex;flex-direction:column;gap:6px;align-items:center">
-                  <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_sectorMove('right')" title="Move selected to Excluded (or double-click)">&gt;</button>
-                  <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_sectorMove('left')"  title="Restore selected (or double-click)">&lt;</button>
-                  <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_sectorMove('allRight')" title="Exclude all" style="font-size:9px">ALL&nbsp;&gt;</button>
-                  <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_sectorMove('allLeft')"  title="Restore all" style="font-size:9px">&lt;&nbsp;ALL</button>
-                </div>
-                <!-- Excluded -->
-                <div style="flex:1;display:flex;flex-direction:column;gap:4px">
-                  <div style="font-size:10px;color:var(--red);text-transform:uppercase;letter-spacing:.06em">Excluded Sectors</div>
-                  <select id="sectors-excluded" multiple ondblclick="_sectorMove('left')" style="width:100%;height:160px;background:var(--bg);border:1px solid var(--red);border-radius:7px;color:var(--text);font-size:12px;padding:4px;outline:none"></select>
-                </div>
-              </div>
-            </div>
-
-            <!-- Industry Sub-Sector Exclusion -->
-            <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--yellow);border-radius:8px;padding:14px 16px;margin-bottom:14px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                <div style="font-size:12px;font-weight:600;color:var(--text)">Industry Exclusion</div>
-                <div style="display:flex;gap:6px">
-                  <button class="btn btn-ghost btn-xs" onclick="_resetIndustries()">Reset</button>
-                  <button class="btn btn-primary btn-xs" onclick="_saveIndustries()">Save</button>
-                </div>
-              </div>
-              <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Exclude specific industries (sub-sectors). Filter by typing below.</div>
-              <div style="display:flex;align-items:flex-start;gap:10px">
-                <!-- Available -->
-                <div style="flex:1;display:flex;flex-direction:column;gap:4px">
-                  <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">All Industries</div>
-                  <input id="industry-filter" type="text" placeholder="Filter…" class="select-input" style="margin-bottom:4px;font-size:11px" oninput="_filterIndustries(this.value)">
-                  <select id="industries-available" multiple ondblclick="_industryMove('right')" style="width:100%;height:140px;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:11px;padding:4px;outline:none"></select>
-                </div>
-                <!-- Transfer buttons -->
-                <div style="display:flex;flex-direction:column;gap:6px;align-items:center;margin-top:42px">
-                  <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_industryMove('right')" title="Exclude selected (or double-click)">&gt;</button>
-                  <button class="btn btn-ghost btn-xs" onmousedown="event.preventDefault()" onclick="_industryMove('left')"  title="Restore selected (or double-click)">&lt;</button>
-                </div>
-                <!-- Excluded -->
-                <div style="flex:1;display:flex;flex-direction:column;gap:4px">
-                  <div style="font-size:10px;color:var(--red);text-transform:uppercase;letter-spacing:.06em">Excluded Industries</div>
-                  <div style="height:24px"></div>
-                  <select id="industries-excluded" multiple ondblclick="_industryMove('left')" style="width:100%;height:140px;background:var(--bg);border:1px solid var(--red);border-radius:7px;color:var(--text);font-size:11px;padding:4px;outline:none"></select>
-                </div>
-              </div>
-            </div>
-
-            <!-- Stock Exclusion -->
-            <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--red);border-radius:8px;padding:14px 16px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                <div style="font-size:12px;font-weight:600;color:var(--text)">Stock Exclusion</div>
-                <div style="display:flex;gap:6px">
-                  <button class="btn btn-ghost btn-xs" onclick="_resetTickers()">Reset</button>
-                  <button class="btn btn-primary btn-xs" onclick="_saveTickers()">Save</button>
-                </div>
-              </div>
-              <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Tickers listed here are ignored by all scrapers, strategies, and news feeds.</div>
-
-              <!-- Manual add -->
-              <div style="display:flex;gap:6px;margin-bottom:12px">
-                <input id="ticker-exclusion-input" class="select-input" type="text" placeholder="Enter ticker e.g. TSLA" style="width:160px;text-transform:uppercase" onkeydown="if(event.key==='Enter')_tickerAdd()">
-                <button class="btn btn-ghost btn-sm" onclick="_tickerAdd()">Add</button>
-              </div>
-
-              <!-- Search -->
-              <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-                <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);white-space:nowrap">Search Stocks</span>
-                <div style="flex:1;height:1px;background:var(--border)"></div>
-              </div>
-              <div style="display:flex;gap:6px;margin-bottom:10px">
-                <input id="stock-search-input" class="select-input" type="text" placeholder='e.g. airlines, semiconductor, banks…' style="flex:1" onkeydown="if(event.key==='Enter')_stockSearch()">
-                <button class="btn btn-ghost btn-sm" onclick="_stockSearch()">Search</button>
-              </div>
-              <div id="stock-search-results" style="display:none;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:10px">
-                <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--surface2);border-bottom:1px solid var(--border)">
-                  <span id="stock-search-count" style="font-size:11px;color:var(--muted)"></span>
-                  <div style="display:flex;gap:6px">
-                    <button class="btn btn-ghost btn-xs" onclick="_stockAddSelected()">Add Selected</button>
-                    <button class="btn btn-ghost btn-xs" onclick="_stockGrabAll()">Grab All</button>
-                  </div>
-                </div>
-                <div id="stock-search-list" style="max-height:220px;overflow-y:auto"></div>
-              </div>
-
-              <!-- Tags -->
-              <div id="ticker-exclusion-list" style="display:flex;flex-wrap:wrap;gap:6px;min-height:28px"></div>
-            </div>
-
-            <!-- Risk Controls -->
-            <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--amber);border-radius:8px;padding:14px 16px;margin-bottom:14px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                <div style="font-size:12px;font-weight:600;color:var(--text)">Risk Controls</div>
-                <button class="btn btn-primary btn-xs" onclick="_saveRiskControls()">Save</button>
-              </div>
-              <div style="font-size:11px;color:var(--muted);margin-bottom:12px">
-                Filter trades that exceed slippage or liquidity thresholds. Set to 0 to disable a control.
-              </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-                <div>
-                  <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Max Slippage %</div>
-                  <div style="font-size:10px;color:var(--dim);margin-bottom:6px">Bid-ask spread as % of mid price. Block trades above this threshold.</div>
-                  <input id="rc-max-slippage" type="number" min="0" max="10" step="0.1"
-                    class="select-input" style="width:120px"
-                    placeholder="0 = off" value="0">
-                </div>
-                <div>
-                  <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Min Volume (K shares/day)</div>
-                  <div style="font-size:10px;color:var(--dim);margin-bottom:6px">Minimum average daily volume in thousands. Block illiquid stocks.</div>
-                  <input id="rc-min-volume" type="number" min="0" step="10"
-                    class="select-input" style="width:120px"
-                    placeholder="0 = off" value="0">
-                </div>
-              </div>
-              <div id="rc-status" style="font-size:11px;color:var(--green);margin-top:8px;display:none">Saved.</div>
-            </div>
-
-            <!-- Report Delivery -->
-            <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid #14b8a6;border-radius:8px;padding:14px 16px;margin-bottom:14px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                <div style="font-size:12px;font-weight:600;color:var(--text)">Report Delivery</div>
-                <button class="btn btn-primary btn-xs" onclick="_saveReportEmail()">Save</button>
-              </div>
-              <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Email address where downloaded/emailed option position reports are sent.</div>
-              <div>
-                <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:block;margin-bottom:4px">Report Recipient Email</label>
-                <input id="us-report-recipient-email" type="email" class="select-input"
-                  style="width:100%;max-width:340px;padding:7px 10px;font-size:13px"
-                  placeholder="you@example.com">
-              </div>
-              <div id="us-report-email-status" style="font-size:11px;margin-top:8px;display:none"></div>
-            </div>
-
-          </div>
         </div>
       </div>
 
@@ -2052,6 +2080,30 @@ select option{background:var(--surface2)}
         <div id="chart-macd-container" style="width:100%;height:110px"></div>
       </div>
 
+      <!-- Sentiment subpanel -->
+      <div class="card" id="chart-sentiment-card" style="display:none;margin-bottom:14px">
+        <div class="card-header" style="padding:6px 14px">
+          <span class="card-title" style="font-size:11px;color:var(--muted)">Sentiment</span>
+          <span id="chart-sent-label" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;margin-left:8px"></span>
+        </div>
+        <div id="chart-sentiment-body" style="padding:10px 14px;display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">
+          <!-- Score gauge -->
+          <div style="text-align:center;min-width:80px">
+            <div id="chart-sent-score" style="font-size:28px;font-weight:700;line-height:1">—</div>
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:2px">Score / 100</div>
+          </div>
+          <!-- Component bars -->
+          <div style="flex:1;min-width:160px">
+            <div style="display:grid;grid-template-columns:1fr;gap:5px" id="chart-sent-components"></div>
+          </div>
+          <!-- Sparkline -->
+          <div style="flex:2;min-width:200px">
+            <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">30-Day Trend</div>
+            <svg id="chart-sent-sparkline" width="100%" height="56" style="display:block"></svg>
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <!-- ════════════════════════════════════════
@@ -2821,7 +2873,7 @@ const PAGE_TITLES = {
   'page-platform-scheduler': 'Scheduler',
   'page-platform-system':    'System',
   'page-platform-ssl':       'SSL / TLS',
-  'page-platform-profile':   'My Profile',
+  'page-platform-profile':   'User Configuration',
   'page-platform-config':    'Configuration',
   'page-trading-dashboard':  'Trading Dashboard',
   'page-trading-unified':    'Active Positions',
@@ -2857,7 +2909,7 @@ function fmtTs(ts) {
     const ms = typeof ts === 'string' && ts.includes('-') ? Date.parse(ts)
              : (Number(ts) > 1e12 ? Number(ts) : Number(ts) * 1000);
     if (isNaN(ms)) return ts.toString().slice(0, 19);
-    return new Date(ms).toLocaleTimeString();
+    return _fmtTime(new Date(ms));
   } catch(e) { return String(ts).slice(0,19); }
 }
 
@@ -3281,7 +3333,6 @@ const TOPO_NODES = [
   { id: 'mcp-tradingview',         label: 'MCP TradingView',    x: 555, y: 230, group: 'mcp'      },
   { id: 'mcp-massive',             label: 'MCP Massive',        x: 280, y: 450, group: 'mcp'      },
   { id: 'mcp-unusualwhales',       label: 'MCP Unusual Whales', x: 90,  y: 515, group: 'mcp'      },
-  { id: 'mcp-webull',              label: 'MCP Webull',         x: 735, y: 405, group: 'mcp'      },
   // ── Interface ─────────────────────────────────────────────────────────────
   { id: 'chat-agent',              label: 'Chat Agent',         x: 930, y: 140, group: 'interface'},
 ];
@@ -3332,7 +3383,6 @@ const TOPO_EDGES = [
   { from: 'broker-gateway',         to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
   { from: 'mcp-massive',            to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
   { from: 'mcp-unusualwhales',      to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
-  { from: 'mcp-webull',             to: 'orchestrator',            label: 'heartbeat',        color: '#334155', markerId: 'arrow-gray',   dashed: true  },
   { from: 'orchestrator',           to: 'scheduler',               label: 'system.commands',  color: '#334155', markerId: 'arrow-gray',   dashed: true  },
   // ── MCP tool connections ──────────────────────────────────────────────────
   { from: 'mcp-yahoo',              to: 'scraper-yahoo',           label: 'mcp/tools',        color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
@@ -3342,14 +3392,12 @@ const TOPO_EDGES = [
   { from: 'mcp-massive',            to: 'predictor',               label: 'market data',      color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
   { from: 'mcp-massive',            to: 'aggregator',              label: 'market data',      color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
   { from: 'mcp-unusualwhales',      to: 'predictor',               label: 'options flow',     color: '#f97316', markerId: 'arrow-orange', dashed: false },
-  { from: 'mcp-webull',             to: 'broker-gateway',          label: 'mcp/tools',        color: '#14b8a6', markerId: 'arrow-teal',   dashed: false },
   // ── Chat Agent queries ────────────────────────────────────────────────────
   { from: 'chat-agent',             to: 'mcp-yahoo',               label: 'queries',          color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
   { from: 'chat-agent',             to: 'mcp-alpaca',              label: 'queries',          color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
   { from: 'chat-agent',             to: 'mcp-tradingview',         label: 'queries',          color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
   { from: 'chat-agent',             to: 'mcp-massive',             label: 'queries',          color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
   { from: 'chat-agent',             to: 'mcp-unusualwhales',       label: 'queries',          color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
-  { from: 'chat-agent',             to: 'mcp-webull',              label: 'queries',          color: '#8b5cf6', markerId: 'arrow-purple', dashed: true  },
 ];
 
 function healthColor(health) {
@@ -3398,7 +3446,6 @@ function resetTopoLayout() {
     'mcp-yahoo':15,'mcp-yahoo_y':375, 'mcp-alpaca':735,'mcp-alpaca_y':310,
     'mcp-massive':280,'mcp-massive_y':390,
     'mcp-unusualwhales':90,'mcp-unusualwhales_y':460,
-    'mcp-webull':735,'mcp-webull_y':400,
     'chat-agent':930,'chat-agent_y':140,
   };
   TOPO_NODES.forEach(n => {
@@ -4005,6 +4052,12 @@ async function loadSchedulerPage() {
              title="${notifyOn ? 'Notifications on — click to mute' : 'Notifications muted — click to enable'}"
              onclick="toggleJobNotify('${j.id}', ${notifyOn})">${notifyOn ? '🔔' : '🔕'}</button>`
         : '';
+      const statusChipSched = j.last_status === 'ok'
+        ? `<span class="chip chip-green" style="font-size:9px">ok</span>`
+        : j.last_status === 'error'
+          ? `<span class="chip chip-red" title="${(j.last_error||'').replace(/"/g,'&quot;')}" style="font-size:9px;cursor:help">error</span>`
+          : `<span style="color:var(--dim);font-size:10px">—</span>`;
+      const runCountBadge = j.run_count ? `<span style="font-size:9px;color:var(--dim);margin-left:4px">#${j.run_count}</span>` : '';
       const cells = {
         id:       `<td class="mono">${j.id}</td>`,
         name:     `<td>${j.name || j.id}</td>`,
@@ -4012,6 +4065,7 @@ async function loadSchedulerPage() {
         enabled:  `<td><label class="toggle" title="${j.enabled ? 'Enabled' : 'Disabled'}"><input type="checkbox" ${j.enabled !== false ? 'checked' : ''} onchange="toggleJob('${j.id}')"><span class="ttrack"></span></label></td>`,
         next_run: `<td class="mono" style="color:var(--muted)">${nextRun}</td>`,
         last_run: `<td class="mono">${j.last_run ? fmtTs(j.last_run) : '—'}</td>`,
+        status:   `<td>${statusChipSched}${runCountBadge}</td>`,
       };
       const actionsTd = `<td style="white-space:nowrap">
         <button class="btn btn-ghost btn-xs" onclick="openJobEdit('${j.id}')">Edit</button>
@@ -4022,7 +4076,7 @@ async function loadSchedulerPage() {
       return `<tr>${order.map(k => cells[k] || '<td>—</td>').join('')}${actionsTd}</tr>`;
     }).join('');
   } catch(e) {
-    document.getElementById('scheduler-tbody').innerHTML = `<tr><td colspan="7" class="empty-state">Error: ${e.message}</td></tr>`;
+    document.getElementById('scheduler-tbody').innerHTML = `<tr><td colspan="8" class="empty-state">Error: ${e.message}</td></tr>`;
   }
 }
 
@@ -4674,7 +4728,7 @@ function renderTradingDashboard(data) {
         const ms = t.ts ? (typeof t.ts === 'string' && t.ts.includes('-') ? Date.parse(t.ts) : (Number(t.ts) > 1e12 ? Number(t.ts) : Number(t.ts) * 1000)) : null;
         const d = ms ? new Date(ms) : null;
         const dateCell = d ? d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—';
-        const timeCell = d ? d.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', second:'2-digit' }) : '—';
+        const timeCell = d ? _fmtTime(d) : '—';
         const bkr = (t.broker || '').toLowerCase();
         const dot = brokerDots[bkr] || 'var(--muted)';
         const brokerCell = t.broker
@@ -5037,8 +5091,9 @@ const _SCHED_COL_DEFS = {
   id:       { label: 'ID' },      name:     { label: 'Name' },
   schedule: { label: 'Schedule' }, enabled:  { label: 'Enabled' },
   next_run: { label: 'Next Run' }, last_run: { label: 'Last Run' },
+  status:   { label: 'Status' },
 };
-const _SCHED_COL_DEFAULTS = ['id','name','schedule','enabled','next_run','last_run'];
+const _SCHED_COL_DEFAULTS = ['id','name','schedule','enabled','next_run','last_run','status'];
 _colReloadFns['sched_col'] = () => {
   const h = document.getElementById('scheduler-thead');
   if (h) h.innerHTML = '<tr>' + _colTheadHtml('sched_col', _SCHED_COL_DEFS, _SCHED_COL_DEFAULTS) + '<th>Actions</th></tr>';
@@ -6154,7 +6209,7 @@ async function loadTradesPage() {
   function _tradeRow(t) {
     const d        = t._ms ? new Date(t._ms) : null;
     const date     = d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
-    const time     = d ? d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+    const time     = d ? _fmtTime(d) : '—';
     const acctKey  = t.account || '';
     const acctInfo = _acctMap[acctKey] || null;
     const dispName = acctInfo ? acctInfo.display_name : (acctKey || '—');
@@ -6443,24 +6498,6 @@ const CFG_META = {
         hint: 'Default: http://ot-mcp-alpaca:8000/mcp (auto-set)' },
     ],
   },
-  webull_mcp: {
-    label: 'Webull MCP', letter: 'W', bg: '#E82F3E', fg: '#fff', logo: 'logo-webull.png',
-    fields: [
-      { type: 'separator', label: 'OpenAPI Credentials' },
-      { key: 'WEBULL_APP_KEY',    label: 'App Key',    type: 'password', required: true, mono: true,
-        hint: 'From developer.webull.com — separate from your broker API key / secret' },
-      { key: 'WEBULL_APP_SECRET', label: 'App Secret', type: 'password', required: true, mono: true,
-        hint: 'OpenAPI App Secret from developer.webull.com' },
-      { type: 'separator', label: 'Settings' },
-      { key: 'WEBULL_ENVIRONMENT', label: 'Environment', type: 'select', options: ['prod', 'uat'],
-        hint: 'prod = live trading  ·  uat = sandbox / paper' },
-      { key: 'WEBULL_REGION_ID',   label: 'Region',      type: 'select', options: ['us', 'hk'],
-        hint: 'us = United States  ·  hk = Hong Kong' },
-      { type: 'separator', label: 'MCP Server' },
-      { key: 'WEBULL_MCP_URL', label: 'MCP URL', type: 'text',
-        hint: 'Default: http://ot-mcp-webull:8000/mcp (auto-set)' },
-    ],
-  },
 };
 
 let _cfgCurrentService = null;
@@ -6648,33 +6685,101 @@ async function loadProfilePage() {
     document.getElementById('profile-avatar').textContent   = (d.username || '?')[0].toUpperCase();
   } catch(_) {}
 
+  // User settings
+  _loadUserExclusions();
+  _loadRiskControls();
+  _loadReportEmail();
+
   // Secrets list
   const grid = document.getElementById('secrets-grid');
   grid.innerHTML = '<div class="empty-state">Loading…</div>';
   try {
     const token   = getToken();
     const secrets = await apiFetch(`/api/user/secrets?token=${encodeURIComponent(token)}`);
-    grid.innerHTML = secrets.map(s => `
-      <div style="display:grid;grid-template-columns:180px 1fr auto;gap:8px;align-items:center;padding:8px 10px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px">
+    grid.innerHTML = secrets.map(s => {
+      if (s.separator) return `
+        <div style="display:flex;align-items:center;gap:8px;margin-top:10px;margin-bottom:2px">
+          <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);white-space:nowrap">${s.label}</span>
+          <div style="flex:1;height:1px;background:var(--border)"></div>
+        </div>`;
+      return `
+      <div style="display:grid;grid-template-columns:16px 220px 242px auto;gap:8px;align-items:center;padding:8px 10px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px">
+        <div title="${s.is_set ? 'Value stored' : 'Not set'}" style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:${s.is_set ? '#22c55e' : 'var(--border)'};box-shadow:${s.is_set ? '0 0 6px rgba(34,197,94,0.5)' : 'none'}"></div>
         <div>
-          <div style="font-size:12px;font-weight:500;color:var(--text)">${s.key}</div>
-          <div style="font-size:10px;color:var(--muted)">${s.description}</div>
+          <div style="font-size:12px;font-weight:500;color:var(--text)">${s.description}</div>
+          <div style="font-size:10px;color:var(--muted);font-family:ui-monospace,monospace">${s.key}</div>
         </div>
         <input type="password" id="secret-${s.key}" class="input-field"
           placeholder="${s.is_set ? '••••••••  (set — enter new value to update)' : 'Enter value…'}"
-          style="font-size:12px;padding:6px 10px"
+          style="font-size:12px;padding:6px 10px;width:100%"
           autocomplete="off">
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn btn-ghost btn-xs secret-toggle" title="Show / hide"
+            data-key="${s.key}" data-is-set="${s.is_set}" data-revealed="false"
+            onclick="secretToggleShow(this)"
+            style="font-size:11px;white-space:nowrap">Show</button>
           <button class="btn btn-ghost btn-xs" onclick="secretSave('${s.key}')"
             style="font-size:11px;white-space:nowrap">
             ${s.is_set ? 'Update' : 'Save'}
           </button>
           ${s.is_set ? `<button class="btn btn-ghost btn-xs" onclick="secretDelete('${s.key}')" style="font-size:11px;color:var(--red)">✕</button>` : ''}
         </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   } catch(e) {
     grid.innerHTML = `<div class="empty-state">Error: ${e.message}</div>`;
+  }
+}
+
+async function secretsImportEnv() {
+  const btn = document.getElementById('secrets-import-btn');
+  btn.disabled = true; btn.textContent = 'Importing…';
+  try {
+    const token = getToken();
+    const d = await apiFetch(`/api/user/secrets/import-env?token=${encodeURIComponent(token)}`, { method: 'POST' });
+    const msg = d.imported.length
+      ? `Imported ${d.imported.length} key${d.imported.length > 1 ? 's' : ''}: ${d.imported.join(', ')}`
+      : 'No new keys found in .env';
+    toast('success', 'Import Complete', msg);
+    if (d.skipped.length) toast('info', 'Already Set', `Skipped ${d.skipped.length} existing: ${d.skipped.join(', ')}`);
+    loadProfilePage();
+  } catch(e) {
+    toast('error', 'Import Failed', e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Import from .env';
+  }
+}
+
+async function secretToggleShow(btn) {
+  const key = btn.dataset.key;
+  const inp = document.getElementById('secret-' + key);
+  if (!inp) return;
+  const showing = inp.type === 'text';
+  if (showing) {
+    inp.type = 'password';
+    inp.value = '';
+    inp.placeholder = btn.dataset.isSet === 'true' ? '••••••••  (set — enter new value to update)' : 'Enter value…';
+    btn.dataset.revealed = 'false';
+    btn.textContent = 'Show';
+  } else {
+    if (btn.dataset.isSet === 'true' && btn.dataset.revealed !== 'true') {
+      btn.textContent = '…';
+      btn.disabled = true;
+      try {
+        const token = getToken();
+        const d = await apiFetch(`/api/user/secrets/${encodeURIComponent(key)}/reveal?token=${encodeURIComponent(token)}`);
+        inp.value = d.value;
+        btn.dataset.revealed = 'true';
+      } catch(e) {
+        toast('error', 'Reveal Failed', e.message);
+        btn.textContent = 'Show';
+        btn.disabled = false;
+        return;
+      }
+      btn.disabled = false;
+    }
+    inp.type = 'text';
+    btn.textContent = 'Hide';
   }
 }
 
@@ -6762,14 +6867,6 @@ async function loadConfigPage() {
       ${f.hint ? `<div style="font-size:9px;color:var(--dim);margin-top:3px">${f.hint}</div>` : ''}
     </div>`;
   }).join('') + `
-  <div>
-    <label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:block;margin-bottom:5px">Clock Format</label>
-    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:7px">
-      <input type="checkbox" id="syscfg_clock12hr" ${_clock12hr ? 'checked' : ''} onchange="_setClock12hr(this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--blue)">
-      <span style="font-size:12px;color:var(--text)">12-hour (AM/PM)</span>
-    </label>
-    <div style="font-size:9px;color:var(--dim);margin-top:3px">Toggle between 12-hour and 24-hour display on the LED clock</div>
-  </div>
   <div style="grid-column:1/-1;display:flex;align-items:center;gap:10px;margin-top:4px">
     <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);white-space:nowrap">Agent Settings</span>
     <div style="flex:1;height:1px;background:var(--border)"></div>
@@ -6781,10 +6878,7 @@ async function loadConfigPage() {
   </div>`;
 
 
-  // Load user exclusions + risk controls
-  _loadUserExclusions();
-  _loadRiskControls();
-  _loadReportEmail();
+  // User settings moved to My Profile page
 
   grid.innerHTML = Object.keys(CFG_META).map(svc => {
     const m = CFG_META[svc];
@@ -7413,15 +7507,14 @@ const BROKER_META = {
     name: 'Tradier', letter: 'T', bg: '#FF5C35', fg: '#fff',
     docs: 'https://documentation.tradier.com/',
     fields: [
+      { type:'profile_link', text:'API keys are managed in User Configuration → API Keys &amp; Secrets' },
       { type:'separator', label:'Sandbox' },
-      { key:'TRADIER_SANDBOX_API_KEY',        label:'API Key',          type:'password', required:true, hint:'developer.tradier.com → Applications → Sandbox token' },
-      { key:'TRADIER_SANDBOX_ACCOUNT_NUMBER', label:'Account Number',   type:'text',     hint:'From Tradier developer dashboard', name_key:'TRADIER_SANDBOX_DISPLAY_NAME' },
+      { key:'TRADIER_SANDBOX_ACCOUNT_NUMBER', label:'Account Number', type:'text', hint:'From Tradier developer dashboard', name_key:'TRADIER_SANDBOX_DISPLAY_NAME' },
       { type:'separator', label:'Production' },
-      { key:'TRADIER_PRODUCTION_API_KEY',     label:'API Key',          type:'password', hint:'Live token from developer.tradier.com → Applications' },
-      { key:'TRADIER_PROD_ACCOUNT_1',         label:'Account Number 1', type:'text',     hint:'e.g. 12345678', ira:'TRADIER_PROD_ACCOUNT_1_IRA', name_key:'TRADIER_PROD_1_DISPLAY_NAME' },
-      { key:'TRADIER_PROD_ACCOUNT_2',         label:'Account Number 2', type:'text',     hint:'',              ira:'TRADIER_PROD_ACCOUNT_2_IRA', name_key:'TRADIER_PROD_2_DISPLAY_NAME' },
-      { key:'TRADIER_PROD_ACCOUNT_3',         label:'Account Number 3', type:'text',     hint:'',              ira:'TRADIER_PROD_ACCOUNT_3_IRA', name_key:'TRADIER_PROD_3_DISPLAY_NAME' },
-      { key:'TRADIER_PROD_ACCOUNT_4',         label:'Account Number 4', type:'text',     hint:'',              ira:'TRADIER_PROD_ACCOUNT_4_IRA', name_key:'TRADIER_PROD_4_DISPLAY_NAME' },
+      { key:'TRADIER_PROD_ACCOUNT_1', label:'Account Number 1', type:'text', hint:'e.g. 12345678', ira:'TRADIER_PROD_ACCOUNT_1_IRA', name_key:'TRADIER_PROD_1_DISPLAY_NAME' },
+      { key:'TRADIER_PROD_ACCOUNT_2', label:'Account Number 2', type:'text', hint:'',              ira:'TRADIER_PROD_ACCOUNT_2_IRA', name_key:'TRADIER_PROD_2_DISPLAY_NAME' },
+      { key:'TRADIER_PROD_ACCOUNT_3', label:'Account Number 3', type:'text', hint:'',              ira:'TRADIER_PROD_ACCOUNT_3_IRA', name_key:'TRADIER_PROD_3_DISPLAY_NAME' },
+      { key:'TRADIER_PROD_ACCOUNT_4', label:'Account Number 4', type:'text', hint:'',              ira:'TRADIER_PROD_ACCOUNT_4_IRA', name_key:'TRADIER_PROD_4_DISPLAY_NAME' },
       { type:'tradier_discover' },
     ],
   },
@@ -7429,35 +7522,30 @@ const BROKER_META = {
     name: 'Alpaca', letter: 'A', bg: '#FCEC37', fg: '#111',
     docs: 'https://alpaca.markets/docs/',
     fields: [
+      { type:'profile_link', text:'API keys are managed in User Configuration → API Keys &amp; Secrets' },
       { type:'separator', label:'Paper Trading' },
-      { key:'ALPACA_API_KEY',          label:'API Key',        type:'password', required:true, hint:'app.alpaca.markets → API Keys → Key' },
-      { key:'ALPACA_API_SECRET',       label:'API Secret',     type:'password', required:true, hint:'app.alpaca.markets → API Keys → Secret (visible when regenerating)' },
-      { key:'ALPACA_PAPER_ENDPOINT',   label:'Endpoint',       type:'text',     hint:'https://paper-api.alpaca.markets/v2' },
-      { key:'ALPACA_PAPER_ACCOUNT_ID', label:'Account Number', type:'text',     hint:'app.alpaca.markets → Paper Account → Account Number', name_key:'ALPACA_PAPER_DISPLAY_NAME' },
+      { key:'ALPACA_PAPER_ENDPOINT',   label:'Endpoint',       type:'text', hint:'https://paper-api.alpaca.markets/v2' },
+      { key:'ALPACA_PAPER_ACCOUNT_ID', label:'Account Number', type:'text', hint:'app.alpaca.markets → Paper Account → Account Number', name_key:'ALPACA_PAPER_DISPLAY_NAME' },
       { type:'separator', label:'Live Trading' },
-      { key:'ALPACA_LIVE_API_KEY',     label:'API Key',        type:'password', hint:'app.alpaca.markets → API Keys → Key' },
-      { key:'ALPACA_LIVE_API_SECRET',  label:'API Secret',     type:'password', hint:'app.alpaca.markets → API Keys → Secret (visible when regenerating)' },
-      { key:'ALPACA_LIVE_ENDPOINT',    label:'Endpoint',       type:'text',     hint:'https://api.alpaca.markets/v2' },
-      { key:'ALPACA_LIVE_ACCOUNT_ID',  label:'Account Number', type:'text',     hint:'app.alpaca.markets → Live Account → Account Number', ira:'ALPACA_LIVE_ACCOUNT_IRA', name_key:'ALPACA_LIVE_DISPLAY_NAME' },
+      { key:'ALPACA_LIVE_ENDPOINT',    label:'Endpoint',       type:'text', hint:'https://api.alpaca.markets/v2' },
+      { key:'ALPACA_LIVE_ACCOUNT_ID',  label:'Account Number', type:'text', hint:'app.alpaca.markets → Live Account → Account Number', ira:'ALPACA_LIVE_ACCOUNT_IRA', name_key:'ALPACA_LIVE_DISPLAY_NAME' },
       { type:'alpaca_discover' },
       { type:'separator', label:'Settings' },
-      { key:'ALPACA_DATA_FEED',        label:'Market Data Feed', type:'select', options:['iex','sip'], hint:'IEX = free  ·  SIP = paid subscription' },
+      { key:'ALPACA_DATA_FEED', label:'Market Data Feed', type:'select', options:['iex','sip'], hint:'IEX = free  ·  SIP = paid subscription' },
     ],
   },
   webull: {
     name: 'Webull', letter: 'W', bg: '#E82F3E', fg: '#fff',
     docs: 'https://app.webull.com/',
     fields: [
-      { type:'separator', label:'API Credentials' },
-      { key:'WEBULL_API_KEY',          label:'API Key',        type:'password', required:true, hint:'From Webull developer portal → API credentials' },
-      { key:'WEBULL_SECRET_KEY',       label:'Secret Key',     type:'password', required:true, hint:'From Webull developer portal → API credentials' },
+      { type:'profile_link', text:'API keys are managed in User Configuration → API Keys &amp; Secrets' },
       { type:'webull_discover' },
       { type:'separator', label:'Live Accounts' },
-      { key:'WEBULL_LIVE_ACCOUNT_1',   label:'Account 1',      type:'text',     hint:'Webull live account number',            ira:'WEBULL_LIVE_ACCOUNT_1_IRA', name_key:'WEBULL_LIVE_1_DISPLAY_NAME' },
-      { key:'WEBULL_LIVE_ACCOUNT_2',   label:'Account 2',      type:'text',     hint:'Webull live account number (optional)', ira:'WEBULL_LIVE_ACCOUNT_2_IRA', name_key:'WEBULL_LIVE_2_DISPLAY_NAME' },
-      { key:'WEBULL_LIVE_ACCOUNT_3',   label:'Account 3',      type:'text',     hint:'Webull live account number (optional)', ira:'WEBULL_LIVE_ACCOUNT_3_IRA', name_key:'WEBULL_LIVE_3_DISPLAY_NAME' },
-      { key:'WEBULL_LIVE_ACCOUNT_4',   label:'Account 4',      type:'text',     hint:'Webull live account number (optional)', ira:'WEBULL_LIVE_ACCOUNT_4_IRA', name_key:'WEBULL_LIVE_4_DISPLAY_NAME' },
-      { key:'WEBULL_LIVE_ACCOUNT_5',   label:'Account 5',      type:'text',     hint:'Webull live account number (optional)', ira:'WEBULL_LIVE_ACCOUNT_5_IRA', name_key:'WEBULL_LIVE_5_DISPLAY_NAME' },
+      { key:'WEBULL_LIVE_ACCOUNT_1', label:'Account 1', type:'text', hint:'Webull live account number',            ira:'WEBULL_LIVE_ACCOUNT_1_IRA', name_key:'WEBULL_LIVE_1_DISPLAY_NAME' },
+      { key:'WEBULL_LIVE_ACCOUNT_2', label:'Account 2', type:'text', hint:'Webull live account number (optional)', ira:'WEBULL_LIVE_ACCOUNT_2_IRA', name_key:'WEBULL_LIVE_2_DISPLAY_NAME' },
+      { key:'WEBULL_LIVE_ACCOUNT_3', label:'Account 3', type:'text', hint:'Webull live account number (optional)', ira:'WEBULL_LIVE_ACCOUNT_3_IRA', name_key:'WEBULL_LIVE_3_DISPLAY_NAME' },
+      { key:'WEBULL_LIVE_ACCOUNT_4', label:'Account 4', type:'text', hint:'Webull live account number (optional)', ira:'WEBULL_LIVE_ACCOUNT_4_IRA', name_key:'WEBULL_LIVE_4_DISPLAY_NAME' },
+      { key:'WEBULL_LIVE_ACCOUNT_5', label:'Account 5', type:'text', hint:'Webull live account number (optional)', ira:'WEBULL_LIVE_ACCOUNT_5_IRA', name_key:'WEBULL_LIVE_5_DISPLAY_NAME' },
     ],
   },
 };
@@ -7691,6 +7779,14 @@ async function openBrokerCfg(broker) {
   let html = '';
 
   for (const f of m.fields) {
+    if (f.type === 'profile_link') {
+      html += `<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:color-mix(in srgb,var(--blue) 8%,transparent);border:1px solid color-mix(in srgb,var(--blue) 25%,transparent);border-radius:7px;font-size:11px;color:var(--muted)">
+        <span style="color:var(--blue);font-size:14px">&#128274;</span>
+        <span>${f.text} — <a href="#" onclick="closeBrokerCfg();navigate('page-platform-profile')" style="color:var(--blue);text-decoration:none">Go to My Profile</a></span>
+      </div>`;
+      continue;
+    }
+
     if (f.type === 'separator') {
       html += `<div style="margin:18px 0 10px;display:flex;align-items:center;gap:8px">
         <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);white-space:nowrap">${f.label}</span>
@@ -8413,6 +8509,7 @@ async function _chartLoad() {
         `/api/charts/data?symbol=${encodeURIComponent(sym)}&exchange=${encodeURIComponent(exch)}&timeframe=${_chartTf}&bars=${bars}`
       );
       _chartRender(d);
+      _chartLoadSentiment(sym);
       // Sync exchange dropdown to resolved exchange (auto-detected if symbol not on preferred)
       if (d.exchange && d.exchange !== exch) {
         const sel = document.getElementById('chart-exchange-select');
@@ -8433,6 +8530,74 @@ async function _chartLoad() {
       document.getElementById('chart-loading').style.display = 'none';
     }
   });
+}
+
+async function _chartLoadSentiment(sym) {
+  const card = document.getElementById('chart-sentiment-card');
+  try {
+    const all = await apiFetch('/api/sentiment');
+    const s = all[sym] || all[sym.toUpperCase()];
+    if (!s) { card.style.display = 'none'; return; }
+    card.style.display = '';
+
+    const score = s.score != null ? Math.round(s.score) : null;
+    const scoreEl = document.getElementById('chart-sent-score');
+    const labelEl = document.getElementById('chart-sent-label');
+    const color = score == null ? 'var(--muted)'
+      : score >= 70 ? '#4ade80' : score >= 55 ? '#86efac'
+      : score <= 30 ? '#f87171' : score <= 45 ? '#fca5a5'
+      : '#facc15';
+    scoreEl.textContent = score != null ? score : '—';
+    scoreEl.style.color = color;
+    const lbl = s.label || (score == null ? '—' : score >= 70 ? 'Extreme Greed' : score >= 55 ? 'Greed' : score <= 30 ? 'Extreme Fear' : score <= 45 ? 'Fear' : 'Neutral');
+    labelEl.textContent = lbl;
+    labelEl.style.background = color + '22';
+    labelEl.style.border = `1px solid ${color}55`;
+    labelEl.style.color = color;
+
+    const comps = [
+      { key: 'rsi',       label: 'RSI' },
+      { key: 'ma_score',  label: 'MA Score' },
+      { key: 'momentum',  label: 'Momentum' },
+      { key: 'vol_score', label: 'Volatility' },
+    ];
+    document.getElementById('chart-sent-components').innerHTML = comps.map(c => {
+      const v = s[c.key] != null ? Math.round(s[c.key]) : null;
+      const pct = v != null ? Math.min(100, Math.max(0, v)) : 0;
+      const clr = pct >= 60 ? '#4ade80' : pct <= 40 ? '#f87171' : '#facc15';
+      return `<div style="display:flex;align-items:center;gap:8px">
+        <div style="font-size:10px;color:var(--muted);width:68px;flex-shrink:0">${c.label}</div>
+        <div style="flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:${clr};border-radius:3px;transition:width .3s"></div>
+        </div>
+        <div style="font-size:10px;color:var(--text);width:26px;text-align:right">${v != null ? v : '—'}</div>
+      </div>`;
+    }).join('');
+
+    // Sparkline SVG
+    const trend = Array.isArray(s.trend) ? s.trend : [];
+    const svg = document.getElementById('chart-sent-sparkline');
+    const W = svg.getBoundingClientRect().width || 300, H = 56;
+    if (trend.length >= 2) {
+      const scores = trend.map(t => t.score);
+      const mn = Math.min(...scores), mx = Math.max(...scores);
+      const range = mx - mn || 1;
+      const xStep = W / (trend.length - 1);
+      const pts = trend.map((t, i) => {
+        const x = i * xStep;
+        const y = H - ((t.score - mn) / range) * (H - 8) - 4;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      });
+      const lastScore = scores[scores.length - 1];
+      const lineColor = lastScore >= 55 ? '#4ade80' : lastScore <= 45 ? '#f87171' : '#facc15';
+      svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="${lineColor}" stroke-width="1.5" stroke-linejoin="round"/>
+        <circle cx="${(trend.length-1)*xStep}" cy="${(H - ((lastScore-mn)/range)*(H-8)-4).toFixed(1)}" r="3" fill="${lineColor}"/>`;
+    } else {
+      svg.innerHTML = `<text x="50%" y="50%" text-anchor="middle" fill="var(--dim)" font-size="10">No trend data</text>`;
+    }
+  } catch(e) {
+    card.style.display = 'none';
+  }
 }
 
 function _chartRender(d) {
@@ -9772,11 +9937,40 @@ async function confirmUpdateDeployment(familyId) {
 // ══════════════════════════════════════════════════════════════════════════════
 let _ledColonOn = true;
 let _clock12hr  = localStorage.getItem('clock12hr') === '1';
+let _clockColor = localStorage.getItem('clockColor') || '#3b9eff';
+
+function _fmtTime(date, opts) {
+  const base = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
+  return new Intl.DateTimeFormat('en-US', { hour12: _clock12hr, ...base, ...opts }).format(date);
+}
 
 function _setClock12hr(val) {
   _clock12hr = val;
   localStorage.setItem('clock12hr', val ? '1' : '0');
   _tickLedClock();
+}
+
+function _applyClockColor(hex) {
+  _clockColor = hex;
+  localStorage.setItem('clockColor', hex);
+  const dim = hex + 'aa';
+  const ids = ['led-hh', 'led-mm', 'led-colon', 'led-colon2'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.style.color = hex; el.style.textShadow = `0 0 10px ${hex},0 0 4px ${hex}`; }
+  });
+  const ss = document.getElementById('led-ss');
+  if (ss) { ss.style.color = dim; ss.style.textShadow = `0 0 8px ${dim}`; }
+  const ap = document.getElementById('led-ampm');
+  if (ap) ap.style.color = dim;
+  const brand = document.getElementById('brand-title');
+  if (brand) brand.style.color = hex;
+  const dt = document.getElementById('led-date');
+  if (dt) dt.style.color = dim;
+  const lbl = document.querySelector('[data-clock-label]');
+  if (lbl) lbl.style.color = dim;
+  const picker = document.getElementById('uc-clock-color');
+  if (picker && picker.value !== hex) picker.value = hex;
 }
 
 function _tickLedClock() {
@@ -9795,14 +9989,24 @@ function _tickLedClock() {
   document.getElementById('led-hh').textContent = hh;
   document.getElementById('led-mm').textContent = mm;
   document.getElementById('led-ss').textContent = ss;
+  const ampmEl = document.getElementById('led-ampm');
+  if (ampmEl) {
+    if (_clock12hr && ampm) {
+      ampmEl.textContent = ampm.toUpperCase();
+      ampmEl.style.display = '';
+    } else {
+      ampmEl.style.display = 'none';
+    }
+  }
   _ledColonOn = !_ledColonOn;
   document.getElementById('led-colon').style.opacity  = _ledColonOn ? '1' : '0.15';
   document.getElementById('led-colon2').style.opacity = '0.35';
   const dateStr = new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', weekday:'short', month:'short', day:'numeric' }).format(now);
-  document.getElementById('led-date').textContent = _clock12hr && ampm ? `${dateStr} ${ampm}` : dateStr;
+  document.getElementById('led-date').textContent = dateStr;
 }
 setInterval(_tickLedClock, 500);
 _tickLedClock();
+_applyClockColor(_clockColor);
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Market Calendar
@@ -10528,7 +10732,97 @@ document.addEventListener('DOMContentLoaded', () => {
     const el = document.getElementById('sidebar-version');
     if (el) el.textContent = 'v' + v;
   }
+
+  _initNavDrag();
+  _loadNavOrder();
 });
+
+// ── Nav drag-and-drop ─────────────────────────────────────────────────────────
+
+let _navDragSrc = null;
+
+function _initNavDrag() {
+  const nav = document.getElementById('main-nav');
+  if (!nav) return;
+
+  nav.addEventListener('dragstart', e => {
+    const item = e.target.closest('.nav-item');
+    if (!item) return;
+    _navDragSrc = item;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', item.dataset.page);
+    setTimeout(() => item.style.opacity = '0.4', 0);
+  });
+
+  nav.addEventListener('dragend', e => {
+    const item = e.target.closest('.nav-item');
+    if (item) item.style.opacity = '';
+    nav.querySelectorAll('.nav-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+    _navDragSrc = null;
+  });
+
+  nav.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const target = e.target.closest('.nav-item');
+    nav.querySelectorAll('.nav-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+    if (target && target !== _navDragSrc) target.classList.add('drag-over');
+  });
+
+  nav.addEventListener('dragleave', e => {
+    const target = e.target.closest('.nav-item');
+    if (target) target.classList.remove('drag-over');
+  });
+
+  nav.addEventListener('drop', e => {
+    e.preventDefault();
+    const target = e.target.closest('.nav-item');
+    if (!target || !_navDragSrc || target === _navDragSrc) return;
+    target.classList.remove('drag-over');
+    const srcGroup  = _navDragSrc.closest('.nav-group');
+    const tgtGroup  = target.closest('.nav-group');
+    if (!srcGroup || !tgtGroup) return;
+    // Insert before or after target based on mouse position
+    const rect = target.getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    if (after) tgtGroup.insertBefore(_navDragSrc, target.nextSibling);
+    else        tgtGroup.insertBefore(_navDragSrc, target);
+    _saveNavOrder();
+  });
+}
+
+async function _saveNavOrder() {
+  const order = {};
+  document.querySelectorAll('#main-nav .nav-group').forEach(group => {
+    const gKey = group.dataset.group;
+    order[gKey] = [...group.querySelectorAll('.nav-item')].map(el => el.dataset.page);
+  });
+  try {
+    const token = getToken();
+    await apiFetch(`/api/user/preferences?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'nav_order', value: order }),
+    });
+  } catch(_) {}
+}
+
+async function _loadNavOrder() {
+  try {
+    const token = getToken();
+    const prefs = await apiFetch(`/api/user/preferences?token=${encodeURIComponent(token)}`);
+    const order = prefs.nav_order;
+    if (!order) return;
+    Object.entries(order).forEach(([gKey, pages]) => {
+      const group = document.querySelector(`#main-nav .nav-group[data-group="${gKey}"]`);
+      if (!group) return;
+      pages.forEach(page => {
+        const item = group.querySelector(`.nav-item[data-page="${page}"]`);
+        if (item) group.appendChild(item);
+      });
+    });
+  } catch(_) {}
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Strategy Assignment
@@ -11676,7 +11970,7 @@ async function loadDividendPage(forceRefresh = false) {
     _divActiveAccount = '';
     _divApplyFilter();
     _divRenderHistory(history.records || []);
-    status.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    status.textContent = `Updated ${_fmtTime(new Date())}`;
   } catch(e) {
     status.textContent = 'Error: ' + e.message;
     toast('error', 'Dividends', e.message);
@@ -13006,7 +13300,7 @@ function _optFmtTime(isoStr) {
   try {
     const d = new Date(isoStr);
     return d.toLocaleDateString('en-US', {month:'short', day:'numeric'}) + ' ' +
-           d.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false});
+           _fmtTime(d, {second:undefined});
   } catch { return isoStr; }
 }
 
