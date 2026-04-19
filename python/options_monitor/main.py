@@ -172,19 +172,48 @@ async def _fetch_earnings_date(ticker: str) -> Optional[date]:
         return None
 
 
+def _bs_greeks(S: float, K: float, T: float, sigma: float,
+               r: float = 0.05, option_type: str = "call") -> dict:
+    """
+    Black-Scholes Greeks using stdlib math only (no scipy).
+    Returns dict with delta, gamma, theta (per calendar day), vega (per 1% IV move).
+    """
+    import math
+    out = {"delta": None, "gamma": None, "theta": None, "vega": None}
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
+        return out
+    try:
+        sqrt_T = math.sqrt(T)
+        d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * sqrt_T)
+        d2 = d1 - sigma * sqrt_T
+        ncdf  = lambda x: (1.0 + math.erf(x / math.sqrt(2.0))) / 2.0
+        npdf  = lambda x: math.exp(-0.5 * x ** 2) / math.sqrt(2.0 * math.pi)
+        n_d1  = ncdf(d1)
+        n_d2  = ncdf(d2)
+        np_d1 = npdf(d1)
+        if option_type == "call":
+            delta = n_d1
+            theta = ((-S * np_d1 * sigma / (2.0 * sqrt_T))
+                     - r * K * math.exp(-r * T) * n_d2) / 365.0
+        else:
+            delta = n_d1 - 1.0
+            theta = ((-S * np_d1 * sigma / (2.0 * sqrt_T))
+                     + r * K * math.exp(-r * T) * ncdf(-d2)) / 365.0
+        gamma = np_d1 / (S * sigma * sqrt_T)
+        vega  = S * np_d1 * sqrt_T / 100.0   # per 1% change in IV
+        out["delta"] = round(delta, 4)
+        out["gamma"] = round(gamma, 6)
+        out["theta"] = round(theta, 4)
+        out["vega"]  = round(vega,  4)
+    except Exception:
+        pass
+    return out
+
+
 def _bs_delta(S: float, K: float, T: float, sigma: float,
               r: float = 0.05, option_type: str = "call") -> Optional[float]:
-    """Black-Scholes delta using stdlib math only (no scipy)."""
-    import math
-    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
-        return None
-    try:
-        d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
-        ncdf = lambda x: (1.0 + math.erf(x / math.sqrt(2.0))) / 2.0
-        delta = ncdf(d1) if option_type == "call" else ncdf(d1) - 1.0
-        return round(delta, 4)
-    except Exception:
-        return None
+    """Black-Scholes delta — thin wrapper around _bs_greeks for backward compat."""
+    return _bs_greeks(S, K, T, sigma, r, option_type)["delta"]
 
 
 async def _fetch_option_chain_details(
@@ -268,12 +297,13 @@ async def _fetch_option_chain_details(
                 contract_strike = float(c.get("strike", 0) or 0)
                 iv = float(c.get("impliedVolatility", 0) or 0)
 
-                # Compute Black-Scholes delta
-                delta = None
+                # Compute Black-Scholes Greeks
+                greeks = {"delta": None, "gamma": None, "theta": None, "vega": None}
                 if current_underlying_price > 0 and contract_strike > 0 and exp_d and iv > 0:
                     T = max((exp_d - date.today()).days, 1) / 365.0
-                    delta = _bs_delta(current_underlying_price, contract_strike,
-                                      T, iv, option_type=opt_type)
+                    greeks = _bs_greeks(current_underlying_price, contract_strike,
+                                        T, iv, option_type=opt_type)
+                delta = greeks["delta"]
 
                 # Score: match by price or by nearest-ATM strike.
                 # Use bid/ask midpoint as the reference price — it reflects the CURRENT
@@ -310,7 +340,10 @@ async def _fetch_option_chain_details(
                         "strike":          contract_strike,
                         "option_type":     opt_type,
                         "expiration_date": exp_d,
-                        "delta":           delta,
+                        "delta":           greeks["delta"],
+                        "gamma":           greeks["gamma"],
+                        "theta":           greeks["theta"],
+                        "vega":            greeks["vega"],
                     }
 
         if best:
@@ -830,7 +863,7 @@ class OptionsMonitor(BaseAgent):
 
         # ── Enrich contract details via Yahoo option chain ─────────────────────
         # Runs whenever: type unknown, strike missing, expiry missing, or no delta yet
-        delta = None
+        delta = theta = vega = gamma = None
         current_opt_price = bp["current_price"]
         # Use entry_price as reference when market is closed and current price is 0
         price_ref = current_opt_price if current_opt_price > 0 else bp.get("entry_price", 0)
@@ -869,8 +902,12 @@ class OptionsMonitor(BaseAgent):
                     expiration_date = chain_details["expiration_date"]
                 if chain_details.get("delta") is not None:
                     delta = chain_details["delta"]
+                theta = chain_details.get("theta")
+                vega  = chain_details.get("vega")
+                gamma = chain_details.get("gamma")
                 log.info("options_monitor.chain_enriched", contract=contract_symbol,
-                         strike=strike, option_type=option_type, delta=delta)
+                         strike=strike, option_type=option_type, delta=delta,
+                         theta=theta, vega=vega, gamma=gamma)
             else:
                 log.debug("options_monitor.chain_no_match", contract=contract_symbol,
                           underlying=underlying, price_ref=price_ref)
@@ -883,6 +920,21 @@ class OptionsMonitor(BaseAgent):
         if delta is None and existing and existing.get("delta") is not None:
             try:
                 delta = float(existing["delta"])
+            except Exception:
+                pass
+        if theta is None and existing and existing.get("theta") is not None:
+            try:
+                theta = float(existing["theta"])
+            except Exception:
+                pass
+        if vega is None and existing and existing.get("vega") is not None:
+            try:
+                vega = float(existing["vega"])
+            except Exception:
+                pass
+        if gamma is None and existing and existing.get("gamma") is not None:
+            try:
+                gamma = float(existing["gamma"])
             except Exception:
                 pass
 
@@ -927,6 +979,9 @@ class OptionsMonitor(BaseAgent):
                     last_scan_at        = NOW(),
                     raw                 = $11::JSONB,
                     delta               = $13::NUMERIC,
+                    theta               = $18::NUMERIC,
+                    vega                = $19::NUMERIC,
+                    gamma               = $20::NUMERIC,
                     option_type         = CASE WHEN option_type='unknown' AND $14::TEXT IS NOT NULL
                                               THEN $14::TEXT ELSE option_type END,
                     strike              = COALESCE(strike, $15::NUMERIC),
@@ -949,6 +1004,9 @@ class OptionsMonitor(BaseAgent):
                 strike,             # $15
                 expiration_date,    # $16
                 account_name,       # $17 — always refresh from accounts.toml
+                theta,              # $18
+                vega,               # $19
+                gamma,              # $20
             )
         else:
             # New position
@@ -959,14 +1017,14 @@ class OptionsMonitor(BaseAgent):
                     qty, entry_price, underlying_entry, entry_date,
                     atr_14, atr_calculated_at,
                     level_emergency, level_exit_alert, level_roll_1, level_roll_2, level_roll_3,
-                    extra_roll_levels, next_earnings_date, last_scan_at, raw, delta
+                    extra_roll_levels, next_earnings_date, last_scan_at, raw, delta, theta, vega, gamma
                 ) VALUES (
                     $1,$2,$3,$4::NUMERIC,$5,
                     $6,$7,$8,$9,
                     $10::NUMERIC,$11::NUMERIC,$12::NUMERIC,$13,
                     $14::NUMERIC, CASE WHEN $14::NUMERIC IS NOT NULL THEN NOW() ELSE NULL END,
                     $15::NUMERIC,$16::NUMERIC,$17::NUMERIC,$18::NUMERIC,$19::NUMERIC,
-                    $20::JSONB,$21,NOW(),$22::JSONB,$23::NUMERIC
+                    $20::JSONB,$21,NOW(),$22::JSONB,$23::NUMERIC,$24::NUMERIC,$25::NUMERIC,$26::NUMERIC
                 ) ON CONFLICT (contract_symbol, account_label) WHERE status='active'
                 DO UPDATE SET
                     qty=$10::NUMERIC, atr_14=$14::NUMERIC,
@@ -977,7 +1035,7 @@ class OptionsMonitor(BaseAgent):
                     level_roll_1=$17::NUMERIC, level_roll_2=$18::NUMERIC, level_roll_3=$19::NUMERIC,
                     extra_roll_levels=$20::JSONB, next_earnings_date=$21,
                     last_scan_at=NOW(), updated_at=NOW(), raw=$22::JSONB,
-                    delta=$23::NUMERIC,
+                    delta=$23::NUMERIC, theta=$24::NUMERIC, vega=$25::NUMERIC, gamma=$26::NUMERIC,
                     option_type = CASE WHEN option_positions.option_type='unknown' AND $3 IS NOT NULL AND $3 != 'unknown'
                                       THEN $3 ELSE option_positions.option_type END,
                     strike = COALESCE(option_positions.strike, $4::NUMERIC),
@@ -992,7 +1050,7 @@ class OptionsMonitor(BaseAgent):
                 json.dumps(levels.get("extra_roll_levels", [])),
                 earnings_date,
                 json.dumps(bp["raw"]),
-                delta,
+                delta, theta, vega, gamma,
             )
             log.info("options_monitor.position_imported",
                      contract=contract_symbol, account=account_label, underlying=underlying)

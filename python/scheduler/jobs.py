@@ -264,6 +264,46 @@ async def job_options_report(redis: aioredis.Redis):
         log.error("scheduler.options_report_error", error=str(e))
 
 
+# ── NAV snapshot + daily loss reset ──────────────────────────────────────────
+
+@tracked
+async def job_eod_nav_snapshot(redis: aioredis.Redis):
+    """Fires at 16:10 ET — captures EOD portfolio NAV from broker gateway into DB."""
+    if not is_trading_day():
+        log.debug("scheduler.skip", job="eod_nav_snapshot", reason="not_trading_day")
+        return
+    import os as _os
+    import aiohttp as _aiohttp
+    webui_url = _os.getenv("WEBUI_INTERNAL_URL", "http://ot-webui:8080")
+    token     = _os.getenv("WEBUI_TOKEN", "opentrader")
+    try:
+        async with _aiohttp.ClientSession() as s:
+            async with s.post(
+                f"{webui_url}/api/portfolio/snapshot?token={token}",
+                timeout=_aiohttp.ClientTimeout(total=60),
+            ) as resp:
+                body = await resp.json(content_type=None)
+                if resp.status == 200:
+                    log.info("scheduler.eod_nav_snapshot_ok", saved=body.get("saved", 0))
+                else:
+                    log.error("scheduler.eod_nav_snapshot_failed",
+                              status=resp.status, detail=body.get("detail"))
+    except Exception as e:
+        log.error("scheduler.eod_nav_snapshot_error", error=str(e))
+
+
+@tracked
+async def job_daily_loss_reset(redis: aioredis.Redis):
+    """Fires at 09:30 ET (market open) — resets intraday loss counter in Redis."""
+    if not is_trading_day():
+        log.debug("scheduler.skip", job="daily_loss_reset", reason="not_trading_day")
+        return
+    date_str = now_et().date().isoformat()
+    await redis.set("trading:daily_loss_usd", "0.0", ex=86400)
+    await redis.set("trading:daily_loss_date", date_str, ex=86400)
+    log.info("scheduler.daily_loss_reset", date=date_str)
+
+
 # ── Maintenance jobs ──────────────────────────────────────────────────────────
 
 @tracked

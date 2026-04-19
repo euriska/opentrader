@@ -301,6 +301,10 @@ select option{background:var(--surface2)}
         <span class="nav-dot" style="background:#c084fc"></span>
         Trading Log
       </div>
+      <div class="nav-item" draggable="true" onclick="navigate('page-options-expiry')" data-page="page-options-expiry">
+        <span class="nav-dot" style="background:#e879f9"></span>
+        Expiry Calendar
+      </div>
     </div>
     <div class="nav-group" data-group="plan">
       <div class="nav-label">Trading Plan</div>
@@ -1290,6 +1294,29 @@ select option{background:var(--surface2)}
         </div>
       </div>
 
+      <!-- Portfolio NAV History + Daily P&L -->
+      <div style="display:grid;grid-template-columns:1fr minmax(220px,280px);gap:12px;margin-bottom:16px;align-items:stretch">
+        <div class="card" style="margin-bottom:0">
+          <div class="card-header" style="padding:10px 16px">
+            <span class="card-title">Portfolio NAV</span>
+            <span style="font-size:10px;color:var(--dim)">90-day performance</span>
+          </div>
+          <div class="card-body" style="padding:12px 16px">
+            <div id="nav-chart-container" style="min-height:80px"></div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:0">
+          <div class="card-header" style="padding:10px 16px">
+            <span class="card-title">Daily P&amp;L</span>
+            <span id="daily-pnl-refresh" onclick="loadDailyLossWidget()"
+              style="font-size:10px;color:var(--blue);cursor:pointer">Refresh</span>
+          </div>
+          <div class="card-body" style="padding:12px 16px">
+            <div id="daily-loss-widget"></div>
+          </div>
+        </div>
+      </div>
+
       <!-- Market Overview — SPY / QQQ daily chart -->
       <div class="card" style="margin-bottom:16px" id="market-overview-card">
         <div class="card-header" style="padding:10px 16px">
@@ -1677,6 +1704,17 @@ select option{background:var(--surface2)}
         <div class="card" style="padding:14px 16px;text-align:center">
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Last Scan</div>
           <div id="opt-stat-scan" style="font-size:13px;font-weight:600;color:var(--muted)">—</div>
+        </div>
+      </div>
+
+      <!-- Portfolio Greeks Summary -->
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-header" style="padding:10px 16px">
+          <span class="card-title">Portfolio Greeks</span>
+          <span onclick="loadOptionsGreeksPanel()" style="font-size:10px;color:var(--blue);cursor:pointer">Refresh</span>
+        </div>
+        <div class="card-body" style="padding:12px 16px">
+          <div id="options-greeks-panel"><div style="color:var(--muted);font-size:12px;padding:4px">Loading…</div></div>
         </div>
       </div>
 
@@ -2105,6 +2143,30 @@ select option{background:var(--surface2)}
       </div>
 
     </div>
+
+    <!-- ════════════════════════════════════════
+         PAGE: Options Expiry Calendar
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-options-expiry">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header" style="padding:12px 16px">
+          <span class="card-title">Options Expiry Calendar</span>
+          <button onclick="loadOptionsExpiryCalendar()"
+            style="padding:5px 12px;font-size:11px;border-radius:6px;background:var(--blue);color:#fff;border:none;cursor:pointer;font-weight:600">Refresh</button>
+        </div>
+        <div class="card-body" style="padding:14px 16px">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+            <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#ef4444;display:inline-block"></span>Critical (&le;3 DTE)</span>
+            <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#f97316;display:inline-block"></span>Warning (&le;7 DTE)</span>
+            <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#eab308;display:inline-block"></span>Caution (&le;14 DTE)</span>
+            <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#22c55e;display:inline-block"></span>OK</span>
+          </div>
+          <div id="expiry-calendar-container" style="display:flex;flex-direction:column;gap:10px">
+            <div style="text-align:center;color:var(--muted);padding:30px;font-size:13px">Loading…</div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /page-options-expiry -->
 
     <!-- ════════════════════════════════════════
          PAGE: Strategy Engineer
@@ -2883,6 +2945,7 @@ const PAGE_TITLES = {
   'page-trading-dividends':  'Dividend Tracker',
   'page-trading-options':    'Options Dashboard',
   'page-options-log':        'Options Trading Log',
+  'page-options-expiry':     'Options Expiry Calendar',
   'page-trading-charts':     'Charts',
   'page-trading-directives': 'Trade Directives',
   'page-plan-engineer':      'Strategy Engineer',
@@ -2999,14 +3062,15 @@ function navigate(pageId) {
     case 'page-platform-ssl':       loadSslPage();       break;
     case 'page-platform-profile':   loadProfilePage();   break;
     case 'page-platform-config':    loadConfigPage();    break;
-    case 'page-trading-dashboard':  _initTdHeaders(); loadOvtlyrMarketSignals(); ovtlyrSelectList(_ovtlyrCurrentList); loadTotalPositions(); _loadTdTradeStats(); _refreshBreadth(); loadMarketBarsChart('SPY'); break;
+    case 'page-trading-dashboard':  _initTdHeaders(); loadOvtlyrMarketSignals(); ovtlyrSelectList(_ovtlyrCurrentList); loadTotalPositions(); _loadTdTradeStats(); _refreshBreadth(); loadMarketBarsChart('SPY'); loadPortfolioNavChart(); loadDailyLossWidget(); break;
     case 'page-trading-unified':    loadUnifiedPositions(); break;
 
     case 'page-trading-trades':     loadTradesPage();    break;
     case 'page-trading-broker':     loadBrokerPage();       break;
     case 'page-trading-dividends':  loadDividendPage();     break;
-    case 'page-trading-options':    loadOptionsPositions(); break;
+    case 'page-trading-options':    loadOptionsPositions(); loadOptionsGreeksPanel(); break;
     case 'page-options-log':        loadOptionsLog(); break;
+    case 'page-options-expiry':     loadOptionsExpiryCalendar(); break;
     case 'page-trading-charts':     loadChartsPage();       break;
     case 'page-trading-directives': loadDirectivesPage();   break;
     case 'page-plan-engineer':      loadEngineerPage();     break;
@@ -13719,6 +13783,253 @@ function _optFmtPnl(v) {
 
 function _escHtml(s) {
   return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Options Expiry Calendar
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function loadOptionsExpiryCalendar() {
+  const cont = document.getElementById('expiry-calendar-container');
+  if (!cont) return;
+  cont.innerHTML = '<div style="text-align:center;color:var(--muted);padding:30px;font-size:13px">Loading…</div>';
+  try {
+    const data = await apiFetch('/api/options/expiry-calendar');
+    _renderExpiryCalendar(cont, data.calendar || [], data.today);
+  } catch(e) {
+    cont.innerHTML = `<div style="color:var(--red);padding:20px;font-size:13px">${e.message}</div>`;
+  }
+}
+
+function _renderExpiryCalendar(cont, calendar, today) {
+  if (!calendar.length) {
+    cont.innerHTML = '<div style="text-align:center;color:var(--muted);padding:30px;font-size:13px">No active option positions.</div>';
+    return;
+  }
+  const urgencyColor = {critical:'#ef4444', warning:'#f97316', caution:'#eab308', ok:'#22c55e', unknown:'var(--muted)'};
+  const html = calendar.map(entry => {
+    const color = urgencyColor[entry.urgency] || urgencyColor.unknown;
+    const dteLabel = entry.dte !== null && entry.dte !== undefined
+      ? (entry.dte === 0 ? '<span style="color:#ef4444;font-weight:800">Expires TODAY</span>'
+        : `<span style="color:${color};font-weight:700">${entry.dte}d</span>`)
+      : '<span style="color:var(--muted)">Unknown DTE</span>';
+    const dteSuffix = entry.dte !== null && entry.dte !== undefined && entry.dte > 0 ? ' DTE' : '';
+    const posRows = (entry.positions || []).map(p => {
+      const typeColor = p.option_type === 'call' ? '#22c55e' : '#ef4444';
+      const deltaFmt = p.delta !== null ? p.delta.toFixed(3) : '—';
+      const thetaFmt = p.theta !== null ? p.theta.toFixed(4) : '—';
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 8px;font-size:12px;font-weight:600;color:var(--fg)">${p.underlying}</td>
+        <td style="padding:6px 8px;font-size:11px;color:${typeColor};font-weight:700;text-transform:uppercase">${p.option_type}</td>
+        <td style="padding:6px 8px;font-size:11px;color:var(--fg)">${p.strike !== null ? '$'+p.strike.toLocaleString() : '—'}</td>
+        <td style="padding:6px 8px;font-size:11px;color:var(--muted)">${p.qty}</td>
+        <td style="padding:6px 8px;font-size:11px;color:var(--fg)">${deltaFmt}</td>
+        <td style="padding:6px 8px;font-size:11px;color:#ef4444">${thetaFmt}</td>
+        <td style="padding:6px 8px;font-size:11px;color:var(--dim)">${p.account_name || p.account_label}</td>
+      </tr>`;
+    }).join('');
+    const greeksSummary = `
+      <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:6px">
+        <span>Portfolio Δ: <b style="color:var(--fg)">${entry.total_delta.toFixed(2)}</b></span>
+        <span>Portfolio Θ/day: <b style="color:#ef4444">${entry.total_theta.toFixed(2)}</b></span>
+        <span>Portfolio ν: <b style="color:var(--blue)">${entry.total_vega.toFixed(2)}</b></span>
+        <span>${entry.position_count} position${entry.position_count !== 1 ? 's' : ''}</span>
+      </div>`;
+    return `<div style="border:1px solid var(--border);border-left:3px solid ${color};border-radius:8px;overflow:hidden">
+      <div style="padding:10px 14px;background:var(--card-header);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:14px;font-weight:800;color:var(--fg)">${entry.expiration_date === 'unknown' ? 'Unknown Expiry' : entry.expiration_date}</span>
+          <span>${dteLabel}${dteSuffix}</span>
+        </div>
+        ${greeksSummary}
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="background:var(--surface2)">
+              <th style="padding:6px 8px;font-size:10px;font-weight:600;color:var(--muted);text-align:left;text-transform:uppercase">Underlying</th>
+              <th style="padding:6px 8px;font-size:10px;font-weight:600;color:var(--muted);text-align:left;text-transform:uppercase">Type</th>
+              <th style="padding:6px 8px;font-size:10px;font-weight:600;color:var(--muted);text-align:left;text-transform:uppercase">Strike</th>
+              <th style="padding:6px 8px;font-size:10px;font-weight:600;color:var(--muted);text-align:left;text-transform:uppercase">Qty</th>
+              <th style="padding:6px 8px;font-size:10px;font-weight:600;color:var(--muted);text-align:left;text-transform:uppercase">Delta</th>
+              <th style="padding:6px 8px;font-size:10px;font-weight:600;color:var(--muted);text-align:left;text-transform:uppercase">Theta/day</th>
+              <th style="padding:6px 8px;font-size:10px;font-weight:600;color:var(--muted);text-align:left;text-transform:uppercase">Account</th>
+            </tr>
+          </thead>
+          <tbody>${posRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+  cont.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Portfolio NAV History Chart (Trading Dashboard)
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function loadPortfolioNavChart() {
+  const cont = document.getElementById('nav-chart-container');
+  if (!cont) return;
+  try {
+    const data = await apiFetch('/api/portfolio/nav-history?days=90');
+    _renderNavChart(cont, data.series || []);
+  } catch(e) {
+    cont.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:10px">NAV history unavailable</div>`;
+  }
+}
+
+function _renderNavChart(cont, series) {
+  if (!series.length) {
+    cont.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:10px;text-align:center">No NAV snapshots yet — data populates at 4:10 PM ET each trading day.</div>';
+    return;
+  }
+  const navs    = series.map(p => p.total_nav);
+  const dates   = series.map(p => p.date);
+  const minNav  = Math.min(...navs);
+  const maxNav  = Math.max(...navs);
+  const range   = maxNav - minNav || 1;
+  const W = cont.offsetWidth || 400;
+  const H = 80;
+  const pad = { l: 8, r: 8, t: 8, b: 8 };
+  const chartW = W - pad.l - pad.r;
+  const chartH = H - pad.t - pad.b;
+  const n = navs.length;
+  const pts = navs.map((v, i) => {
+    const x = pad.l + (i / Math.max(n - 1, 1)) * chartW;
+    const y = pad.t + (1 - (v - minNav) / range) * chartH;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const last   = navs[navs.length - 1];
+  const first  = navs[0];
+  const change = last - first;
+  const changePct = first > 0 ? (change / first * 100) : 0;
+  const lineColor = change >= 0 ? '#22c55e' : '#ef4444';
+  const lastX = pad.l + chartW;
+  const lastY = pad.t + (1 - (last - minNav) / range) * chartH;
+
+  // Drawdown area
+  const ddPts = series.map((p, i) => {
+    const x = pad.l + (i / Math.max(n - 1, 1)) * chartW;
+    const y = pad.t + (p.drawdown_pct / 100) * chartH;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+
+  cont.innerHTML = `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+      <div>
+        <div style="font-size:20px;font-weight:800;color:var(--fg)">$${last.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</div>
+        <div style="font-size:11px;color:var(--muted)">Total NAV (all accounts)</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:13px;font-weight:700;color:${lineColor}">${change >= 0 ? '+' : ''}$${change.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})} (${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}%)</div>
+        <div style="font-size:10px;color:var(--dim)">${dates[0]} — ${dates[dates.length-1]}</div>
+      </div>
+    </div>
+    <svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="display:block;overflow:visible">
+      <polyline points="${pts}" fill="none" stroke="${lineColor}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="${lastX.toFixed(1)}" cy="${lastY.toFixed(1)}" r="3" fill="${lineColor}"/>
+    </svg>`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Options Portfolio Greeks Panel (Options Dashboard)
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function loadOptionsGreeksPanel() {
+  const el = document.getElementById('options-greeks-panel');
+  if (!el) return;
+  try {
+    const data = await apiFetch('/api/options/portfolio-greeks');
+    _renderOptionsGreeks(el, data);
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:8px">Greeks unavailable</div>`;
+  }
+}
+
+function _renderOptionsGreeks(el, data) {
+  const t = data.totals || {};
+  const fmtG = (v, dp) => v !== undefined && v !== null ? v.toFixed(dp || 2) : '—';
+  const deltaColor = (v) => v > 0 ? '#22c55e' : v < 0 ? '#ef4444' : 'var(--muted)';
+  const byUnderlying = data.per_underlying || {};
+  const underlyingRows = Object.entries(byUnderlying).sort((a,b) => Math.abs(b[1].delta) - Math.abs(a[1].delta)).map(([sym, g]) => `
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:5px 8px;font-size:12px;font-weight:700;color:var(--fg)">${sym}</td>
+      <td style="padding:5px 8px;font-size:12px;font-weight:600;color:${deltaColor(g.delta)}">${fmtG(g.delta)}</td>
+      <td style="padding:5px 8px;font-size:12px;color:#ef4444">${fmtG(g.theta)}</td>
+      <td style="padding:5px 8px;font-size:12px;color:var(--blue)">${fmtG(g.vega)}</td>
+      <td style="padding:5px 8px;font-size:12px;color:var(--muted)">${fmtG(g.gamma, 4)}</td>
+    </tr>`).join('');
+  el.innerHTML = `
+    <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:12px">
+      ${[
+        ['Portfolio Δ', fmtG(t.delta), deltaColor(t.delta), 'Total delta exposure (shares equivalent)'],
+        ['Θ / day', fmtG(t.theta), '#ef4444', 'Daily time decay (USD/day)'],
+        ['ν (Vega)', fmtG(t.vega), 'var(--blue)', 'P&L per 1% IV move'],
+        ['Γ (Gamma)', fmtG(t.gamma, 4), 'var(--muted)', 'Rate of delta change'],
+      ].map(([label, val, color, tip]) =>
+        `<div style="flex:1;padding:10px 12px;border-right:1px solid var(--border);text-align:center" title="${tip}">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">${label}</div>
+          <div style="font-size:16px;font-weight:800;color:${color}">${val}</div>
+        </div>`).join('')}
+      <div style="flex:1;padding:10px 12px;text-align:center">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">Positions</div>
+        <div style="font-size:16px;font-weight:800;color:var(--fg)">${data.position_count || 0}</div>
+      </div>
+    </div>
+    ${underlyingRows ? `
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr style="background:var(--surface2)">
+          <th style="padding:5px 8px;font-size:10px;color:var(--muted);text-align:left;text-transform:uppercase">Ticker</th>
+          <th style="padding:5px 8px;font-size:10px;color:var(--muted);text-align:left;text-transform:uppercase">Δ</th>
+          <th style="padding:5px 8px;font-size:10px;color:var(--muted);text-align:left;text-transform:uppercase">Θ/day</th>
+          <th style="padding:5px 8px;font-size:10px;color:var(--muted);text-align:left;text-transform:uppercase">ν</th>
+          <th style="padding:5px 8px;font-size:10px;color:var(--muted);text-align:left;text-transform:uppercase">Γ</th>
+        </tr>
+      </thead>
+      <tbody>${underlyingRows}</tbody>
+    </table>` : ''}`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Daily Loss / Drawdown Widget (Trading Dashboard)
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function loadDailyLossWidget() {
+  const el = document.getElementById('daily-loss-widget');
+  if (!el) return;
+  try {
+    const d = await apiFetch('/api/trading/daily-pnl');
+    _renderDailyLossWidget(el, d);
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:8px">Daily P&L unavailable</div>`;
+  }
+}
+
+function _renderDailyLossWidget(el, d) {
+  const pnl    = d.current_pnl || 0;
+  const max    = d.max_daily_loss || 0;
+  const pct    = d.loss_pct_used || 0;
+  const broken = d.circuit_broken;
+  const pnlColor = pnl >= 0 ? '#22c55e' : '#ef4444';
+  const barColor = pct >= 100 ? '#ef4444' : pct >= 75 ? '#f97316' : pct >= 50 ? '#eab308' : '#22c55e';
+  const pnlFmt   = (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const limitBar = d.limit_enabled ? `
+    <div style="margin-top:8px">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:3px">
+        <span>Daily Loss Used</span>
+        <span style="color:${barColor}">${pct.toFixed(0)}% of $${max.toLocaleString()}</span>
+      </div>
+      <div style="height:5px;background:var(--surface2);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${Math.min(pct,100).toFixed(0)}%;background:${barColor};border-radius:3px;transition:width .4s"></div>
+      </div>
+    </div>` : `<div style="font-size:10px;color:var(--dim);margin-top:6px">No daily loss limit configured</div>`;
+  el.innerHTML = `
+    ${broken ? `<div style="background:#ef4444;color:#fff;font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;margin-bottom:8px">CIRCUIT BREAKER TRIPPED${d.circuit_reason ? ': ' + _escHtml(d.circuit_reason) : ''}</div>` : ''}
+    <div style="font-size:22px;font-weight:800;color:${pnlColor}">${pnlFmt}</div>
+    <div style="font-size:11px;color:var(--muted)">Today's P&L</div>
+    ${limitBar}`;
 }
 </script>
 

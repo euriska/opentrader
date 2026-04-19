@@ -288,3 +288,39 @@ ALTER TABLE option_trade_log ADD COLUMN IF NOT EXISTS risk_level   TEXT;      --
 ALTER TABLE option_positions ADD COLUMN IF NOT EXISTS total_realized_pnl NUMERIC;
 ALTER TABLE option_positions ADD COLUMN IF NOT EXISTS ai_analysis   TEXT;
 ALTER TABLE option_positions ADD COLUMN IF NOT EXISTS ai_analyzed_at TIMESTAMPTZ;
+
+-- Options Greeks per position (added for portfolio-level aggregation)
+ALTER TABLE option_positions ADD COLUMN IF NOT EXISTS theta NUMERIC;
+ALTER TABLE option_positions ADD COLUMN IF NOT EXISTS vega  NUMERIC;
+ALTER TABLE option_positions ADD COLUMN IF NOT EXISTS gamma NUMERIC;
+
+-- ── Portfolio NAV snapshots (added for performance curve) ────────────────────
+-- One row per account per calendar day at EOD (~16:10 ET).
+-- Regular table — lookups by date range, no time-series compression needed.
+CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+    id            UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+    snapshot_date DATE        NOT NULL,
+    account_label TEXT        NOT NULL,
+    broker        TEXT,
+    mode          TEXT        NOT NULL DEFAULT 'live',
+    total_nav     NUMERIC     NOT NULL,   -- total market value + cash
+    cash          NUMERIC,               -- cash / buying power
+    equity_value  NUMERIC,               -- long market value
+    day_pnl       NUMERIC,               -- unrealized + realized P&L for the day
+    UNIQUE (snapshot_date, account_label)
+);
+CREATE INDEX IF NOT EXISTS portfolio_snapshots_date ON portfolio_snapshots (snapshot_date DESC);
+CREATE INDEX IF NOT EXISTS portfolio_snapshots_account ON portfolio_snapshots (account_label, snapshot_date DESC);
+
+-- ── Daily loss tracking (circuit breaker) ────────────────────────────────────
+-- Persists intraday realized P&L per account for loss-limit enforcement.
+-- Reset each morning at market open by the scheduler.
+CREATE TABLE IF NOT EXISTS daily_loss_log (
+    id            UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+    log_date      DATE        NOT NULL DEFAULT CURRENT_DATE,
+    account_label TEXT        NOT NULL,
+    realized_pnl  NUMERIC     NOT NULL DEFAULT 0,
+    trade_count   INT         NOT NULL DEFAULT 0,
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (log_date, account_label)
+);

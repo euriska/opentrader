@@ -3,6 +3,17 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.62] - 2026-04-19
+
+### Added
+- **Portfolio NAV history chart** (Trading Dashboard): new `portfolio_snapshots` table captures EOD portfolio value per account; `job_eod_nav_snapshot` fires at 4:10 PM ET on trading days; `/api/portfolio/nav-history` endpoint returns 90-day series with drawdown %; Trading Dashboard now shows a 90-day SVG performance curve with total NAV, USD/% change vs first snapshot, and a one-click snapshot trigger
+- **Options Portfolio Greeks panel** (Options Dashboard): Black-Scholes `_bs_greeks()` function now returns delta, theta, vega, and gamma (using stdlib math only); `option_positions` table gains `theta`, `vega`, `gamma` columns updated each scan; `/api/options/portfolio-greeks` aggregates all active positions to portfolio-level totals scaled by qty×100; Options Dashboard shows a 5-column summary bar (Δ, Θ/day, ν, Γ, positions) plus per-underlying breakdown table
+- **Options Expiry Calendar** page (new nav item under Options): `/api/options/expiry-calendar` groups active positions by expiration date with DTE and urgency color-coding (critical ≤3d, warning ≤7d, caution ≤14d, ok); per-expiry totals for portfolio delta/theta/vega; expandable position table per expiry showing underlying, type, strike, qty, delta, theta/day, account
+- **Daily drawdown / loss limit circuit breaker**: `max_daily_loss_usd` added to `config:risk_controls` defaults; `check_daily_loss()` and `record_trade_pnl()` added to `shared/risk_controls.py`; equity trader checks circuit breaker and daily loss limit before every order; `job_daily_loss_reset` fires at 9:30 AM ET to reset the intraday Redis counter; `/api/trading/daily-pnl` endpoint returns current P&L, limit, usage %, and circuit state; Trading Dashboard shows Daily P&L card with a loss budget progress bar that turns red when the limit is hit
+
+### Changed
+- `_bs_delta()` in `options_monitor` is now a thin wrapper around the new `_bs_greeks()` to maintain backward compatibility
+
 ## [3.5.61] - 2026-04-19
 
 ### Added

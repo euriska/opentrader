@@ -24,7 +24,10 @@ from shared.envelope import OrderEventPayload
 from shared.mcp_client import get_tv_indicators, tv_confirms_direction, get_avg_volume
 from shared.exclusions import is_excluded
 from shared.assignments import load_active_assignments
-from shared.risk_controls import get_risk_controls, check_slippage, check_liquidity
+from shared.risk_controls import (
+    get_risk_controls, check_slippage, check_liquidity,
+    check_daily_loss, record_trade_pnl,
+)
 from scheduler.calendar import is_market_open, is_trading_day
 
 log = structlog.get_logger("trader-equity")
@@ -225,6 +228,24 @@ class EquityTrader(BaseAgent):
                 if not is_market_open():
                     log.debug("trader-equity.market_closed", ticker=ticker)
                     return
+
+            # Circuit breaker check — halt all trading if tripped
+            circuit = await self.redis.get("system:circuit_broken")
+            if circuit and circuit in ("1", b"1"):
+                reason = await self.redis.get("system:circuit_reason") or "circuit breaker"
+                log.warning("trader-equity.circuit_broken",
+                            ticker=ticker, reason=reason)
+                return
+
+            # Daily loss limit check
+            controls_pre = await get_risk_controls(self.redis)
+            loss_ok, current_loss = await check_daily_loss(
+                self.redis, controls_pre.get("max_daily_loss_usd", 0.0)
+            )
+            if not loss_ok:
+                log.warning("trader-equity.daily_loss_limit",
+                            ticker=ticker, loss_usd=current_loss)
+                return
 
             # Sector / ticker / industry exclusion check — merge user + strategy rules
             strat_tickers    = []

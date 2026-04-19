@@ -7292,6 +7292,248 @@ async def trigger_options_scan(token: str = ""):
     return {"ok": True, "message": "Options scan triggered"}
 
 
+# ── Portfolio NAV history ─────────────────────────────────────────────────────
+
+@app.post("/api/portfolio/snapshot")
+async def capture_portfolio_snapshot(token: str = ""):
+    """Capture current broker account balances as an EOD NAV snapshot."""
+    if token != WEBUI_TOKEN:
+        raise HTTPException(403, "Forbidden")
+    import datetime as _dt
+    try:
+        broker_data = await _fetch_positions_from_gateway()
+    except Exception as e:
+        raise HTTPException(503, detail=f"Broker gateway unavailable: {e}")
+    pool  = await _get_db_pool()
+    today = _dt.date.today()
+    saved = 0
+    for acct in broker_data.get("accounts", []):
+        bal   = acct.get("balances", {})
+        label = acct.get("label", "")
+        mode  = acct.get("mode", "live")
+        broker = acct.get("broker", "")
+        try:
+            total_nav    = float(bal.get("portfolio_value") or bal.get("net_value") or bal.get("equity") or 0)
+            cash         = float(bal.get("cash") or bal.get("buying_power") or 0)
+            equity_value = float(bal.get("long_market_value") or bal.get("market_value") or 0)
+            day_pnl      = float(bal.get("unrealized_pl") or bal.get("day_pl") or bal.get("pnl") or 0)
+        except Exception:
+            continue
+        if total_nav <= 0:
+            continue
+        await pool.execute(
+            """INSERT INTO portfolio_snapshots
+               (snapshot_date, account_label, broker, mode, total_nav, cash, equity_value, day_pnl)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               ON CONFLICT (snapshot_date, account_label)
+               DO UPDATE SET total_nav=$5, cash=$6, equity_value=$7, day_pnl=$8""",
+            today, label, broker, mode, total_nav, cash, equity_value, day_pnl,
+        )
+        saved += 1
+    return {"ok": True, "saved": saved, "date": today.isoformat()}
+
+
+@app.get("/api/portfolio/nav-history")
+async def get_portfolio_nav_history(
+    days: int = 90,
+    mode: str = "live",
+    account: str = "",
+):
+    """Return daily NAV history aggregated across all accounts (or a single account)."""
+    pool = await _get_db_pool()
+    if account:
+        rows = await pool.fetch(
+            """SELECT snapshot_date, account_label, total_nav, cash, equity_value, day_pnl
+               FROM portfolio_snapshots
+               WHERE mode = $1 AND account_label = $2
+                 AND snapshot_date >= CURRENT_DATE - ($3 || ' days')::INTERVAL
+               ORDER BY snapshot_date ASC""",
+            mode, account, str(days),
+        )
+        series = [
+            {
+                "date":          r["snapshot_date"].isoformat(),
+                "account_label": r["account_label"],
+                "total_nav":     float(r["total_nav"]),
+                "cash":          float(r["cash"] or 0),
+                "equity_value":  float(r["equity_value"] or 0),
+                "day_pnl":       float(r["day_pnl"] or 0),
+            }
+            for r in rows
+        ]
+    else:
+        rows = await pool.fetch(
+            """SELECT snapshot_date,
+                      SUM(total_nav)    AS total_nav,
+                      SUM(cash)         AS cash,
+                      SUM(equity_value) AS equity_value,
+                      SUM(day_pnl)      AS day_pnl
+               FROM portfolio_snapshots
+               WHERE mode = $1
+                 AND snapshot_date >= CURRENT_DATE - ($2 || ' days')::INTERVAL
+               GROUP BY snapshot_date
+               ORDER BY snapshot_date ASC""",
+            mode, str(days),
+        )
+        series = [
+            {
+                "date":         r["snapshot_date"].isoformat(),
+                "total_nav":    float(r["total_nav"]),
+                "cash":         float(r["cash"] or 0),
+                "equity_value": float(r["equity_value"] or 0),
+                "day_pnl":      float(r["day_pnl"] or 0),
+            }
+            for r in rows
+        ]
+
+    # Compute running drawdown
+    peak = 0.0
+    for pt in series:
+        nav = pt["total_nav"]
+        if nav > peak:
+            peak = nav
+        pt["drawdown_pct"] = round((peak - nav) / peak * 100, 2) if peak > 0 else 0.0
+
+    return {"series": series, "count": len(series)}
+
+
+# ── Options portfolio Greeks ──────────────────────────────────────────────────
+
+@app.get("/api/options/portfolio-greeks")
+async def get_portfolio_greeks(mode: str = "live"):
+    """Aggregate delta, theta, vega, gamma across all active option positions."""
+    pool = await _get_db_pool()
+    rows = await pool.fetch(
+        """SELECT account_label, underlying, option_type, qty,
+                  delta, theta, vega, gamma, expiration_date, strike
+           FROM option_positions
+           WHERE status = 'active' AND mode = $1""",
+        mode,
+    )
+    totals = {"delta": 0.0, "theta": 0.0, "vega": 0.0, "gamma": 0.0}
+    per_account: dict = {}
+    per_underlying: dict = {}
+    for r in rows:
+        qty = float(r["qty"] or 0)
+        mult = qty * 100   # 1 contract = 100 shares
+        for g in ("delta", "theta", "vega", "gamma"):
+            val = r[g]
+            if val is None:
+                continue
+            v = float(val) * mult
+            totals[g] += v
+            acct = r["account_label"]
+            under = r["underlying"]
+            per_account.setdefault(acct, {"delta": 0.0, "theta": 0.0, "vega": 0.0, "gamma": 0.0})
+            per_underlying.setdefault(under, {"delta": 0.0, "theta": 0.0, "vega": 0.0, "gamma": 0.0})
+            per_account[acct][g] += v
+            per_underlying[under][g] += v
+
+    # Round totals
+    totals = {k: round(v, 2) for k, v in totals.items()}
+    per_account   = {k: {g: round(v, 2) for g, v in vals.items()} for k, vals in per_account.items()}
+    per_underlying = {k: {g: round(v, 2) for g, v in vals.items()} for k, vals in per_underlying.items()}
+
+    return {
+        "totals":         totals,
+        "per_account":    per_account,
+        "per_underlying": per_underlying,
+        "position_count": len(rows),
+    }
+
+
+# ── Options expiry calendar ───────────────────────────────────────────────────
+
+@app.get("/api/options/expiry-calendar")
+async def get_options_expiry_calendar(mode: str = "live"):
+    """Return active option positions grouped by expiration date with DTE and Greeks."""
+    import datetime as _dt
+    pool  = await _get_db_pool()
+    today = _dt.date.today()
+    rows  = await pool.fetch(
+        """SELECT id, contract_symbol, underlying, option_type, strike,
+                  expiration_date, account_label, account_name, qty,
+                  entry_price, delta, theta, vega, gamma, status
+           FROM option_positions
+           WHERE status = 'active' AND mode = $1
+           ORDER BY expiration_date ASC NULLS LAST, underlying ASC""",
+        mode,
+    )
+    by_date: dict = {}
+    for r in rows:
+        exp = r["expiration_date"]
+        key = exp.isoformat() if exp else "unknown"
+        dte = (exp - today).days if exp else None
+        if key not in by_date:
+            by_date[key] = {
+                "expiration_date": key,
+                "dte":             dte,
+                "urgency":         "critical" if dte is not None and dte <= 3
+                                   else "warning" if dte is not None and dte <= 7
+                                   else "caution" if dte is not None and dte <= 14
+                                   else "ok",
+                "positions":       [],
+                "total_delta":     0.0,
+                "total_theta":     0.0,
+                "total_vega":      0.0,
+                "position_count":  0,
+            }
+        qty  = float(r["qty"] or 0)
+        mult = qty * 100
+        entry = by_date[key]
+        entry["position_count"] += 1
+        if r["delta"] is not None:
+            entry["total_delta"] += float(r["delta"]) * mult
+        if r["theta"] is not None:
+            entry["total_theta"] += float(r["theta"]) * mult
+        if r["vega"] is not None:
+            entry["total_vega"]  += float(r["vega"])  * mult
+        entry["positions"].append({
+            "id":              str(r["id"]),
+            "contract_symbol": r["contract_symbol"],
+            "underlying":      r["underlying"],
+            "option_type":     r["option_type"],
+            "strike":          float(r["strike"]) if r["strike"] else None,
+            "account_label":   r["account_label"],
+            "account_name":    r["account_name"],
+            "qty":             float(r["qty"]),
+            "entry_price":     float(r["entry_price"]) if r["entry_price"] else None,
+            "delta":           float(r["delta"]) if r["delta"] else None,
+            "theta":           float(r["theta"]) if r["theta"] else None,
+        })
+
+    # Round aggregated values
+    for entry in by_date.values():
+        for k in ("total_delta", "total_theta", "total_vega"):
+            entry[k] = round(entry[k], 2)
+
+    calendar = sorted(by_date.values(), key=lambda x: x["expiration_date"])
+    return {"calendar": calendar, "today": today.isoformat()}
+
+
+# ── Daily P&L / loss limit ────────────────────────────────────────────────────
+
+@app.get("/api/trading/daily-pnl")
+async def get_daily_pnl(token: str = ""):
+    """Return today's cumulative P&L and loss limit status."""
+    redis = await get_redis()
+    from shared.risk_controls import get_risk_controls, get_daily_loss, CIRCUIT_BROKEN_KEY, CIRCUIT_REASON_KEY
+    controls         = await get_risk_controls(redis)
+    current_loss     = await get_daily_loss(redis)
+    max_loss         = float(controls.get("max_daily_loss_usd") or 0)
+    circuit_broken   = await redis.get(CIRCUIT_BROKEN_KEY) in ("1", b"1")
+    circuit_reason   = await redis.get(CIRCUIT_REASON_KEY) or ""
+    loss_pct         = abs(min(current_loss, 0.0)) / max_loss * 100 if max_loss > 0 else 0.0
+    return {
+        "current_pnl":      round(current_loss, 2),
+        "max_daily_loss":   max_loss,
+        "loss_pct_used":    round(loss_pct, 1),
+        "limit_enabled":    max_loss > 0,
+        "circuit_broken":   circuit_broken,
+        "circuit_reason":   circuit_reason,
+    }
+
+
 # ── Serve frontend ────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)

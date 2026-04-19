@@ -26,6 +26,8 @@ from .jobs import (
     job_market_open,
     job_market_close,
     job_eod_report,
+    job_eod_nav_snapshot,
+    job_daily_loss_reset,
     job_pre_market_prep,
     job_daily_summary,
     job_options_report,
@@ -121,6 +123,22 @@ class Scheduler(BaseAgent):
             CronTrigger(hour=16, minute=5, timezone=TZ),
             args=[r], id="eod_report",
             name="EOD report trigger",
+            replace_existing=True,
+        )
+
+        self.apscheduler.add_job(
+            job_eod_nav_snapshot,
+            CronTrigger(hour=16, minute=10, timezone=TZ),
+            args=[r], id="eod_nav_snapshot",
+            name="EOD portfolio NAV snapshot",
+            replace_existing=True,
+        )
+
+        self.apscheduler.add_job(
+            job_daily_loss_reset,
+            CronTrigger(hour=9, minute=30, timezone=TZ),
+            args=[r], id="daily_loss_reset",
+            name="Daily loss counter reset (market open)",
             replace_existing=True,
         )
 
