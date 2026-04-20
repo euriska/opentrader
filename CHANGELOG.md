@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.74] - 2026-04-20
+
+### Fixed
+- **Options Dashboard load time**: Redis-cache all yfinance fallback calls — prices cached 15 min (`yf:price:{sym}`), analyst recommendations cached 4 hrs (`yf:rec:{sym}`), SPY benchmark cached 1 hr (`yf:spy_ytd`); parallelized recommendation fetches from 1 → 4 workers; first load still calls Yahoo, all subsequent loads within TTL return instantly from Redis
+
 ## [3.5.73] - 2026-04-20
 
 ### Added

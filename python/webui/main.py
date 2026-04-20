@@ -6362,36 +6362,47 @@ async def get_option_positions(status: str = "active"):
                     live_prices[ticker] = p
     except Exception:
         pass
-    # Fill any missing prices from yfinance
+    # Fill any missing prices from yfinance (Redis-cached, 15-min TTL)
     missing = [t for t in tickers if t not in live_prices]
     if missing:
         try:
-            import yfinance as _yf
-            import concurrent.futures as _cf
-            import asyncio as _asyncio
-            def _batch_prices(syms):
-                data = _yf.download(syms, period="1d", interval="1d",
-                                    auto_adjust=True, progress=False, threads=False)
-                out = {}
-                try:
-                    close = data["Close"] if "Close" in data else data
-                    if hasattr(close, "columns"):
-                        for sym in syms:
-                            if sym in close.columns:
-                                col = close[sym].dropna()
-                                if not col.empty:
-                                    out[sym] = float(col.iloc[-1])
-                    else:
-                        col = close.dropna()
-                        if not col.empty and len(syms) == 1:
-                            out[syms[0]] = float(col.iloc[-1])
-                except Exception:
-                    pass
-                return out
-            loop = _asyncio.get_event_loop()
-            with _cf.ThreadPoolExecutor(max_workers=1) as ex:
-                yf_prices = await loop.run_in_executor(ex, _batch_prices, missing)
-            live_prices.update(yf_prices)
+            _redis2 = await get_redis()
+            still_missing = []
+            for sym in missing:
+                cached = await _redis2.get(f"yf:price:{sym}")
+                if cached:
+                    live_prices[sym] = float(cached)
+                else:
+                    still_missing.append(sym)
+            if still_missing:
+                import yfinance as _yf
+                import concurrent.futures as _cf
+                import asyncio as _asyncio
+                def _batch_prices(syms):
+                    data = _yf.download(syms, period="1d", interval="1d",
+                                        auto_adjust=True, progress=False, threads=False)
+                    out = {}
+                    try:
+                        close = data["Close"] if "Close" in data else data
+                        if hasattr(close, "columns"):
+                            for sym in syms:
+                                if sym in close.columns:
+                                    col = close[sym].dropna()
+                                    if not col.empty:
+                                        out[sym] = float(col.iloc[-1])
+                        else:
+                            col = close.dropna()
+                            if not col.empty and len(syms) == 1:
+                                out[syms[0]] = float(col.iloc[-1])
+                    except Exception:
+                        pass
+                    return out
+                loop = _asyncio.get_event_loop()
+                with _cf.ThreadPoolExecutor(max_workers=1) as ex:
+                    yf_prices = await loop.run_in_executor(ex, _batch_prices, still_missing)
+                for sym, price in yf_prices.items():
+                    await _redis2.setex(f"yf:price:{sym}", 900, str(price))
+                live_prices.update(yf_prices)
         except Exception:
             pass
 
@@ -6445,7 +6456,7 @@ async def get_option_positions(status: str = "active"):
         except Exception:
             pass
 
-    # Fill remaining missing signals from Yahoo Finance analyst recommendations
+    # Fill remaining missing signals from Yahoo Finance analyst recommendations (Redis-cached, 4-hr TTL)
     _REC_MAP = {
         "strong_buy": ("long", 0.95), "buy": ("long", 0.75),
         "hold": None,
@@ -6454,24 +6465,38 @@ async def get_option_positions(status: str = "active"):
     missing_sig = [t for t in tickers if t not in live_signals]
     if missing_sig:
         try:
-            import yfinance as _yf
-            import concurrent.futures as _cf
-            import asyncio as _asyncio
-            def _fetch_recs(syms):
-                out = {}
-                for sym in syms:
+            _redis3 = await get_redis()
+            still_missing_sig = []
+            for sym in missing_sig:
+                cached = await _redis3.get(f"yf:rec:{sym}")
+                if cached:
                     try:
-                        rec = _yf.Ticker(sym).info.get("recommendationKey", "")
-                        mapped = _REC_MAP.get((rec or "").lower())
-                        if mapped:
-                            out[sym] = {"direction": mapped[0], "confidence": mapped[1], "source": "yahoo"}
+                        live_signals[sym] = json.loads(cached)
                     except Exception:
-                        pass
-                return out
-            loop = _asyncio.get_event_loop()
-            with _cf.ThreadPoolExecutor(max_workers=1) as ex:
-                yf_sigs = await loop.run_in_executor(ex, _fetch_recs, missing_sig)
-            live_signals.update(yf_sigs)
+                        still_missing_sig.append(sym)
+                else:
+                    still_missing_sig.append(sym)
+            if still_missing_sig:
+                import yfinance as _yf
+                import concurrent.futures as _cf
+                import asyncio as _asyncio
+                def _fetch_recs(syms):
+                    out = {}
+                    for sym in syms:
+                        try:
+                            rec = _yf.Ticker(sym).info.get("recommendationKey", "")
+                            mapped = _REC_MAP.get((rec or "").lower())
+                            if mapped:
+                                out[sym] = {"direction": mapped[0], "confidence": mapped[1], "source": "yahoo"}
+                        except Exception:
+                            pass
+                    return out
+                loop = _asyncio.get_event_loop()
+                with _cf.ThreadPoolExecutor(max_workers=4) as ex:
+                    yf_sigs = await loop.run_in_executor(ex, _fetch_recs, still_missing_sig)
+                for sym, sig in yf_sigs.items():
+                    await _redis3.setex(f"yf:rec:{sym}", 14400, json.dumps(sig))
+                live_signals.update(yf_sigs)
         except Exception:
             pass
 
@@ -7616,39 +7641,47 @@ async def get_options_performance(mode: str = "live"):
                 if days_elapsed > 0:
                     ann_return_pct = ((1 + ytd_return_pct / 100) ** (365 / days_elapsed) - 1) * 100
 
-    # SPY YTD via Polygon.io or yfinance
+    # SPY YTD via Polygon.io or yfinance (Redis-cached, 1-hr TTL)
     spy_ytd = spy_ann = market_corr = None
     try:
-        import aiohttp as _aiohttp
-        from datetime import timedelta
-        spy_start_str = year_start.isoformat()
-        spy_end_str   = date.today().isoformat()
-        spy_close_first = spy_close_last = None
-        api_key = os.getenv("MASSIVE_API_KEY", "")
-        if api_key:
-            url = (
-                f"https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day"
-                f"/{spy_start_str}/{spy_end_str}?adjusted=true&sort=asc&limit=365&apiKey={api_key}"
-            )
-            async with _aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=_aiohttp.ClientTimeout(total=10)) as resp:
-                    if resp.status == 200:
-                        spy_data = await resp.json()
-                        bars = spy_data.get("results", [])
-                        if len(bars) >= 2:
-                            spy_close_first = float(bars[0]["c"])
-                            spy_close_last  = float(bars[-1]["c"])
-        if spy_close_first is None:
-            import yfinance as _yf
-            spy_hist = _yf.download("SPY", start=spy_start_str, end=spy_end_str, progress=False, auto_adjust=True)
-            if not spy_hist.empty:
-                spy_close_first = float(spy_hist["Close"].iloc[0])
-                spy_close_last  = float(spy_hist["Close"].iloc[-1])
-        if spy_close_first and spy_close_last and spy_close_first != 0:
-            spy_ytd = (spy_close_last - spy_close_first) / spy_close_first * 100
-            days_ytd = (date.today() - year_start).days
-            if days_ytd > 0:
-                spy_ann = ((1 + spy_ytd / 100) ** (365 / days_ytd) - 1) * 100
+        _redis_perf = await get_redis()
+        _spy_cache = await _redis_perf.get("yf:spy_ytd")
+        if _spy_cache:
+            _spy_cached = json.loads(_spy_cache)
+            spy_ytd = _spy_cached.get("spy_ytd")
+            spy_ann = _spy_cached.get("spy_ann")
+        else:
+            import aiohttp as _aiohttp
+            spy_start_str = year_start.isoformat()
+            spy_end_str   = date.today().isoformat()
+            spy_close_first = spy_close_last = None
+            api_key = os.getenv("MASSIVE_API_KEY", "")
+            if api_key:
+                url = (
+                    f"https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day"
+                    f"/{spy_start_str}/{spy_end_str}?adjusted=true&sort=asc&limit=365&apiKey={api_key}"
+                )
+                async with _aiohttp.ClientSession() as session:
+                    async with session.get(url, timeout=_aiohttp.ClientTimeout(total=10)) as resp:
+                        if resp.status == 200:
+                            spy_data = await resp.json()
+                            bars = spy_data.get("results", [])
+                            if len(bars) >= 2:
+                                spy_close_first = float(bars[0]["c"])
+                                spy_close_last  = float(bars[-1]["c"])
+            if spy_close_first is None:
+                import yfinance as _yf
+                spy_hist = _yf.download("SPY", start=spy_start_str, end=spy_end_str, progress=False, auto_adjust=True)
+                if not spy_hist.empty:
+                    spy_close_first = float(spy_hist["Close"].iloc[0])
+                    spy_close_last  = float(spy_hist["Close"].iloc[-1])
+            if spy_close_first and spy_close_last and spy_close_first != 0:
+                spy_ytd = (spy_close_last - spy_close_first) / spy_close_first * 100
+                days_ytd = (date.today() - year_start).days
+                if days_ytd > 0:
+                    spy_ann = ((1 + spy_ytd / 100) ** (365 / days_ytd) - 1) * 100
+            if spy_ytd is not None:
+                await _redis_perf.setex("yf:spy_ytd", 3600, json.dumps({"spy_ytd": spy_ytd, "spy_ann": spy_ann}))
     except Exception:
         pass
 
