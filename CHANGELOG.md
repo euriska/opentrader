@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.75] - 2026-04-20
+
+### Fixed
+- **Options Dashboard prices**: ticker price fallback now tries Polygon.io (MASSIVE_API_KEY) before yfinance — faster and uses the preferred data source; yfinance only fires for any tickers Polygon doesn't cover
+
 ## [3.5.74] - 2026-04-20
 
 ### Fixed

@@ -6362,7 +6362,7 @@ async def get_option_positions(status: str = "active"):
                     live_prices[ticker] = p
     except Exception:
         pass
-    # Fill any missing prices from yfinance (Redis-cached, 15-min TTL)
+    # Fill any missing prices: Redis cache → Polygon.io (Massive) → yfinance (15-min TTL)
     missing = [t for t in tickers if t not in live_prices]
     if missing:
         try:
@@ -6375,34 +6375,61 @@ async def get_option_positions(status: str = "active"):
                 else:
                     still_missing.append(sym)
             if still_missing:
-                import yfinance as _yf
-                import concurrent.futures as _cf
-                import asyncio as _asyncio
-                def _batch_prices(syms):
-                    data = _yf.download(syms, period="1d", interval="1d",
-                                        auto_adjust=True, progress=False, threads=False)
-                    out = {}
-                    try:
-                        close = data["Close"] if "Close" in data else data
-                        if hasattr(close, "columns"):
-                            for sym in syms:
-                                if sym in close.columns:
-                                    col = close[sym].dropna()
-                                    if not col.empty:
-                                        out[sym] = float(col.iloc[-1])
-                        else:
-                            col = close.dropna()
-                            if not col.empty and len(syms) == 1:
-                                out[syms[0]] = float(col.iloc[-1])
-                    except Exception:
-                        pass
-                    return out
-                loop = _asyncio.get_event_loop()
-                with _cf.ThreadPoolExecutor(max_workers=1) as ex:
-                    yf_prices = await loop.run_in_executor(ex, _batch_prices, still_missing)
-                for sym, price in yf_prices.items():
-                    await _redis2.setex(f"yf:price:{sym}", 900, str(price))
-                live_prices.update(yf_prices)
+                # Primary: Polygon.io (MASSIVE_API_KEY)
+                _poly_key = os.getenv("MASSIVE_API_KEY", "")
+                if _poly_key:
+                    import aiohttp as _aiohttp
+                    from datetime import timedelta
+                    _today_str = date.today().isoformat()
+                    _from_str  = (date.today() - timedelta(days=5)).isoformat()
+                    async with _aiohttp.ClientSession() as _psess:
+                        for sym in list(still_missing):
+                            try:
+                                url = (
+                                    f"https://api.polygon.io/v2/aggs/ticker/{sym}/range/1/day"
+                                    f"/{_from_str}/{_today_str}?adjusted=true&sort=desc&limit=1&apiKey={_poly_key}"
+                                )
+                                async with _psess.get(url, timeout=_aiohttp.ClientTimeout(total=8)) as resp:
+                                    if resp.status == 200:
+                                        d = await resp.json()
+                                        bars = d.get("results") or []
+                                        if bars:
+                                            price = float(bars[0]["c"])
+                                            live_prices[sym] = price
+                                            await _redis2.setex(f"yf:price:{sym}", 900, str(price))
+                                            still_missing.remove(sym)
+                            except Exception:
+                                pass
+                # Fallback: yfinance for anything Polygon didn't cover
+                if still_missing:
+                    import yfinance as _yf
+                    import concurrent.futures as _cf
+                    import asyncio as _asyncio
+                    def _batch_prices(syms):
+                        data = _yf.download(syms, period="1d", interval="1d",
+                                            auto_adjust=True, progress=False, threads=False)
+                        out = {}
+                        try:
+                            close = data["Close"] if "Close" in data else data
+                            if hasattr(close, "columns"):
+                                for sym in syms:
+                                    if sym in close.columns:
+                                        col = close[sym].dropna()
+                                        if not col.empty:
+                                            out[sym] = float(col.iloc[-1])
+                            else:
+                                col = close.dropna()
+                                if not col.empty and len(syms) == 1:
+                                    out[syms[0]] = float(col.iloc[-1])
+                        except Exception:
+                            pass
+                        return out
+                    loop = _asyncio.get_event_loop()
+                    with _cf.ThreadPoolExecutor(max_workers=1) as ex:
+                        yf_prices = await loop.run_in_executor(ex, _batch_prices, still_missing)
+                    for sym, price in yf_prices.items():
+                        await _redis2.setex(f"yf:price:{sym}", 900, str(price))
+                    live_prices.update(yf_prices)
         except Exception:
             pass
 
