@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.84] - 2026-04-20
+
+### Removed
+- **Position Sizer dashboard**: removed nav item, page HTML, all JS functions, `/api/portfolio/accounts` endpoint, and warmup snapshot write
+
 ## [3.5.83] - 2026-04-20
 
 ### Fixed

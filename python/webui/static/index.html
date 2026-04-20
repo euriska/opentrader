@@ -279,10 +279,6 @@ select option{background:var(--surface2)}
         <span class="nav-dot" style="background:#f59e0b"></span>
         Price Alerts
       </div>
-      <div class="nav-item" draggable="true" onclick="navigate('page-trading-sizer')" data-page="page-trading-sizer">
-        <span class="nav-dot" style="background:var(--teal)"></span>
-        Position Sizer
-      </div>
     </div>
     <div class="nav-group" data-group="equities">
       <div class="nav-label">Equities</div>
@@ -2294,146 +2290,6 @@ select option{background:var(--surface2)}
       </div>
     </div><!-- /page-trading-alerts -->
 
-    <!-- ════════════════════════════════════════
-         PAGE: Position Sizer
-    ════════════════════════════════════════ -->
-    <div class="page" id="page-trading-sizer">
-      <div style="font-size:18px;font-weight:700;color:var(--fg);margin-bottom:16px">Position Sizer</div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:900px">
-
-        <!-- Equity Calculator -->
-        <div class="card" style="padding:20px">
-          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:16px">Equity / ETF</div>
-          <div style="display:grid;gap:12px">
-            <div>
-              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Account Size</label>
-              <select id="sizer-eq-acct-sel" onchange="_sizerAcctSelect('eq')"
-                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;width:100%;margin-bottom:6px">
-                <option value="custom">— Enter custom amount —</option>
-              </select>
-              <input id="sizer-eq-account" type="number" placeholder="e.g. 50000" oninput="_sizerCalcEq()"
-                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Risk per Trade (%)</label>
-              <input id="sizer-eq-risk" type="number" value="1" step="0.1" oninput="_sizerCalcEq()"
-                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Entry Price ($)</label>
-              <input id="sizer-eq-entry" type="number" step="0.01" placeholder="150.00" oninput="_sizerCalcEq()"
-                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Stop Loss Price ($)</label>
-              <input id="sizer-eq-stop" type="number" step="0.01" placeholder="145.00" oninput="_sizerCalcEq()"
-                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Target Price ($) <span style="color:var(--muted);font-weight:400">(optional)</span></label>
-              <input id="sizer-eq-target" type="number" step="0.01" placeholder="165.00" oninput="_sizerCalcEq()"
-                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
-            </div>
-          </div>
-          <!-- Results -->
-          <div id="sizer-eq-result" style="margin-top:16px;background:var(--surface2);border-radius:8px;padding:14px;display:block">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-              <div style="text-align:center">
-                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Shares</div>
-                <div id="sizer-eq-shares" style="font-size:28px;font-weight:800;color:var(--fg)">—</div>
-              </div>
-              <div style="text-align:center">
-                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Dollar Risk</div>
-                <div id="sizer-eq-risk-usd" style="font-size:28px;font-weight:800;color:#ef4444">—</div>
-              </div>
-              <div style="text-align:center">
-                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Position Size</div>
-                <div id="sizer-eq-pos-size" style="font-size:20px;font-weight:700;color:var(--fg)">—</div>
-              </div>
-              <div style="text-align:center">
-                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">R:R Ratio</div>
-                <div id="sizer-eq-rr" style="font-size:20px;font-weight:700;color:var(--teal)">—</div>
-              </div>
-              <div style="text-align:center">
-                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">% of Account</div>
-                <div id="sizer-eq-pct" style="font-size:20px;font-weight:700;color:var(--muted)">—</div>
-              </div>
-              <div style="text-align:center">
-                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Potential Gain</div>
-                <div id="sizer-eq-gain" style="font-size:20px;font-weight:700;color:#22c55e">—</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Options Calculator -->
-        <div class="card" style="padding:20px">
-          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:16px">Options Contract</div>
-          <div style="display:grid;gap:12px">
-            <div>
-              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Account Size</label>
-              <select id="sizer-opt-acct-sel" onchange="_sizerAcctSelect('opt')"
-                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;width:100%;margin-bottom:6px">
-                <option value="custom">— Enter custom amount —</option>
-              </select>
-              <input id="sizer-opt-account" type="number" placeholder="e.g. 50000" oninput="_sizerCalcOpt()"
-                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Max Risk per Trade (%)</label>
-              <input id="sizer-opt-risk" type="number" value="2" step="0.1" oninput="_sizerCalcOpt()"
-                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Premium per Contract ($)</label>
-              <input id="sizer-opt-premium" type="number" step="0.01" placeholder="3.50" oninput="_sizerCalcOpt()"
-                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Underlying Price ($)</label>
-              <input id="sizer-opt-underlying" type="number" step="0.01" placeholder="150.00" oninput="_sizerCalcOpt()"
-                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
-            </div>
-            <div>
-              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Target Exit (% of premium)</label>
-              <input id="sizer-opt-target-pct" type="number" value="50" step="5" oninput="_sizerCalcOpt()"
-                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
-            </div>
-          </div>
-          <!-- Results -->
-          <div id="sizer-opt-result" style="margin-top:16px;background:var(--surface2);border-radius:8px;padding:14px;display:block">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-              <div style="text-align:center">
-                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Contracts</div>
-                <div id="sizer-opt-contracts" style="font-size:28px;font-weight:800;color:var(--fg)">—</div>
-              </div>
-              <div style="text-align:center">
-                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Max Risk</div>
-                <div id="sizer-opt-max-risk" style="font-size:28px;font-weight:800;color:#ef4444">—</div>
-              </div>
-              <div style="text-align:center">
-                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Total Premium</div>
-                <div id="sizer-opt-total-prem" style="font-size:20px;font-weight:700;color:var(--fg)">—</div>
-              </div>
-              <div style="text-align:center">
-                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Notional</div>
-                <div id="sizer-opt-notional" style="font-size:20px;font-weight:700;color:var(--muted)">—</div>
-              </div>
-              <div style="text-align:center">
-                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Target Profit</div>
-                <div id="sizer-opt-profit" style="font-size:20px;font-weight:700;color:#22c55e">—</div>
-              </div>
-              <div style="text-align:center">
-                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">% of Account</div>
-                <div id="sizer-opt-pct" style="font-size:20px;font-weight:700;color:var(--muted)">—</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-      </div><!-- /grid -->
-    </div><!-- /page-trading-sizer -->
 
     <!-- Journal edit modal -->
     <div id="journal-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;align-items:center;justify-content:center">
@@ -3249,7 +3105,6 @@ const PAGE_TITLES = {
   'page-trading-broker':     'Broker',
   'page-trading-dividends':  'Dividend Tracker',
   'page-trading-alerts':     'Price Alerts',
-  'page-trading-sizer':      'Position Sizer',
   'page-trading-options':    'Options Dashboard',
   'page-options-log':        'Options Trading Log',
   'page-options-expiry':     'Options Expiry Calendar',
@@ -3381,7 +3236,6 @@ function navigate(pageId) {
     case 'page-trading-broker':     loadBrokerPage();       break;
     case 'page-trading-dividends':  loadDividendPage();     break;
     case 'page-trading-alerts':     loadAlertsPage(); break;
-    case 'page-trading-sizer':      _sizerLoadAccounts(); break;
     case 'page-trading-options':    loadOptionsPositions(); loadOptionsGreeksPanel(); loadOptionsPerformancePanel(); break;
     case 'page-options-log':        loadOptionsLog(); loadOptionsPerformancePanel(); break;
     case 'page-options-expiry':     loadOptionsExpiryCalendar(); break;
@@ -14795,113 +14649,6 @@ async function _alertReactivate(id) {
     toast('success', 'Re-activated', 'Alert is now active again');
     loadAlertsPage();
   } catch(e) { toast('error', 'Failed', e.message); }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Position Sizer
-// ══════════════════════════════════════════════════════════════════════════════
-
-let _sizerAccounts = [];
-
-async function _sizerLoadAccounts() {
-  try {
-    const data = await apiFetch('/api/portfolio/accounts?token=' + encodeURIComponent(getToken()));
-    _sizerAccounts = Array.isArray(data) ? data : [];
-  } catch(e) {
-    _sizerAccounts = [];
-    toast('error', 'Position Sizer', 'Could not load broker accounts: ' + e.message);
-  }
-  ['eq', 'opt'].forEach(side => {
-    const sel = document.getElementById(`sizer-${side}-acct-sel`);
-    if (!sel) return;
-    sel.innerHTML = '<option value="custom">— Enter custom amount —</option>';
-    _sizerAccounts.forEach(a => {
-      const label = `${a.account_label}  ($${Math.round(a.total_nav).toLocaleString()})`;
-      const opt = document.createElement('option');
-      opt.value = a.total_nav;
-      opt.textContent = label;
-      sel.appendChild(opt);
-    });
-  });
-  // Show result panels immediately so user sees the layout
-  ['sizer-eq-result', 'sizer-opt-result'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = 'block';
-  });
-  _sizerCalcEq();
-  _sizerCalcOpt();
-}
-
-function _sizerAcctSelect(side) {
-  const sel   = document.getElementById(`sizer-${side}-acct-sel`);
-  const input = document.getElementById(`sizer-${side}-account`);
-  if (!sel || !input) return;
-  if (sel.value === 'custom') {
-    input.value = '';
-    input.removeAttribute('readonly');
-    input.focus();
-  } else {
-    input.value = parseFloat(sel.value).toFixed(2);
-    input.setAttribute('readonly', 'readonly');
-  }
-  side === 'eq' ? _sizerCalcEq() : _sizerCalcOpt();
-}
-
-function _sizerCalcEq() {
-  const account = parseFloat(document.getElementById('sizer-eq-account')?.value) || 0;
-  const riskPct  = parseFloat(document.getElementById('sizer-eq-risk')?.value) || 0;
-  const entry    = parseFloat(document.getElementById('sizer-eq-entry')?.value) || 0;
-  const stop     = parseFloat(document.getElementById('sizer-eq-stop')?.value) || 0;
-  const target   = parseFloat(document.getElementById('sizer-eq-target')?.value) || 0;
-  const el = document.getElementById('sizer-eq-result');
-  if (!el) return;
-  el.style.display = 'block';
-
-  const canCalc = account > 0 && riskPct > 0 && entry > 0 && stop > 0 && entry !== stop;
-  const dollarRisk   = (account && riskPct) ? account * riskPct / 100 : null;
-  const riskPerShare = canCalc ? Math.abs(entry - stop) : null;
-  const shares       = canCalc ? Math.floor(dollarRisk / riskPerShare) : null;
-  const posSize      = canCalc ? shares * entry : null;
-  const pctOfAccount = canCalc ? posSize / account * 100 : null;
-  const gain         = canCalc && target > 0 ? shares * Math.abs(target - entry) : null;
-  const rr           = canCalc && target > 0 ? Math.abs(target - entry) / riskPerShare : null;
-
-  const fmt = (v, fn) => v !== null ? fn(v) : '—';
-  document.getElementById('sizer-eq-shares').textContent    = fmt(shares, v => v.toLocaleString());
-  document.getElementById('sizer-eq-risk-usd').textContent  = fmt(dollarRisk, v => '$' + v.toFixed(2));
-  document.getElementById('sizer-eq-pos-size').textContent  = fmt(posSize, v => '$' + v.toLocaleString('en-US', {maximumFractionDigits:0}));
-  document.getElementById('sizer-eq-pct').textContent       = fmt(pctOfAccount, v => v.toFixed(1) + '%');
-  document.getElementById('sizer-eq-rr').textContent        = fmt(rr, v => v.toFixed(2) + ':1');
-  document.getElementById('sizer-eq-gain').textContent      = fmt(gain, v => '+$' + v.toFixed(0));
-}
-
-function _sizerCalcOpt() {
-  const account    = parseFloat(document.getElementById('sizer-opt-account')?.value) || 0;
-  const riskPct    = parseFloat(document.getElementById('sizer-opt-risk')?.value) || 0;
-  const premium    = parseFloat(document.getElementById('sizer-opt-premium')?.value) || 0;
-  const underlying = parseFloat(document.getElementById('sizer-opt-underlying')?.value) || 0;
-  const targetPct  = parseFloat(document.getElementById('sizer-opt-target-pct')?.value) || 50;
-  const el = document.getElementById('sizer-opt-result');
-  if (!el) return;
-  el.style.display = 'block';
-
-  const canCalc       = account > 0 && riskPct > 0 && premium > 0;
-  const maxRisk       = (account && riskPct) ? account * riskPct / 100 : null;
-  const costPerContract = premium > 0 ? premium * 100 : null;
-  const contracts     = canCalc ? Math.floor(maxRisk / costPerContract) : null;
-  const totalPremium  = canCalc ? contracts * costPerContract : null;
-  const notional      = canCalc && underlying > 0 ? contracts * 100 * underlying : null;
-  const targetProfit  = canCalc ? totalPremium * targetPct / 100 : null;
-  const pctOfAccount  = canCalc ? totalPremium / account * 100 : null;
-
-  const fmt = (v, fn) => v !== null ? fn(v) : '—';
-  document.getElementById('sizer-opt-contracts').textContent  = fmt(contracts, v => v);
-  document.getElementById('sizer-opt-max-risk').textContent   = fmt(maxRisk, v => '$' + v.toFixed(2));
-  document.getElementById('sizer-opt-total-prem').textContent = fmt(totalPremium, v => '$' + v.toFixed(2));
-  document.getElementById('sizer-opt-notional').textContent   = fmt(notional, v => '$' + v.toLocaleString('en-US', {maximumFractionDigits:0}));
-  document.getElementById('sizer-opt-profit').textContent     = fmt(targetProfit, v => '+$' + v.toFixed(2));
-  document.getElementById('sizer-opt-pct').textContent        = fmt(pctOfAccount, v => v.toFixed(1) + '%');
-  el.style.display = 'block';
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
