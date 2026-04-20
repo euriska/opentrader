@@ -14020,8 +14020,9 @@ function _optlogFilter() {
     t.underlying.toLowerCase().includes(search) ||
     (t.contract_symbol||'').toLowerCase().includes(search);
 
-  const active  = _optlogAllTrades.filter(t => t.status === 'active' && matches(t));
-  const history = _optlogAllTrades.filter(t => t.status !== 'active' && matches(t));
+  // Rolled positions are legs of an ongoing chain — keep them in Active
+  const active  = _optlogAllTrades.filter(t => (t.status === 'active' || t.status === 'rolled') && matches(t));
+  const history = _optlogAllTrades.filter(t => (t.status === 'closed' || t.status === 'expired') && matches(t));
 
   const activeCount = document.getElementById('optlog-active-count');
   const histCount   = document.getElementById('optlog-hist-count');
@@ -14101,11 +14102,11 @@ function _renderOptlogTree(trades, containerId) {
         const tkPnl = positions.reduce((s, p) => s + (p.realized_pnl ?? 0), 0);
         const tkPnlColor = tkPnl >= 0 ? '#22c55e' : '#ef4444';
 
-        const hasActive    = positions.some(p => p.status === 'active');
-        const activeCount  = positions.filter(p => p.status === 'active').length;
-        const closedCount  = positions.filter(p => p.status !== 'active').length;
+        const hasActive    = positions.some(p => p.status === 'active' || p.status === 'rolled');
+        const activeCount  = positions.filter(p => p.status === 'active' || p.status === 'rolled').length;
+        const closedCount  = positions.filter(p => p.status === 'closed' || p.status === 'expired').length;
         const tkId = `optlog-tk-${broker}-${account}-${ticker}`.replace(/[^a-zA-Z0-9-]/g,'_');
-        // Historical-only tickers collapse by default
+        // Historical-only tickers collapse by default; active tickers always open
         const startOpen    = hasActive ? 'block' : 'none';
         const chevron      = hasActive ? '▾' : '▸';
         const posLabel     = hasActive
