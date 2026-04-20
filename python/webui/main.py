@@ -2292,6 +2292,43 @@ async def _warmup_caches():
     except Exception:
         pass
 
+    # 1b. Persist a portfolio snapshot to DB so the position sizer dropdown is
+    #     always populated even before the in-memory cache is hit (e.g. first
+    #     request that races the warmup).
+    try:
+        if _positions_cache["data"] and DB_URL:
+            import datetime as _dt2
+            _pool_w = await _get_db_pool()
+            _today  = _dt2.date.today()
+            for _acct in _positions_cache["data"].get("accounts", []):
+                _bal   = _acct.get("balances", {})
+                _label = _acct.get("label", "")
+                _mode  = _acct.get("mode", "live")
+                _broker = _acct.get("broker", "")
+                _nav = float(
+                    _bal.get("portfolio_value")
+                    or _bal.get("net_value")
+                    or _bal.get("total_equity")
+                    or _bal.get("account_value")
+                    or _bal.get("equity")
+                    or _bal.get("total_value")
+                    or 0
+                )
+                if _nav <= 0:
+                    continue
+                _cash = float(_bal.get("cash") or _bal.get("buying_power") or 0)
+                _eq   = float(_bal.get("long_market_value") or _bal.get("market_value") or 0)
+                await _pool_w.execute(
+                    """INSERT INTO portfolio_snapshots
+                       (snapshot_date, account_label, broker, mode, total_nav, cash, equity_value, day_pnl)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, 0)
+                       ON CONFLICT (snapshot_date, account_label)
+                       DO UPDATE SET total_nav=$5, cash=$6, equity_value=$7""",
+                    _today, _label, _broker, _mode, _nav, _cash, _eq,
+                )
+    except Exception:
+        pass
+
     # 2. Options prices — pre-populate Redis for all active underlying tickers
     try:
         if not DB_URL:
@@ -7479,7 +7516,15 @@ async def capture_portfolio_snapshot(token: str = ""):
         mode  = acct.get("mode", "live")
         broker = acct.get("broker", "")
         try:
-            total_nav    = float(bal.get("portfolio_value") or bal.get("net_value") or bal.get("equity") or 0)
+            total_nav    = float(
+                bal.get("portfolio_value")   # Alpaca
+                or bal.get("net_value")       # Webull
+                or bal.get("total_equity")    # Tradier (equity=0 on margin accounts)
+                or bal.get("account_value")   # Tradier alt
+                or bal.get("equity")          # Alpaca secondary
+                or bal.get("total_value")     # generic
+                or 0
+            )
             cash         = float(bal.get("cash") or bal.get("buying_power") or 0)
             equity_value = float(bal.get("long_market_value") or bal.get("market_value") or 0)
             day_pnl      = float(bal.get("unrealized_pl") or bal.get("day_pl") or bal.get("pnl") or 0)

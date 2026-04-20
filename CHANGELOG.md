@@ -3,6 +3,13 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.80] - 2026-04-20
+
+### Fixed
+- **Position Sizer dropdown — two root causes fixed**:
+  - `capture_portfolio_snapshot` used the old NAV field lookup (missing `total_equity`) so Tradier accounts were saved with `total_nav=0` and never appeared in the DB fallback — fixed to use the same comprehensive lookup as `get_portfolio_accounts`
+  - Startup warmup now writes a fresh portfolio snapshot to DB immediately after populating the in-memory cache, so the DB fallback is always up-to-date after restart (fixes the race where a first request arrives before the warmup completes)
+
 ## [3.5.79] - 2026-04-20
 
 ### Fixed
