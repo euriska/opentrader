@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.69] - 2026-04-20
+
+### Fixed
+- **Options Trading Log — Historical shows only all-closed tickers**: a ticker with any active or rolled position now stays entirely in Active. Historical is restricted to tickers where every leg is closed or expired (only IAG in current data).
+
 ## [3.5.68] - 2026-04-20
 
 ### Fixed
