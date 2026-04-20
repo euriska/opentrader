@@ -7338,6 +7338,27 @@ async def capture_portfolio_snapshot(token: str = ""):
     return {"ok": True, "saved": saved, "date": today.isoformat()}
 
 
+@app.get("/api/portfolio/accounts")
+async def get_portfolio_accounts():
+    """Return the latest NAV snapshot per account for use in the position sizer."""
+    pool = await _get_db_pool()
+    rows = await pool.fetch(
+        """SELECT DISTINCT ON (account_label)
+               account_label, broker, mode, total_nav
+           FROM portfolio_snapshots
+           ORDER BY account_label, snapshot_date DESC"""
+    )
+    return [
+        {
+            "account_label": r["account_label"],
+            "broker":        r["broker"],
+            "mode":          r["mode"],
+            "total_nav":     float(r["total_nav"]),
+        }
+        for r in rows
+    ]
+
+
 @app.get("/api/portfolio/nav-history")
 async def get_portfolio_nav_history(
     days: int = 90,

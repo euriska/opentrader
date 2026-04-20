@@ -2307,8 +2307,12 @@ select option{background:var(--surface2)}
           <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:16px">Equity / ETF</div>
           <div style="display:grid;gap:12px">
             <div>
-              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Account Size ($)</label>
-              <input id="sizer-eq-account" type="number" value="50000" oninput="_sizerCalcEq()"
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Account Size</label>
+              <select id="sizer-eq-acct-sel" onchange="_sizerAcctSelect('eq')"
+                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;width:100%;margin-bottom:6px">
+                <option value="custom">— Enter custom amount —</option>
+              </select>
+              <input id="sizer-eq-account" type="number" placeholder="e.g. 50000" oninput="_sizerCalcEq()"
                 style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
             </div>
             <div>
@@ -2368,8 +2372,12 @@ select option{background:var(--surface2)}
           <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:16px">Options Contract</div>
           <div style="display:grid;gap:12px">
             <div>
-              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Account Size ($)</label>
-              <input id="sizer-opt-account" type="number" value="50000" oninput="_sizerCalcOpt()"
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Account Size</label>
+              <select id="sizer-opt-acct-sel" onchange="_sizerAcctSelect('opt')"
+                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;width:100%;margin-bottom:6px">
+                <option value="custom">— Enter custom amount —</option>
+              </select>
+              <input id="sizer-opt-account" type="number" placeholder="e.g. 50000" oninput="_sizerCalcOpt()"
                 style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
             </div>
             <div>
@@ -3368,7 +3376,7 @@ function navigate(pageId) {
     case 'page-trading-broker':     loadBrokerPage();       break;
     case 'page-trading-dividends':  loadDividendPage();     break;
     case 'page-trading-alerts':     loadAlertsPage(); break;
-    case 'page-trading-sizer':      _sizerCalcEq(); _sizerCalcOpt(); break;
+    case 'page-trading-sizer':      _sizerLoadAccounts(); break;
     case 'page-trading-options':    loadOptionsPositions(); loadOptionsGreeksPanel(); loadOptionsPerformancePanel(); break;
     case 'page-options-log':        loadOptionsLog(); loadOptionsPerformancePanel(); break;
     case 'page-options-expiry':     loadOptionsExpiryCalendar(); break;
@@ -14787,6 +14795,46 @@ async function _alertReactivate(id) {
 // ══════════════════════════════════════════════════════════════════════════════
 // Position Sizer
 // ══════════════════════════════════════════════════════════════════════════════
+
+let _sizerAccounts = [];
+
+async function _sizerLoadAccounts() {
+  try {
+    _sizerAccounts = await apiFetch('/api/portfolio/accounts');
+  } catch(e) {
+    _sizerAccounts = [];
+  }
+  ['eq', 'opt'].forEach(side => {
+    const sel = document.getElementById(`sizer-${side}-acct-sel`);
+    if (!sel) return;
+    // preserve existing options beyond the first
+    sel.innerHTML = '<option value="custom">— Enter custom amount —</option>';
+    _sizerAccounts.forEach(a => {
+      const label = `${a.account_label}  ($${Math.round(a.total_nav).toLocaleString()})`;
+      const opt = document.createElement('option');
+      opt.value = a.total_nav;
+      opt.textContent = label;
+      sel.appendChild(opt);
+    });
+  });
+  _sizerCalcEq();
+  _sizerCalcOpt();
+}
+
+function _sizerAcctSelect(side) {
+  const sel   = document.getElementById(`sizer-${side}-acct-sel`);
+  const input = document.getElementById(`sizer-${side}-account`);
+  if (!sel || !input) return;
+  if (sel.value === 'custom') {
+    input.value = '';
+    input.removeAttribute('readonly');
+    input.focus();
+  } else {
+    input.value = parseFloat(sel.value).toFixed(2);
+    input.setAttribute('readonly', 'readonly');
+  }
+  side === 'eq' ? _sizerCalcEq() : _sizerCalcOpt();
+}
 
 function _sizerCalcEq() {
   const account = parseFloat(document.getElementById('sizer-eq-account')?.value) || 0;

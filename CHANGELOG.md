@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.73] - 2026-04-20
+
+### Added
+- **Position Sizer — account dropdown**: both Equity and Options calculators now have an account selector dropdown populated from the latest portfolio NAV snapshots; selecting an account prefills the Account Size field and locks it; choosing "Enter custom amount" clears the field for manual entry; backed by new `GET /api/portfolio/accounts` endpoint
+
 ## [3.5.72] - 2026-04-20
 
 ### Fixed
