@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.83] - 2026-04-20
+
+### Fixed
+- **All options endpoints returning 401**: `apiFetch` never auto-injected the session token, so every call that didn't explicitly append `?token=` failed — fixed `apiFetch` to always append the token if not already present; this fixes options positions, greeks, performance, expiry calendar, trading log, and position sizer accounts in one shot
+
 ## [3.5.82] - 2026-04-20
 
 ### Fixed

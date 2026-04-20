@@ -3331,6 +3331,11 @@ function getToken() {
 }
 
 async function apiFetch(path, opts = {}) {
+  // Auto-inject token if not already present
+  const tok = getToken();
+  if (tok && !path.includes('token=')) {
+    path += (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(tok);
+  }
   const r = await fetch(path, opts);
   if (!r.ok) {
     let msg = `HTTP ${r.status}`;
