@@ -7545,7 +7545,8 @@ async def capture_portfolio_snapshot(token: str = ""):
 
 
 @app.get("/api/portfolio/accounts")
-async def get_portfolio_accounts():
+async def get_portfolio_accounts(token: str = ""):
+    check_token(token)
     """Return the latest NAV per account for the position sizer.
     Primary: live broker positions cache. Fallback: portfolio_snapshots DB.
     """

@@ -2337,7 +2337,7 @@ select option{background:var(--surface2)}
             </div>
           </div>
           <!-- Results -->
-          <div id="sizer-eq-result" style="margin-top:16px;background:var(--surface2);border-radius:8px;padding:14px;display:none">
+          <div id="sizer-eq-result" style="margin-top:16px;background:var(--surface2);border-radius:8px;padding:14px;display:block">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
               <div style="text-align:center">
                 <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Shares</div>
@@ -2402,7 +2402,7 @@ select option{background:var(--surface2)}
             </div>
           </div>
           <!-- Results -->
-          <div id="sizer-opt-result" style="margin-top:16px;background:var(--surface2);border-radius:8px;padding:14px;display:none">
+          <div id="sizer-opt-result" style="margin-top:16px;background:var(--surface2);border-radius:8px;padding:14px;display:block">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
               <div style="text-align:center">
                 <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Contracts</div>
@@ -14800,14 +14800,15 @@ let _sizerAccounts = [];
 
 async function _sizerLoadAccounts() {
   try {
-    _sizerAccounts = await apiFetch('/api/portfolio/accounts');
+    const data = await apiFetch('/api/portfolio/accounts?token=' + encodeURIComponent(getToken()));
+    _sizerAccounts = Array.isArray(data) ? data : [];
   } catch(e) {
     _sizerAccounts = [];
+    toast('error', 'Position Sizer', 'Could not load broker accounts: ' + e.message);
   }
   ['eq', 'opt'].forEach(side => {
     const sel = document.getElementById(`sizer-${side}-acct-sel`);
     if (!sel) return;
-    // preserve existing options beyond the first
     sel.innerHTML = '<option value="custom">— Enter custom amount —</option>';
     _sizerAccounts.forEach(a => {
       const label = `${a.account_label}  ($${Math.round(a.total_nav).toLocaleString()})`;
@@ -14816,6 +14817,11 @@ async function _sizerLoadAccounts() {
       opt.textContent = label;
       sel.appendChild(opt);
     });
+  });
+  // Show result panels immediately so user sees the layout
+  ['sizer-eq-result', 'sizer-opt-result'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'block';
   });
   _sizerCalcEq();
   _sizerCalcOpt();
@@ -14844,47 +14850,52 @@ function _sizerCalcEq() {
   const target   = parseFloat(document.getElementById('sizer-eq-target')?.value) || 0;
   const el = document.getElementById('sizer-eq-result');
   if (!el) return;
-  if (!account || !riskPct || !entry || !stop || entry === stop) { el.style.display = 'none'; return; }
-  const dollarRisk   = account * riskPct / 100;
-  const riskPerShare = Math.abs(entry - stop);
-  const shares       = Math.floor(dollarRisk / riskPerShare);
-  const posSize      = shares * entry;
-  const pctOfAccount = posSize / account * 100;
-  const gain         = target > 0 ? shares * Math.abs(target - entry) : null;
-  const rr           = target > 0 && riskPerShare > 0 ? Math.abs(target - entry) / riskPerShare : null;
-
-  document.getElementById('sizer-eq-shares').textContent    = shares.toLocaleString();
-  document.getElementById('sizer-eq-risk-usd').textContent  = '$' + dollarRisk.toFixed(2);
-  document.getElementById('sizer-eq-pos-size').textContent  = '$' + posSize.toLocaleString('en-US', {maximumFractionDigits:0});
-  document.getElementById('sizer-eq-pct').textContent       = pctOfAccount.toFixed(1) + '%';
-  document.getElementById('sizer-eq-rr').textContent        = rr != null ? rr.toFixed(2) + ':1' : '—';
-  document.getElementById('sizer-eq-gain').textContent      = gain != null ? '+$' + gain.toFixed(0) : '—';
   el.style.display = 'block';
+
+  const canCalc = account > 0 && riskPct > 0 && entry > 0 && stop > 0 && entry !== stop;
+  const dollarRisk   = (account && riskPct) ? account * riskPct / 100 : null;
+  const riskPerShare = canCalc ? Math.abs(entry - stop) : null;
+  const shares       = canCalc ? Math.floor(dollarRisk / riskPerShare) : null;
+  const posSize      = canCalc ? shares * entry : null;
+  const pctOfAccount = canCalc ? posSize / account * 100 : null;
+  const gain         = canCalc && target > 0 ? shares * Math.abs(target - entry) : null;
+  const rr           = canCalc && target > 0 ? Math.abs(target - entry) / riskPerShare : null;
+
+  const fmt = (v, fn) => v !== null ? fn(v) : '—';
+  document.getElementById('sizer-eq-shares').textContent    = fmt(shares, v => v.toLocaleString());
+  document.getElementById('sizer-eq-risk-usd').textContent  = fmt(dollarRisk, v => '$' + v.toFixed(2));
+  document.getElementById('sizer-eq-pos-size').textContent  = fmt(posSize, v => '$' + v.toLocaleString('en-US', {maximumFractionDigits:0}));
+  document.getElementById('sizer-eq-pct').textContent       = fmt(pctOfAccount, v => v.toFixed(1) + '%');
+  document.getElementById('sizer-eq-rr').textContent        = fmt(rr, v => v.toFixed(2) + ':1');
+  document.getElementById('sizer-eq-gain').textContent      = fmt(gain, v => '+$' + v.toFixed(0));
 }
 
 function _sizerCalcOpt() {
-  const account   = parseFloat(document.getElementById('sizer-opt-account')?.value) || 0;
-  const riskPct   = parseFloat(document.getElementById('sizer-opt-risk')?.value) || 0;
-  const premium   = parseFloat(document.getElementById('sizer-opt-premium')?.value) || 0;
+  const account    = parseFloat(document.getElementById('sizer-opt-account')?.value) || 0;
+  const riskPct    = parseFloat(document.getElementById('sizer-opt-risk')?.value) || 0;
+  const premium    = parseFloat(document.getElementById('sizer-opt-premium')?.value) || 0;
   const underlying = parseFloat(document.getElementById('sizer-opt-underlying')?.value) || 0;
-  const targetPct = parseFloat(document.getElementById('sizer-opt-target-pct')?.value) || 50;
+  const targetPct  = parseFloat(document.getElementById('sizer-opt-target-pct')?.value) || 50;
   const el = document.getElementById('sizer-opt-result');
   if (!el) return;
-  if (!account || !riskPct || !premium) { el.style.display = 'none'; return; }
-  const maxRisk       = account * riskPct / 100;
-  const costPerContract = premium * 100;
-  const contracts     = Math.floor(maxRisk / costPerContract);
-  const totalPremium  = contracts * costPerContract;
-  const notional      = underlying > 0 ? contracts * 100 * underlying : null;
-  const targetProfit  = totalPremium * targetPct / 100;
-  const pctOfAccount  = totalPremium / account * 100;
+  el.style.display = 'block';
 
-  document.getElementById('sizer-opt-contracts').textContent  = contracts;
-  document.getElementById('sizer-opt-max-risk').textContent   = '$' + maxRisk.toFixed(2);
-  document.getElementById('sizer-opt-total-prem').textContent = '$' + totalPremium.toFixed(2);
-  document.getElementById('sizer-opt-notional').textContent   = notional != null ? '$' + notional.toLocaleString('en-US', {maximumFractionDigits:0}) : '—';
-  document.getElementById('sizer-opt-profit').textContent     = '+$' + targetProfit.toFixed(2);
-  document.getElementById('sizer-opt-pct').textContent        = pctOfAccount.toFixed(1) + '%';
+  const canCalc       = account > 0 && riskPct > 0 && premium > 0;
+  const maxRisk       = (account && riskPct) ? account * riskPct / 100 : null;
+  const costPerContract = premium > 0 ? premium * 100 : null;
+  const contracts     = canCalc ? Math.floor(maxRisk / costPerContract) : null;
+  const totalPremium  = canCalc ? contracts * costPerContract : null;
+  const notional      = canCalc && underlying > 0 ? contracts * 100 * underlying : null;
+  const targetProfit  = canCalc ? totalPremium * targetPct / 100 : null;
+  const pctOfAccount  = canCalc ? totalPremium / account * 100 : null;
+
+  const fmt = (v, fn) => v !== null ? fn(v) : '—';
+  document.getElementById('sizer-opt-contracts').textContent  = fmt(contracts, v => v);
+  document.getElementById('sizer-opt-max-risk').textContent   = fmt(maxRisk, v => '$' + v.toFixed(2));
+  document.getElementById('sizer-opt-total-prem').textContent = fmt(totalPremium, v => '$' + v.toFixed(2));
+  document.getElementById('sizer-opt-notional').textContent   = fmt(notional, v => '$' + v.toLocaleString('en-US', {maximumFractionDigits:0}));
+  document.getElementById('sizer-opt-profit').textContent     = fmt(targetProfit, v => '+$' + v.toFixed(2));
+  document.getElementById('sizer-opt-pct').textContent        = fmt(pctOfAccount, v => v.toFixed(1) + '%');
   el.style.display = 'block';
 }
 
