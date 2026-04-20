@@ -275,6 +275,14 @@ select option{background:var(--surface2)}
         <span class="nav-dot" style="background:var(--blue)"></span>
         Broker
       </div>
+      <div class="nav-item" draggable="true" onclick="navigate('page-trading-alerts')" data-page="page-trading-alerts">
+        <span class="nav-dot" style="background:#f59e0b"></span>
+        Price Alerts
+      </div>
+      <div class="nav-item" draggable="true" onclick="navigate('page-trading-sizer')" data-page="page-trading-sizer">
+        <span class="nav-dot" style="background:var(--teal)"></span>
+        Position Sizer
+      </div>
     </div>
     <div class="nav-group" data-group="equities">
       <div class="nav-label">Equities</div>
@@ -2208,6 +2216,231 @@ select option{background:var(--surface2)}
     </div><!-- /page-options-expiry -->
 
     <!-- ════════════════════════════════════════
+         PAGE: Price Alerts
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-trading-alerts">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="font-size:18px;font-weight:700;color:var(--fg)">Price Alerts</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="loadAlertsPage()" style="background:var(--blue);color:#fff;border:none;padding:7px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">↻ Refresh</button>
+        </div>
+      </div>
+
+      <!-- Add alert form -->
+      <div class="card" style="margin-bottom:16px;padding:16px">
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:12px">New Alert</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Ticker</div>
+            <input id="alert-ticker" type="text" placeholder="AAPL" maxlength="10"
+              style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;width:90px;text-transform:uppercase">
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Condition</div>
+            <select id="alert-condition" style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px">
+              <option value="above">Price ≥</option>
+              <option value="below">Price ≤</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Target Price</div>
+            <input id="alert-price" type="number" step="0.01" placeholder="150.00"
+              style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;width:110px">
+          </div>
+          <div style="flex:1;min-width:160px">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Note (optional)</div>
+            <input id="alert-note" type="text" placeholder="e.g. breakout level"
+              style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;width:100%">
+          </div>
+          <button onclick="_alertCreate()" style="background:var(--green);color:#fff;border:none;padding:7px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">+ Add Alert</button>
+        </div>
+      </div>
+
+      <!-- Active alerts -->
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-header" style="padding:10px 16px">
+          <span class="card-title">Active</span>
+          <select id="alert-filter" onchange="loadAlertsPage()" style="background:var(--surface2);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:11px">
+            <option value="active">Active</option>
+            <option value="triggered">Triggered</option>
+            <option value="dismissed">Dismissed</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+        <div class="card-body" style="padding:0">
+          <table style="width:100%;border-collapse:collapse">
+            <thead>
+              <tr style="background:var(--surface2);border-bottom:1px solid var(--border)">
+                <th style="padding:8px 12px;font-size:10px;color:var(--muted);text-align:left;text-transform:uppercase">Ticker</th>
+                <th style="padding:8px 12px;font-size:10px;color:var(--muted);text-align:left;text-transform:uppercase">Condition</th>
+                <th style="padding:8px 12px;font-size:10px;color:var(--muted);text-align:right;text-transform:uppercase">Target</th>
+                <th style="padding:8px 12px;font-size:10px;color:var(--muted);text-align:right;text-transform:uppercase">Last Price</th>
+                <th style="padding:8px 12px;font-size:10px;color:var(--muted);text-align:left;text-transform:uppercase">Note</th>
+                <th style="padding:8px 12px;font-size:10px;color:var(--muted);text-align:left;text-transform:uppercase">Status</th>
+                <th style="padding:8px 12px;font-size:10px;color:var(--muted);text-align:left;text-transform:uppercase">Created</th>
+                <th style="padding:8px 6px;font-size:10px;color:var(--muted);text-align:center;text-transform:uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="alerts-tbody">
+              <tr><td colspan="8" style="padding:24px;text-align:center;color:var(--muted)">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /page-trading-alerts -->
+
+    <!-- ════════════════════════════════════════
+         PAGE: Position Sizer
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-trading-sizer">
+      <div style="font-size:18px;font-weight:700;color:var(--fg);margin-bottom:16px">Position Sizer</div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:900px">
+
+        <!-- Equity Calculator -->
+        <div class="card" style="padding:20px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:16px">Equity / ETF</div>
+          <div style="display:grid;gap:12px">
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Account Size ($)</label>
+              <input id="sizer-eq-account" type="number" value="50000" oninput="_sizerCalcEq()"
+                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Risk per Trade (%)</label>
+              <input id="sizer-eq-risk" type="number" value="1" step="0.1" oninput="_sizerCalcEq()"
+                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Entry Price ($)</label>
+              <input id="sizer-eq-entry" type="number" step="0.01" placeholder="150.00" oninput="_sizerCalcEq()"
+                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Stop Loss Price ($)</label>
+              <input id="sizer-eq-stop" type="number" step="0.01" placeholder="145.00" oninput="_sizerCalcEq()"
+                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Target Price ($) <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+              <input id="sizer-eq-target" type="number" step="0.01" placeholder="165.00" oninput="_sizerCalcEq()"
+                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
+            </div>
+          </div>
+          <!-- Results -->
+          <div id="sizer-eq-result" style="margin-top:16px;background:var(--surface2);border-radius:8px;padding:14px;display:none">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div style="text-align:center">
+                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Shares</div>
+                <div id="sizer-eq-shares" style="font-size:28px;font-weight:800;color:var(--fg)">—</div>
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Dollar Risk</div>
+                <div id="sizer-eq-risk-usd" style="font-size:28px;font-weight:800;color:#ef4444">—</div>
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Position Size</div>
+                <div id="sizer-eq-pos-size" style="font-size:20px;font-weight:700;color:var(--fg)">—</div>
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">R:R Ratio</div>
+                <div id="sizer-eq-rr" style="font-size:20px;font-weight:700;color:var(--teal)">—</div>
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">% of Account</div>
+                <div id="sizer-eq-pct" style="font-size:20px;font-weight:700;color:var(--muted)">—</div>
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Potential Gain</div>
+                <div id="sizer-eq-gain" style="font-size:20px;font-weight:700;color:#22c55e">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Options Calculator -->
+        <div class="card" style="padding:20px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:16px">Options Contract</div>
+          <div style="display:grid;gap:12px">
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Account Size ($)</label>
+              <input id="sizer-opt-account" type="number" value="50000" oninput="_sizerCalcOpt()"
+                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Max Risk per Trade (%)</label>
+              <input id="sizer-opt-risk" type="number" value="2" step="0.1" oninput="_sizerCalcOpt()"
+                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Premium per Contract ($)</label>
+              <input id="sizer-opt-premium" type="number" step="0.01" placeholder="3.50" oninput="_sizerCalcOpt()"
+                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Underlying Price ($)</label>
+              <input id="sizer-opt-underlying" type="number" step="0.01" placeholder="150.00" oninput="_sizerCalcOpt()"
+                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
+            </div>
+            <div>
+              <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Target Exit (% of premium)</label>
+              <input id="sizer-opt-target-pct" type="number" value="50" step="5" oninput="_sizerCalcOpt()"
+                style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:14px;width:100%">
+            </div>
+          </div>
+          <!-- Results -->
+          <div id="sizer-opt-result" style="margin-top:16px;background:var(--surface2);border-radius:8px;padding:14px;display:none">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div style="text-align:center">
+                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Contracts</div>
+                <div id="sizer-opt-contracts" style="font-size:28px;font-weight:800;color:var(--fg)">—</div>
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Max Risk</div>
+                <div id="sizer-opt-max-risk" style="font-size:28px;font-weight:800;color:#ef4444">—</div>
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Total Premium</div>
+                <div id="sizer-opt-total-prem" style="font-size:20px;font-weight:700;color:var(--fg)">—</div>
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Notional</div>
+                <div id="sizer-opt-notional" style="font-size:20px;font-weight:700;color:var(--muted)">—</div>
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Target Profit</div>
+                <div id="sizer-opt-profit" style="font-size:20px;font-weight:700;color:#22c55e">—</div>
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">% of Account</div>
+                <div id="sizer-opt-pct" style="font-size:20px;font-weight:700;color:var(--muted)">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /grid -->
+    </div><!-- /page-trading-sizer -->
+
+    <!-- Journal edit modal -->
+    <div id="journal-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;align-items:center;justify-content:center">
+      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:24px;width:480px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.4)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="font-size:15px;font-weight:700;color:var(--fg)">Trade Journal</div>
+          <button onclick="_journalClose()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px" id="journal-modal-label">Notes for position</div>
+        <textarea id="journal-textarea" rows="7" placeholder="Entry thesis, mistakes, lessons learned…"
+          style="width:100%;background:var(--surface2);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+        <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">
+          <button onclick="_journalClear()" style="background:none;border:1px solid var(--border);color:var(--muted);padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer">Clear</button>
+          <button onclick="_journalClose()" style="background:none;border:1px solid var(--border);color:var(--fg);padding:7px 14px;border-radius:6px;font-size:12px;cursor:pointer">Cancel</button>
+          <button onclick="_journalSave()" style="background:var(--blue);color:#fff;border:none;padding:7px 18px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════
          PAGE: Strategy Engineer
     ════════════════════════════════════════ -->
     <div class="page" id="page-plan-engineer">
@@ -3002,6 +3235,8 @@ const PAGE_TITLES = {
   'page-trading-trades':     'Trades',
   'page-trading-broker':     'Broker',
   'page-trading-dividends':  'Dividend Tracker',
+  'page-trading-alerts':     'Price Alerts',
+  'page-trading-sizer':      'Position Sizer',
   'page-trading-options':    'Options Dashboard',
   'page-options-log':        'Options Trading Log',
   'page-options-expiry':     'Options Expiry Calendar',
@@ -3127,6 +3362,8 @@ function navigate(pageId) {
     case 'page-trading-trades':     loadTradesPage();    break;
     case 'page-trading-broker':     loadBrokerPage();       break;
     case 'page-trading-dividends':  loadDividendPage();     break;
+    case 'page-trading-alerts':     loadAlertsPage(); break;
+    case 'page-trading-sizer':      _sizerCalcEq(); _sizerCalcOpt(); break;
     case 'page-trading-options':    loadOptionsPositions(); loadOptionsGreeksPanel(); loadOptionsPerformancePanel(); break;
     case 'page-options-log':        loadOptionsLog(); loadOptionsPerformancePanel(); break;
     case 'page-options-expiry':     loadOptionsExpiryCalendar(); break;
@@ -13171,6 +13408,11 @@ function _optRenderTable(rows) {
       ${_optDteCell(dte, p.id, p.expiration_date)}
       <td style="padding:7px 6px;text-align:center;color:${dEarnColor};font-size:11px">${dEarnStr}</td>
       <td style="padding:7px 6px;text-align:center"><span style="font-size:10px;color:var(--muted)">${p.status}</span></td>
+      <td style="padding:7px 6px;text-align:center">
+        <button onclick="_optJournalOpen('${p.id}','${(p.journal||'').replace(/'/g,'\\\'').replace(/\n/g,'\\n')}')"
+          style="background:none;border:none;cursor:pointer;padding:2px 4px;border-radius:4px;${p.journal ? 'color:#f59e0b' : 'color:var(--muted)'}"
+          title="${p.journal ? 'Edit journal note' : 'Add journal note'}">✏</button>
+      </td>
     </tr>`;
   }).join('');
 }
@@ -14383,6 +14625,187 @@ function _renderDailyLossWidget(el, d) {
     <div style="font-size:22px;font-weight:800;color:${pnlColor}">${pnlFmt}</div>
     <div style="font-size:11px;color:var(--muted)">Today's P&L</div>
     ${limitBar}`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Price Alerts
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function loadAlertsPage() {
+  const tbody = document.getElementById('alerts-tbody');
+  if (!tbody) return;
+  const status = (document.getElementById('alert-filter') || {}).value || 'active';
+  tbody.innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--muted)">Loading…</td></tr>';
+  try {
+    const data = await apiFetch(`/api/alerts?status=${status}`);
+    if (!data.length) {
+      tbody.innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--muted)">No alerts</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.map(a => {
+      const condLabel = a.condition === 'above' ? '≥' : '≤';
+      const statusColor = a.status === 'triggered' ? '#22c55e' : a.status === 'dismissed' ? 'var(--muted)' : '#f59e0b';
+      const priceGap = a.last_price != null
+        ? (() => {
+            const diff = ((a.last_price - a.target_price) / a.target_price * 100);
+            const col = a.condition === 'above' ? (diff >= 0 ? '#22c55e' : '#ef4444') : (diff <= 0 ? '#22c55e' : '#ef4444');
+            return `<span style="color:${col};font-size:11px">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%</span>`;
+          })()
+        : '';
+      const created = new Date(a.created_at).toLocaleDateString();
+      const triggered = a.triggered_at ? ` · triggered ${new Date(a.triggered_at).toLocaleDateString()}` : '';
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 12px;font-weight:700;color:var(--fg)">${a.ticker}</td>
+        <td style="padding:8px 12px;color:var(--muted);font-size:12px">Price ${condLabel} $${Number(a.target_price).toFixed(2)}</td>
+        <td style="padding:8px 12px;text-align:right;font-weight:600">$${Number(a.target_price).toFixed(2)}</td>
+        <td style="padding:8px 12px;text-align:right;font-size:12px">${a.last_price != null ? '$' + Number(a.last_price).toFixed(2) + ' ' + priceGap : '—'}</td>
+        <td style="padding:8px 12px;font-size:12px;color:var(--muted)">${a.note || ''}</td>
+        <td style="padding:8px 12px"><span style="font-size:11px;font-weight:600;color:${statusColor}">${a.status}</span>${triggered}</td>
+        <td style="padding:8px 12px;font-size:11px;color:var(--muted)">${created}</td>
+        <td style="padding:8px 6px;text-align:center;white-space:nowrap">
+          ${a.status === 'triggered' || a.status === 'dismissed'
+            ? `<button onclick="_alertReactivate('${a.id}')" style="background:none;border:1px solid var(--border);color:var(--fg);padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer" title="Re-activate">↺</button> `
+            : ''}
+          <button onclick="_alertDelete('${a.id}')" style="background:none;border:none;color:#ef4444;padding:3px 6px;border-radius:4px;font-size:13px;cursor:pointer" title="Dismiss">✕</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="8" style="padding:20px;text-align:center;color:#ef4444">${e.message}</td></tr>`;
+  }
+}
+
+async function _alertCreate() {
+  const ticker = (document.getElementById('alert-ticker').value || '').toUpperCase().trim();
+  const condition = document.getElementById('alert-condition').value;
+  const price = parseFloat(document.getElementById('alert-price').value);
+  const note = document.getElementById('alert-note').value.trim() || null;
+  if (!ticker || !condition || isNaN(price)) {
+    toast('error', 'Missing fields', 'Ticker and target price are required');
+    return;
+  }
+  try {
+    await apiFetch('/api/alerts', { method: 'POST', body: JSON.stringify({ ticker, condition, target_price: price, note }) });
+    document.getElementById('alert-ticker').value = '';
+    document.getElementById('alert-price').value = '';
+    document.getElementById('alert-note').value = '';
+    toast('success', 'Alert created', `${ticker} ${condition === 'above' ? '≥' : '≤'} $${price.toFixed(2)}`);
+    loadAlertsPage();
+  } catch(e) { toast('error', 'Failed', e.message); }
+}
+
+async function _alertDelete(id) {
+  try {
+    await apiFetch(`/api/alerts/${id}`, { method: 'DELETE' });
+    loadAlertsPage();
+  } catch(e) { toast('error', 'Failed', e.message); }
+}
+
+async function _alertReactivate(id) {
+  try {
+    await apiFetch(`/api/alerts/${id}/reactivate`, { method: 'POST' });
+    toast('success', 'Re-activated', 'Alert is now active again');
+    loadAlertsPage();
+  } catch(e) { toast('error', 'Failed', e.message); }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Position Sizer
+// ══════════════════════════════════════════════════════════════════════════════
+
+function _sizerCalcEq() {
+  const account = parseFloat(document.getElementById('sizer-eq-account')?.value) || 0;
+  const riskPct  = parseFloat(document.getElementById('sizer-eq-risk')?.value) || 0;
+  const entry    = parseFloat(document.getElementById('sizer-eq-entry')?.value) || 0;
+  const stop     = parseFloat(document.getElementById('sizer-eq-stop')?.value) || 0;
+  const target   = parseFloat(document.getElementById('sizer-eq-target')?.value) || 0;
+  const el = document.getElementById('sizer-eq-result');
+  if (!el) return;
+  if (!account || !riskPct || !entry || !stop || entry === stop) { el.style.display = 'none'; return; }
+  const dollarRisk   = account * riskPct / 100;
+  const riskPerShare = Math.abs(entry - stop);
+  const shares       = Math.floor(dollarRisk / riskPerShare);
+  const posSize      = shares * entry;
+  const pctOfAccount = posSize / account * 100;
+  const gain         = target > 0 ? shares * Math.abs(target - entry) : null;
+  const rr           = target > 0 && riskPerShare > 0 ? Math.abs(target - entry) / riskPerShare : null;
+
+  document.getElementById('sizer-eq-shares').textContent    = shares.toLocaleString();
+  document.getElementById('sizer-eq-risk-usd').textContent  = '$' + dollarRisk.toFixed(2);
+  document.getElementById('sizer-eq-pos-size').textContent  = '$' + posSize.toLocaleString('en-US', {maximumFractionDigits:0});
+  document.getElementById('sizer-eq-pct').textContent       = pctOfAccount.toFixed(1) + '%';
+  document.getElementById('sizer-eq-rr').textContent        = rr != null ? rr.toFixed(2) + ':1' : '—';
+  document.getElementById('sizer-eq-gain').textContent      = gain != null ? '+$' + gain.toFixed(0) : '—';
+  el.style.display = 'block';
+}
+
+function _sizerCalcOpt() {
+  const account   = parseFloat(document.getElementById('sizer-opt-account')?.value) || 0;
+  const riskPct   = parseFloat(document.getElementById('sizer-opt-risk')?.value) || 0;
+  const premium   = parseFloat(document.getElementById('sizer-opt-premium')?.value) || 0;
+  const underlying = parseFloat(document.getElementById('sizer-opt-underlying')?.value) || 0;
+  const targetPct = parseFloat(document.getElementById('sizer-opt-target-pct')?.value) || 50;
+  const el = document.getElementById('sizer-opt-result');
+  if (!el) return;
+  if (!account || !riskPct || !premium) { el.style.display = 'none'; return; }
+  const maxRisk       = account * riskPct / 100;
+  const costPerContract = premium * 100;
+  const contracts     = Math.floor(maxRisk / costPerContract);
+  const totalPremium  = contracts * costPerContract;
+  const notional      = underlying > 0 ? contracts * 100 * underlying : null;
+  const targetProfit  = totalPremium * targetPct / 100;
+  const pctOfAccount  = totalPremium / account * 100;
+
+  document.getElementById('sizer-opt-contracts').textContent  = contracts;
+  document.getElementById('sizer-opt-max-risk').textContent   = '$' + maxRisk.toFixed(2);
+  document.getElementById('sizer-opt-total-prem').textContent = '$' + totalPremium.toFixed(2);
+  document.getElementById('sizer-opt-notional').textContent   = notional != null ? '$' + notional.toLocaleString('en-US', {maximumFractionDigits:0}) : '—';
+  document.getElementById('sizer-opt-profit').textContent     = '+$' + targetProfit.toFixed(2);
+  document.getElementById('sizer-opt-pct').textContent        = pctOfAccount.toFixed(1) + '%';
+  el.style.display = 'block';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Trade Journal (option positions)
+// ══════════════════════════════════════════════════════════════════════════════
+
+let _journalPositionId = null;
+
+function _optJournalOpen(posId, existingText) {
+  _journalPositionId = posId;
+  document.getElementById('journal-textarea').value = (existingText || '').replace(/\\n/g, '\n');
+  document.getElementById('journal-modal-label').textContent = `Journal note · position ${posId.slice(0,8)}…`;
+  const modal = document.getElementById('journal-modal');
+  modal.style.display = 'flex';
+  setTimeout(() => document.getElementById('journal-textarea').focus(), 50);
+}
+
+function _journalClose() {
+  document.getElementById('journal-modal').style.display = 'none';
+  _journalPositionId = null;
+}
+
+function _journalClear() {
+  document.getElementById('journal-textarea').value = '';
+}
+
+async function _journalSave() {
+  if (!_journalPositionId) return;
+  const text = document.getElementById('journal-textarea').value.trim() || null;
+  try {
+    await apiFetch(`/api/options/positions/${_journalPositionId}/journal`, {
+      method: 'PATCH',
+      body: JSON.stringify({ journal: text })
+    });
+    // Update the in-memory position so the button color reflects the new state
+    const pos = (_optPositions || []).find(p => p.id === _journalPositionId);
+    if (pos) pos.journal = text;
+    _journalClose();
+    _optRender();
+    toast('success', 'Journal saved', text ? 'Note updated' : 'Note cleared');
+  } catch(e) {
+    toast('error', 'Save failed', e.message);
+  }
 }
 </script>
 

@@ -3,6 +3,13 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.66] - 2026-04-20
+
+### Added
+- **Trade Journal** (Options Dashboard): ✏ button on every option position row; amber when a note exists, muted when empty; clicking opens a modal textarea that saves free-text notes to `option_positions.journal` via `PATCH /api/options/positions/{id}/journal`; button color and in-memory state update immediately on save without a full refresh; `ALTER TABLE trades ADD COLUMN notes TEXT` also added for future equity trade notes
+- **Position Sizer** (new nav item under Trading): two-panel calculator — Equity/ETF side computes shares, dollar risk, position size, % of account, R:R ratio, and potential gain given account size, risk %, entry, stop, and optional target; Options side computes contracts, max risk, total premium, notional exposure, and target profit at a given exit % given account size, risk %, premium, underlying price, and target exit %; all calculations are real-time as you type with no server round-trips
+- **Price Alerts** (new nav item under Trading): add ticker+condition(above/below)+target price+optional note alerts via POST `/api/alerts`; background `_price_alert_loop` checks active alerts every 5 minutes via Polygon.io (fallback yfinance) and fires a Telegram notification when triggered, then marks alert as `triggered`; manage page shows active/triggered/dismissed filter, last price with color-coded gap %, created date, re-activate and dismiss actions; `CREATE TABLE price_alerts` with status/triggered_at/last_price/last_checked columns
+
 ## [3.5.65] - 2026-04-20
 
 ### Fixed

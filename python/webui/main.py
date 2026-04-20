@@ -1134,6 +1134,8 @@ async def on_startup():
             pass
     # Dividend tables
     await _div_ensure_tables()
+    # Start price alert checker background loop
+    asyncio.create_task(_price_alert_loop())
 
 
 async def save_job(redis, job: dict):
@@ -6339,6 +6341,7 @@ async def get_option_positions(status: str = "active"):
                   level_emergency, level_exit_alert, level_roll_1, level_roll_2, level_roll_3,
                   extra_roll_levels, alerts_fired, next_earnings_date,
                   delta, status, closed_at, close_reason, last_scan_at,
+                  journal,
                   raw::text as raw_text
            FROM option_positions
            WHERE status = $1
@@ -6532,6 +6535,7 @@ async def get_option_positions(status: str = "active"):
             "status":           r["status"],
             "last_scan_at":     r["last_scan_at"].isoformat() if r["last_scan_at"] else None,
             "has_chart":        bool(raw_obj.get("chart_b64")),
+            "journal":          r["journal"],
         })
     return results
 
@@ -7649,6 +7653,172 @@ async def get_options_performance(mode: str = "live"):
         "start_nav":         round(start_nav, 2) if start_nav else None,
         "end_nav":           round(end_nav, 2) if end_nav else None,
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Trade Journal — option_positions.journal + trades.notes
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.patch("/api/options/positions/{position_id}/journal")
+async def patch_option_journal(position_id: str, body: dict):
+    pool = await _get_db_pool()
+    await pool.execute(
+        "UPDATE option_positions SET journal=$1, updated_at=NOW() WHERE id=$2",
+        body.get("journal") or None,
+        uuid.UUID(position_id),
+    )
+    return {"ok": True}
+
+
+@app.patch("/api/trades/{trade_id}/notes")
+async def patch_trade_notes(trade_id: str, body: dict):
+    pool = await _get_db_pool()
+    await pool.execute(
+        "UPDATE trades SET notes=$1 WHERE id=$2",
+        body.get("notes") or None,
+        uuid.UUID(trade_id),
+    )
+    return {"ok": True}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Price Alerts
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/alerts")
+async def get_alerts(status: str = "active", token: str = ""):
+    pool = await _get_db_pool()
+    if status == "all":
+        rows = await pool.fetch(
+            "SELECT * FROM price_alerts ORDER BY created_at DESC LIMIT 200"
+        )
+    else:
+        rows = await pool.fetch(
+            "SELECT * FROM price_alerts WHERE status=$1 ORDER BY created_at DESC",
+            status,
+        )
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/alerts")
+async def create_alert(body: dict, token: str = ""):
+    ticker = str(body.get("ticker", "")).upper().strip()
+    condition = str(body.get("condition", "")).lower()
+    target_price = body.get("target_price")
+    note = body.get("note") or None
+    if not ticker or condition not in ("above", "below") or target_price is None:
+        raise HTTPException(400, "ticker, condition (above/below), and target_price required")
+    pool = await _get_db_pool()
+    row = await pool.fetchrow(
+        """INSERT INTO price_alerts (ticker, condition, target_price, note)
+           VALUES ($1,$2,$3,$4) RETURNING id""",
+        ticker, condition, float(target_price), note,
+    )
+    return {"ok": True, "id": str(row["id"])}
+
+
+@app.delete("/api/alerts/{alert_id}")
+async def delete_alert(alert_id: str, token: str = ""):
+    pool = await _get_db_pool()
+    await pool.execute(
+        "UPDATE price_alerts SET status='dismissed' WHERE id=$1",
+        uuid.UUID(alert_id),
+    )
+    return {"ok": True}
+
+
+@app.post("/api/alerts/{alert_id}/reactivate")
+async def reactivate_alert(alert_id: str, token: str = ""):
+    pool = await _get_db_pool()
+    await pool.execute(
+        "UPDATE price_alerts SET status='active', triggered_at=NULL WHERE id=$1",
+        uuid.UUID(alert_id),
+    )
+    return {"ok": True}
+
+
+async def _check_price_for_alert(ticker: str, pool, notifier) -> float | None:
+    """Fetch latest price via Polygon or yfinance. Returns close price or None."""
+    import aiohttp as _aiohttp
+    from datetime import timedelta
+    api_key = os.getenv("MASSIVE_API_KEY", "")
+    today = __import__("datetime").date.today()
+    from_dt = (today - __import__("datetime").timedelta(days=5)).isoformat()
+    to_dt = today.isoformat()
+    if api_key:
+        url = (
+            f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day"
+            f"/{from_dt}/{to_dt}?adjusted=true&sort=desc&limit=1&apiKey={api_key}"
+        )
+        try:
+            async with _aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=_aiohttp.ClientTimeout(total=8)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        results = data.get("results", [])
+                        if results:
+                            return float(results[0]["c"])
+        except Exception:
+            pass
+    try:
+        import yfinance as _yf
+        hist = _yf.download(ticker, period="5d", progress=False, auto_adjust=True)
+        if not hist.empty:
+            return float(hist["Close"].iloc[-1])
+    except Exception:
+        pass
+    return None
+
+
+async def _price_alert_loop():
+    """Background loop: checks active price alerts every 5 minutes."""
+    from notifier.agentmail import Notifier
+    notifier = Notifier("alerts")
+    await asyncio.sleep(30)  # let startup finish
+    while True:
+        try:
+            if not DB_URL:
+                await asyncio.sleep(300)
+                continue
+            pool = await _get_db_pool()
+            alerts = await pool.fetch(
+                "SELECT * FROM price_alerts WHERE status='active' ORDER BY ticker"
+            )
+            # Group by ticker to avoid redundant price fetches
+            by_ticker: dict = {}
+            for a in alerts:
+                by_ticker.setdefault(a["ticker"], []).append(a)
+
+            for ticker, ticker_alerts in by_ticker.items():
+                price = await _check_price_for_alert(ticker, pool, notifier)
+                if price is None:
+                    continue
+                for a in ticker_alerts:
+                    target = float(a["target_price"])
+                    hit = (a["condition"] == "above" and price >= target) or \
+                          (a["condition"] == "below" and price <= target)
+                    await pool.execute(
+                        "UPDATE price_alerts SET last_price=$1, last_checked=NOW() WHERE id=$2",
+                        price, a["id"],
+                    )
+                    if hit:
+                        note_part = f" — {a['note']}" if a.get("note") else ""
+                        msg = (
+                            f"*Price Alert Triggered* 🔔\n"
+                            f"{ticker} is now ${price:.2f} "
+                            f"({'≥' if a['condition']=='above' else '≤'} ${target:.2f}){note_part}"
+                        )
+                        await notifier.telegram(msg)
+                        await pool.execute(
+                            "UPDATE price_alerts SET status='triggered', triggered_at=NOW() WHERE id=$1",
+                            a["id"],
+                        )
+                        log.info("webui.price_alert.triggered",
+                                 ticker=ticker, condition=a["condition"],
+                                 target=target, price=price)
+        except Exception as e:
+            log.warning("webui.price_alert_loop.error", error=str(e))
+        await asyncio.sleep(300)  # 5 minutes
 
 
 # ── Serve frontend ────────────────────────────────────────────────────────────
