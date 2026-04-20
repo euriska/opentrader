@@ -6,21 +6,55 @@ v1 endpoint (/account/positions)         — minimal fields, no option contract 
 v2 endpoint (/openapi/assets/positions)  — returns legs[] with strikePrice, expiryDate, right
 """
 import logging
+from datetime import date, datetime, timezone
 from .client import WebullClient, APP_KEY
 
 log = logging.getLogger(__name__)
 
 
+def _parse_expiry_flexible(raw) -> str | None:
+    """
+    Convert a Webull expiry value to a YYYY-MM-DD string.
+    Handles ISO strings, YYYYMMDD compact strings, and Unix ms timestamps.
+    Returns None if unparseable.
+    """
+    if not raw:
+        return None
+    s = str(raw).strip()
+    # ISO date string: "2027-01-15" or "2027-01-15T..."
+    if len(s) >= 10 and s[4] == "-":
+        return s[:10]
+    # Compact: "20270115"
+    if len(s) == 8 and s.isdigit():
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+    # Unix milliseconds (13 digits)
+    if s.isdigit() and len(s) == 13:
+        try:
+            return datetime.fromtimestamp(int(s) / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    # Unix seconds (10 digits)
+    if s.isdigit() and len(s) == 10:
+        try:
+            return datetime.fromtimestamp(int(s), tz=timezone.utc).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    return None
+
+
 def _parse_v2_legs(raw_pos: dict) -> dict:
     """
-    Extract option contract details from a v2 position's legs array.
+    Extract option contract details from a v2 position.
+    Checks legs[] first; falls back to top-level fields if legs is absent.
     Returns dict with keys: option_type, strike_price, expiry_date (or empty dict).
     """
     legs = raw_pos.get("legs") or []
-    if not legs:
-        return {}
-    leg = legs[0]  # single-leg options have one entry
-    raw_type = str(leg.get("option_type") or leg.get("right") or "").upper()
+    src = legs[0] if legs else raw_pos  # fall back to top-level position fields
+
+    raw_type = str(
+        src.get("option_type") or src.get("right") or
+        src.get("optionType") or src.get("contractType") or ""
+    ).upper()
     if raw_type in ("CALL", "C"):
         opt_type = "call"
     elif raw_type in ("PUT", "P"):
@@ -28,18 +62,24 @@ def _parse_v2_legs(raw_pos: dict) -> dict:
     else:
         opt_type = None
 
-    raw_strike = leg.get("option_exercise_price") or leg.get("strikePrice") or leg.get("strike_price")
+    raw_strike = (
+        src.get("option_exercise_price") or src.get("strikePrice") or
+        src.get("strike_price") or src.get("strike") or src.get("exercisePrice")
+    )
     try:
         strike = float(raw_strike) if raw_strike else None
     except (ValueError, TypeError):
         strike = None
 
     raw_expiry = (
-        leg.get("option_expire_date") or leg.get("expiryDate") or
-        leg.get("expiry_date") or leg.get("expiration_date")
+        src.get("option_expire_date") or src.get("expiryDate") or
+        src.get("expiry_date") or src.get("expiration_date") or
+        src.get("expireDate") or src.get("maturityDate")
     )
-    expiry = str(raw_expiry)[:10] if raw_expiry else None
+    expiry = _parse_expiry_flexible(raw_expiry)
 
+    if opt_type is None and strike is None and expiry is None:
+        return {}
     return {"option_type": opt_type, "strike_price": strike, "expiry_date": expiry}
 
 

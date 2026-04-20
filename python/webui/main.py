@@ -45,6 +45,7 @@ app.mount("/static", StaticFiles(directory="/app/webui/static"), name="static")
 
 WEBUI_TOKEN    = os.getenv("WEBUI_TOKEN", "opentrader")
 SECRET_KEY     = os.getenv("SECRET_KEY", "change-me-please-set-SECRET_KEY-in-env")
+YAHOO_MCP_URL  = os.getenv("YAHOO_MCP_URL", "http://ot-mcp-yahoo:8000/mcp")
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 
@@ -7531,6 +7532,122 @@ async def get_daily_pnl(token: str = ""):
         "limit_enabled":    max_loss > 0,
         "circuit_broken":   circuit_broken,
         "circuit_reason":   circuit_reason,
+    }
+
+
+@app.get("/api/options/performance")
+async def get_options_performance(mode: str = "live"):
+    """Return YTD trading performance metrics + SPY benchmark comparison."""
+    from datetime import date
+    pool = await _get_db_pool()
+    year_start = date(date.today().year, 1, 1)
+
+    # YTD closed trades from option_trade_log
+    rows = await pool.fetch("""
+        SELECT realized_pnl, pnl_pct
+        FROM option_trade_log
+        WHERE event_type = 'closed'
+          AND realized_pnl IS NOT NULL
+          AND ts >= $1
+    """, year_start)
+
+    total_trades = len(rows)
+    wins  = [r for r in rows if r["realized_pnl"] > 0]
+    losses = [r for r in rows if r["realized_pnl"] <= 0]
+    win_rate   = len(wins) / total_trades if total_trades else 0.0
+    # Use pnl_pct if available, else fall back to realized_pnl for avg calculations
+    win_pcts   = [float(r["pnl_pct"]) for r in wins   if r["pnl_pct"] is not None]
+    loss_pcts  = [float(r["pnl_pct"]) for r in losses if r["pnl_pct"] is not None]
+    win_pnls   = [float(r["realized_pnl"]) for r in wins   if r["realized_pnl"] is not None]
+    loss_pnls  = [float(r["realized_pnl"]) for r in losses if r["realized_pnl"] is not None]
+    avg_win    = sum(win_pcts)  / len(win_pcts)  if win_pcts  else None
+    avg_loss   = sum(loss_pcts) / len(loss_pcts) if loss_pcts else None
+    avg_win_usd  = sum(win_pnls)  / len(win_pnls)  if win_pnls  else 0.0
+    avg_loss_usd = sum(loss_pnls) / len(loss_pnls) if loss_pnls else 0.0
+    proven_edge = (win_rate * avg_win) + ((1 - win_rate) * avg_loss) if avg_win is not None and avg_loss is not None else None
+    total_pnl  = sum(float(r["realized_pnl"]) for r in rows)
+
+    # Portfolio NAV for YTD return
+    nav_rows = await pool.fetch("""
+        SELECT snapshot_date, SUM(total_nav) AS total_nav
+        FROM portfolio_snapshots
+        WHERE mode = $1
+        GROUP BY snapshot_date
+        ORDER BY snapshot_date
+    """, mode)
+
+    ytd_return_pct = 0.0
+    ann_return_pct = 0.0
+    start_nav = end_nav = None
+    if nav_rows:
+        # Find first snapshot at or after year start, and latest
+        ytd_rows = [r for r in nav_rows if r["snapshot_date"] >= year_start]
+        if ytd_rows:
+            start_nav = float(ytd_rows[0]["total_nav"])
+            end_nav   = float(ytd_rows[-1]["total_nav"])
+            if start_nav and start_nav != 0:
+                ytd_return_pct = (end_nav - start_nav) / start_nav * 100
+                days_elapsed = (ytd_rows[-1]["snapshot_date"] - ytd_rows[0]["snapshot_date"]).days
+                if days_elapsed > 0:
+                    ann_return_pct = ((1 + ytd_return_pct / 100) ** (365 / days_elapsed) - 1) * 100
+
+    # SPY YTD via Polygon.io or yfinance
+    spy_ytd = spy_ann = market_corr = None
+    try:
+        import aiohttp as _aiohttp
+        from datetime import timedelta
+        spy_start_str = year_start.isoformat()
+        spy_end_str   = date.today().isoformat()
+        spy_close_first = spy_close_last = None
+        api_key = os.getenv("MASSIVE_API_KEY", "")
+        if api_key:
+            url = (
+                f"https://api.polygon.io/v2/aggs/ticker/SPY/range/1/day"
+                f"/{spy_start_str}/{spy_end_str}?adjusted=true&sort=asc&limit=365&apiKey={api_key}"
+            )
+            async with _aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=_aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status == 200:
+                        spy_data = await resp.json()
+                        bars = spy_data.get("results", [])
+                        if len(bars) >= 2:
+                            spy_close_first = float(bars[0]["c"])
+                            spy_close_last  = float(bars[-1]["c"])
+        if spy_close_first is None:
+            import yfinance as _yf
+            spy_hist = _yf.download("SPY", start=spy_start_str, end=spy_end_str, progress=False, auto_adjust=True)
+            if not spy_hist.empty:
+                spy_close_first = float(spy_hist["Close"].iloc[0])
+                spy_close_last  = float(spy_hist["Close"].iloc[-1])
+        if spy_close_first and spy_close_last and spy_close_first != 0:
+            spy_ytd = (spy_close_last - spy_close_first) / spy_close_first * 100
+            days_ytd = (date.today() - year_start).days
+            if days_ytd > 0:
+                spy_ann = ((1 + spy_ytd / 100) ** (365 / days_ytd) - 1) * 100
+    except Exception:
+        pass
+
+    current_alpha = (ytd_return_pct - spy_ytd) if spy_ytd is not None else None
+    ann_alpha     = (ann_return_pct - spy_ann)  if spy_ann  is not None else None
+
+    return {
+        "total_trades_ytd":  total_trades,
+        "total_pnl_ytd":     round(total_pnl, 2),
+        "ytd_return_pct":    round(ytd_return_pct, 2),
+        "ann_return_pct":    round(ann_return_pct, 2),
+        "avg_win_pct":       round(avg_win, 2) if avg_win is not None else None,
+        "avg_loss_pct":      round(avg_loss, 2) if avg_loss is not None else None,
+        "avg_win_usd":       round(avg_win_usd, 2),
+        "avg_loss_usd":      round(avg_loss_usd, 2),
+        "win_rate":          round(win_rate * 100, 1),
+        "proven_edge":       round(proven_edge, 2) if proven_edge is not None else None,
+        "spy_ytd_pct":       round(spy_ytd, 2) if spy_ytd is not None else None,
+        "spy_ann_pct":       round(spy_ann, 2) if spy_ann is not None else None,
+        "current_alpha":     round(current_alpha, 2) if current_alpha is not None else None,
+        "ann_alpha":         round(ann_alpha, 2) if ann_alpha is not None else None,
+        "market_corr":       market_corr,
+        "start_nav":         round(start_nav, 2) if start_nav else None,
+        "end_nav":           round(end_nav, 2) if end_nav else None,
     }
 
 

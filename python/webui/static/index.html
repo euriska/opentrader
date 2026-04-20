@@ -420,7 +420,10 @@ select option{background:var(--surface2)}
       <span id="ovtlyr-qqq-chip" class="chip chip-muted" title="OVTLYR signal for QQQ" style="font-size:11px;letter-spacing:.01em">QQQ —</span>
       <span id="trade-mode-chip" class="chip chip-amber" style="display:none">Sandbox</span>
       <span id="ws-status" class="chip chip-muted">Connecting…</span>
-      <span id="topbar-user" style="font-size:11px;color:var(--muted);cursor:pointer;padding:3px 8px;border-radius:4px;border:1px solid var(--border)" onclick="navigate('page-platform-profile')" title="User Configuration"></span>
+      <span style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;padding:3px 8px;border-radius:4px;border:1px solid var(--border)" onclick="navigate('page-platform-profile')" title="User Configuration">
+        <span id="topbar-avatar" style="width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#1d4ed8);display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;overflow:hidden;flex-shrink:0">?</span>
+        <span id="topbar-user" style="font-size:11px;color:var(--muted)"></span>
+      </span>
       <button class="btn btn-ghost btn-xs" onclick="doLogout()" title="Sign out" style="font-size:11px;padding:3px 8px">Sign out</button>
     </div>
   </div>
@@ -701,11 +704,23 @@ select option{background:var(--surface2)}
           <button class="btn btn-ghost btn-sm" onclick="loadProfilePage()">&#8635; Refresh</button>
         </div>
         <div class="card-body" style="padding:16px">
-          <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
-            <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#1d4ed8);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#fff;flex-shrink:0" id="profile-avatar">—</div>
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
+            <!-- Avatar upload widget -->
+            <div style="position:relative;flex-shrink:0;cursor:pointer"
+                 onmouseenter="document.getElementById('profile-avatar-overlay').style.opacity='1'"
+                 onmouseleave="document.getElementById('profile-avatar-overlay').style.opacity='0'"
+                 onclick="_avatarClick()" title="Click to change avatar">
+              <div id="profile-avatar"
+                style="width:60px;height:60px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#1d4ed8);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:#fff;overflow:hidden;flex-shrink:0">—</div>
+              <div id="profile-avatar-overlay"
+                style="position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .18s;pointer-events:none;font-size:20px">📷</div>
+              <input type="file" id="profile-avatar-input" accept="image/*" style="display:none" onchange="_avatarFileSelected(this)">
+            </div>
             <div>
               <div id="profile-username" style="font-size:15px;font-weight:600;color:var(--text)">—</div>
               <div style="font-size:11px;color:var(--muted)">Administrator</div>
+              <button id="profile-avatar-remove" onclick="_avatarRemove(event)"
+                style="display:none;margin-top:5px;font-size:10px;color:var(--muted);background:none;border:none;cursor:pointer;padding:0;text-decoration:underline">Remove avatar</button>
             </div>
           </div>
 
@@ -1689,11 +1704,13 @@ select option{background:var(--surface2)}
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Open Contracts</div>
           <div id="opt-stat-open" style="font-size:28px;font-weight:700;color:var(--fg)">—</div>
         </div>
-        <div class="card" style="padding:14px 16px;text-align:center">
+        <div class="card" id="opt-stat-alerts-card" style="padding:14px 16px;text-align:center;cursor:default"
+             onmouseenter="_optStatAlertsTip(this)" onmouseleave="_optStatTipHide()">
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Active Alerts</div>
           <div id="opt-stat-alerts" style="font-size:28px;font-weight:700;color:var(--fg)">—</div>
         </div>
-        <div class="card" style="padding:14px 16px;text-align:center">
+        <div class="card" id="opt-stat-expiring-card" style="padding:14px 16px;text-align:center;cursor:default"
+             onmouseenter="_optStatExpiringTip(this)" onmouseleave="_optStatTipHide()">
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Expiring ≤7d</div>
           <div id="opt-stat-expiring" style="font-size:28px;font-weight:700;color:#f97316">—</div>
         </div>
@@ -1715,6 +1732,17 @@ select option{background:var(--surface2)}
         </div>
         <div class="card-body" style="padding:12px 16px">
           <div id="options-greeks-panel"><div style="color:var(--muted);font-size:12px;padding:4px">Loading…</div></div>
+        </div>
+      </div>
+
+      <!-- Performance Panel -->
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-header" style="padding:10px 16px">
+          <span class="card-title">YTD Performance</span>
+          <span onclick="loadOptionsPerformancePanel()" style="font-size:10px;color:var(--blue);cursor:pointer">Refresh</span>
+        </div>
+        <div class="card-body" style="padding:12px 16px">
+          <div id="options-perf-panel"><div style="color:var(--muted);font-size:12px;padding:4px">Loading…</div></div>
         </div>
       </div>
 
@@ -1847,6 +1875,17 @@ select option{background:var(--surface2)}
         <div class="card" style="padding:14px 16px;text-align:center">
           <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Avg Days / Trade</div>
           <div id="optlog-avg-dit" style="font-size:26px;font-weight:700;color:var(--fg)">—</div>
+        </div>
+      </div>
+
+      <!-- YTD Performance Panel (shared with Options Dashboard) -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header" style="padding:10px 16px">
+          <span class="card-title">YTD Performance</span>
+          <span onclick="loadOptionsPerformancePanel()" style="font-size:10px;color:var(--blue);cursor:pointer">Refresh</span>
+        </div>
+        <div class="card-body" style="padding:12px 16px">
+          <div id="options-perf-panel-log"><div style="color:var(--muted);font-size:12px;padding:4px">Loading…</div></div>
         </div>
       </div>
 
@@ -2629,14 +2668,14 @@ select option{background:var(--surface2)}
       <!-- Reader Rank Banner -->
       <div id="lib-reader-rank-wrap" style="margin-bottom:14px"></div>
 
-      <!-- Controls -->
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-        <div style="display:flex;gap:4px">
-          <button class="btn btn-sm lib-sort-btn active" data-sort="title" onclick="_libSetSort('title')" style="font-size:11px">Title</button>
-          <button class="btn btn-sm lib-sort-btn" data-sort="author" onclick="_libSetSort('author')" style="font-size:11px">Author</button>
-          <button class="btn btn-sm lib-sort-btn" data-sort="category" onclick="_libSetSort('category')" style="font-size:11px">Category</button>
+      <!-- Controls row 1: search + filters + view -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <div style="position:relative;flex:0 0 210px">
+          <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:12px;pointer-events:none">🔍</span>
+          <input id="lib-search-input" type="text" placeholder="Title or ISBN…"
+            class="select-input" style="width:100%;padding:5px 8px 5px 26px;font-size:12px;box-sizing:border-box"
+            oninput="_libSearchChange(this.value)">
         </div>
-        <div style="width:1px;height:20px;background:var(--border)"></div>
         <select id="lib-filter-status" class="select-input" style="font-size:12px;padding:4px 8px" onchange="_libLoad()">
           <option value="">All statuses</option>
           <option value="reading">Reading</option>
@@ -2658,6 +2697,26 @@ select option{background:var(--surface2)}
         </div>
         <button class="btn btn-sm" onclick="_libOpenAdd()"
           style="background:rgba(167,139,250,.2);color:#a78bfa;border:1px solid rgba(167,139,250,.3)">+ Add Book</button>
+      </div>
+      <!-- Controls row 2: two-level sort -->
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+        <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)">Sort</span>
+        <select id="lib-sort1-key" class="select-input" style="font-size:11px;padding:3px 6px" onchange="_libRender()">
+          <option value="title">Title</option>
+          <option value="author">Author</option>
+          <option value="category">Category</option>
+        </select>
+        <button id="lib-sort1-dir" data-dir="asc" onclick="_libToggleSortDir('lib-sort1-dir')"
+          style="background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--fg);font-size:11px;padding:3px 8px;cursor:pointer;white-space:nowrap">↑ A–Z</button>
+        <span style="font-size:10px;color:var(--muted)">then</span>
+        <select id="lib-sort2-key" class="select-input" style="font-size:11px;padding:3px 6px" onchange="_libRender()">
+          <option value="">— None —</option>
+          <option value="title">Title</option>
+          <option value="author">Author</option>
+          <option value="category">Category</option>
+        </select>
+        <button id="lib-sort2-dir" data-dir="asc" onclick="_libToggleSortDir('lib-sort2-dir')"
+          style="background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:11px;padding:3px 8px;cursor:pointer;white-space:nowrap">↑ A–Z</button>
       </div>
 
       <!-- Tile view -->
@@ -3068,8 +3127,8 @@ function navigate(pageId) {
     case 'page-trading-trades':     loadTradesPage();    break;
     case 'page-trading-broker':     loadBrokerPage();       break;
     case 'page-trading-dividends':  loadDividendPage();     break;
-    case 'page-trading-options':    loadOptionsPositions(); loadOptionsGreeksPanel(); break;
-    case 'page-options-log':        loadOptionsLog(); break;
+    case 'page-trading-options':    loadOptionsPositions(); loadOptionsGreeksPanel(); loadOptionsPerformancePanel(); break;
+    case 'page-options-log':        loadOptionsLog(); loadOptionsPerformancePanel(); break;
     case 'page-options-expiry':     loadOptionsExpiryCalendar(); break;
     case 'page-trading-charts':     loadChartsPage();       break;
     case 'page-trading-directives': loadDirectivesPage();   break;
@@ -6731,6 +6790,40 @@ async function doLogout() {
   window.location.href = '/login';
 }
 
+let _avatarDataUrl = null;
+
+function _applyAvatar(dataUrl, username) {
+  _avatarDataUrl = dataUrl || null;
+
+  // Profile page large avatar
+  const el = document.getElementById('profile-avatar');
+  const removeBtn = document.getElementById('profile-avatar-remove');
+  if (el) {
+    if (_avatarDataUrl) {
+      el.innerHTML = `<img src="${_avatarDataUrl}" style="width:100%;height:100%;object-fit:cover;display:block">`;
+      el.style.background = 'none';
+    } else {
+      const initial = (username || document.getElementById('profile-username')?.textContent || '?')[0].toUpperCase();
+      el.innerHTML = initial;
+      el.style.background = 'linear-gradient(135deg,#3b82f6,#1d4ed8)';
+    }
+    if (removeBtn) removeBtn.style.display = _avatarDataUrl ? '' : 'none';
+  }
+
+  // Topbar mini avatar
+  const tb = document.getElementById('topbar-avatar');
+  if (tb) {
+    if (_avatarDataUrl) {
+      tb.innerHTML = `<img src="${_avatarDataUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block">`;
+      tb.style.background = 'none';
+    } else {
+      const initial = (username || '?')[0].toUpperCase();
+      tb.innerHTML = initial;
+      tb.style.background = 'linear-gradient(135deg,#3b82f6,#1d4ed8)';
+    }
+  }
+}
+
 async function _initUserDisplay() {
   try {
     const d = await fetch('/api/auth/me', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : null);
@@ -6738,15 +6831,75 @@ async function _initUserDisplay() {
       const el = document.getElementById('topbar-user');
       if (el) el.textContent = '⚡ ' + d.username;
     }
+    // Load saved avatar
+    const token = getToken();
+    const prefs = await apiFetch(`/api/user/preferences?token=${encodeURIComponent(token)}`).catch(() => ({}));
+    _applyAvatar(prefs.avatar || null, d?.username || '');
   } catch(_) {}
 }
 
+function _avatarClick() {
+  document.getElementById('profile-avatar-input').click();
+}
+
+function _avatarFileSelected(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+  const img = new Image();
+  img.onload = async function() {
+    URL.revokeObjectURL(img.src);
+    const canvas = document.createElement('canvas');
+    canvas.width = 128; canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    // Center-crop to square then scale to 128x128
+    const s = Math.min(img.width, img.height);
+    const sx = (img.width  - s) / 2;
+    const sy = (img.height - s) / 2;
+    ctx.drawImage(img, sx, sy, s, s, 0, 0, 128, 128);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+    try {
+      const token = getToken();
+      await apiFetch(`/api/user/preferences?token=${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'avatar', value: dataUrl }),
+      });
+      _applyAvatar(dataUrl);
+      toast('success', 'Avatar', 'Avatar updated');
+    } catch(e) {
+      toast('error', 'Avatar', 'Failed to save: ' + e.message);
+    }
+  };
+  img.onerror = () => toast('error', 'Avatar', 'Could not read image file');
+  img.src = URL.createObjectURL(file);
+}
+
+async function _avatarRemove(e) {
+  e.stopPropagation();
+  try {
+    const token = getToken();
+    await apiFetch(`/api/user/preferences?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'avatar', value: null }),
+    });
+    _applyAvatar(null);
+    toast('success', 'Avatar', 'Avatar removed');
+  } catch(e) {
+    toast('error', 'Avatar', 'Failed to remove: ' + e.message);
+  }
+}
+
 async function loadProfilePage() {
-  // Username display
+  // Username + avatar
   try {
     const d = await fetch('/api/auth/me', { credentials: 'same-origin' }).then(r => r.json());
-    document.getElementById('profile-username').textContent = d.username || '—';
-    document.getElementById('profile-avatar').textContent   = (d.username || '?')[0].toUpperCase();
+    const username = d.username || '—';
+    document.getElementById('profile-username').textContent = username;
+    const token = getToken();
+    const prefs = await apiFetch(`/api/user/preferences?token=${encodeURIComponent(token)}`).catch(() => ({}));
+    _applyAvatar(prefs.avatar || null, username);
   } catch(_) {}
 
   // User settings
@@ -10303,7 +10456,11 @@ setInterval(loadOvtlyrMarketSignals, 5 * 60 * 1000); // refresh every 5 min
 // ══════════════════════════════════════════════════════════════════════════════
 
 let _libBooks      = [];
-let _libSort       = 'title';
+let _libSearch     = '';
+let _libSort1      = 'title';
+let _libSort1Dir   = 'asc';
+let _libSort2      = '';
+let _libSort2Dir   = 'asc';
 let _libView       = 'tile';
 let _libEditId     = null;
 let _libRating     = 0;
@@ -10437,21 +10594,28 @@ async function _libLoad() {
   const status   = document.getElementById('lib-filter-status')?.value   || '';
   const category = document.getElementById('lib-filter-category')?.value || '';
   try {
-    const r = await fetch(`/api/library/books?sort=${_libSort}&status=${encodeURIComponent(status)}&category=${encodeURIComponent(category)}`);
+    const r = await fetch(`/api/library/books?status=${encodeURIComponent(status)}&category=${encodeURIComponent(category)}`);
     _libBooks = await r.json();
   } catch(_) { _libBooks = []; }
   _libRender();
 }
 
-function _libSetSort(sort) {
-  _libSort = sort;
-  document.querySelectorAll('.lib-sort-btn').forEach(b => {
-    const on = b.dataset.sort === sort;
-    b.style.background  = on ? 'rgba(59,130,246,.2)' : '';
-    b.style.color       = on ? '#60a5fa' : '';
-    b.style.borderColor = on ? 'rgba(59,130,246,.4)' : '';
-  });
-  _libLoad();
+function _libSearchChange(val) {
+  _libSearch = (val || '').trim().toLowerCase();
+  _libRender();
+}
+
+function _libToggleSortDir(btnId) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  const next = btn.dataset.dir === 'asc' ? 'desc' : 'asc';
+  btn.dataset.dir   = next;
+  btn.textContent   = next === 'asc' ? '↑ A–Z' : '↓ Z–A';
+  btn.style.color        = next === 'desc' ? '#60a5fa' : 'var(--fg)';
+  btn.style.borderColor  = next === 'desc' ? 'rgba(59,130,246,.4)' : '';
+  if (btnId === 'lib-sort1-dir') _libSort1Dir = next;
+  else                           _libSort2Dir = next;
+  _libRender();
 }
 
 function _libSetView(view) {
@@ -10491,17 +10655,63 @@ function _libStatFilter(status) {
 }
 
 function _libRender() {
-  if (_libView === 'tile') _libRenderTiles();
-  else _libRenderTable();
+  // Sync sort state from DOM
+  _libSort1    = (document.getElementById('lib-sort1-key') || {}).value || 'title';
+  _libSort1Dir = ((document.getElementById('lib-sort1-dir') || {}).dataset || {}).dir || 'asc';
+  _libSort2    = (document.getElementById('lib-sort2-key') || {}).value || '';
+  _libSort2Dir = ((document.getElementById('lib-sort2-dir') || {}).dataset || {}).dir || 'asc';
+
+  // Gray out sort2 dir button when no secondary key
+  const s2dir = document.getElementById('lib-sort2-dir');
+  if (s2dir) s2dir.style.opacity = _libSort2 ? '1' : '0.35';
+
+  // Search filter (title or ISBN)
+  let books = _libBooks;
+  if (_libSearch) {
+    const q = _libSearch.replace(/-/g, '');
+    books = books.filter(b => {
+      const title = (b.title || '').toLowerCase();
+      const isbn  = (b.isbn  || '').toLowerCase().replace(/-/g, '');
+      return title.includes(_libSearch) || isbn.includes(q);
+    });
+  }
+
+  // Two-level client-side sort
+  const sortVal = (b, key) => {
+    switch (key) {
+      case 'title':    return (b.title    || '').toLowerCase();
+      case 'author':   return (b.author   || '').toLowerCase();
+      case 'category': return (b.category || '').toLowerCase();
+      default:         return '';
+    }
+  };
+  books = [...books].sort((a, b) => {
+    const v1a = sortVal(a, _libSort1), v1b = sortVal(b, _libSort1);
+    const c1  = v1a < v1b ? -1 : v1a > v1b ? 1 : 0;
+    const r1  = _libSort1Dir === 'desc' ? -c1 : c1;
+    if (r1 !== 0 || !_libSort2) return r1;
+    const v2a = sortVal(a, _libSort2), v2b = sortVal(b, _libSort2);
+    const c2  = v2a < v2b ? -1 : v2a > v2b ? 1 : 0;
+    return _libSort2Dir === 'desc' ? -c2 : c2;
+  });
+
+  // Update count badge with filtered count
+  const badge = document.getElementById('lib-count-badge');
+  if (badge) badge.textContent = books.length + ' book' + (books.length !== 1 ? 's' : '');
+
+  if (_libView === 'tile') _libRenderTiles(books);
+  else _libRenderTable(books);
 }
 
-function _libRenderTiles() {
+function _libRenderTiles(books) {
   const el = document.getElementById('lib-tile-view');
-  if (!_libBooks.length) {
-    el.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:60px">No books in your library yet — add one with "+ Add Book"</div>';
+  if (!books.length) {
+    el.innerHTML = _libSearch
+      ? `<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:60px">No books match "<strong>${_libSearch}</strong>"</div>`
+      : '<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:60px">No books in your library yet — add one with "+ Add Book"</div>';
     return;
   }
-  el.innerHTML = _libBooks.map(b => {
+  el.innerHTML = books.map(b => {
     const cover = b.cover_url
       ? `<img src="${b.cover_url}" alt="" style="width:100%;height:260px;object-fit:contain;background:var(--bg);border-radius:6px 6px 0 0;display:block;padding:6px;box-sizing:border-box" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
       : '';
@@ -10522,13 +10732,15 @@ function _libRenderTiles() {
   }).join('');
 }
 
-function _libRenderTable() {
+function _libRenderTable(books) {
   const tbody = document.getElementById('lib-table-tbody');
-  if (!_libBooks.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No books found</td></tr>';
+  if (!books.length) {
+    tbody.innerHTML = _libSearch
+      ? `<tr><td colspan="8" class="empty-state">No books match "<strong>${_libSearch}</strong>"</td></tr>`
+      : '<tr><td colspan="8" class="empty-state">No books found</td></tr>';
     return;
   }
-  tbody.innerHTML = _libBooks.map(b => {
+  tbody.innerHTML = books.map(b => {
     const thumb = b.cover_url
       ? `<img src="${b.cover_url}" style="width:36px;height:48px;object-fit:cover;border-radius:3px" onerror="this.style.display='none'">`
       : `<div style="width:36px;height:48px;background:var(--bg);border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:16px">📚</div>`;
@@ -11476,6 +11688,9 @@ function _closeAssignDrawer() {
     </div>
   </div>
 </div>
+
+<!-- ── Options Stat Card Tooltip ─────────────────────────────────────── -->
+<div id="opt-stat-tip" style="display:none;position:fixed;z-index:3100;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;box-shadow:0 4px 18px rgba(0,0,0,.45);pointer-events:none;font-size:12px;line-height:1.6;min-width:160px;max-width:300px"></div>
 
 <!-- ── Ticker Hover Tooltip ───────────────────────────────────────────── -->
 <div id="pie-tooltip" style="display:none;position:fixed;z-index:3001;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:6px 10px;box-shadow:0 4px 16px rgba(0,0,0,.4);pointer-events:none;font-size:12px;line-height:1.5;white-space:nowrap"></div>
@@ -12778,6 +12993,74 @@ function _optAlertBadge(alertsFired) {
                        : '<span style="color:var(--muted);font-size:11px">—</span>';
 }
 
+function _optStatTipPosition(el, tipEl) {
+  tipEl.style.left = '0px'; tipEl.style.top = '0px';
+  const rect = el.getBoundingClientRect();
+  requestAnimationFrame(() => {
+    const tw = tipEl.offsetWidth;
+    let left = rect.left + rect.width / 2 - tw / 2;
+    if (left + tw > window.innerWidth - 8) left = window.innerWidth - tw - 8;
+    left = Math.max(8, left);
+    tipEl.style.left = left + 'px';
+    tipEl.style.top  = (rect.bottom + 8) + 'px';
+  });
+}
+
+function _optStatTipHide() {
+  const tip = document.getElementById('opt-stat-tip');
+  if (tip) tip.style.display = 'none';
+}
+
+function _optStatAlertsTip(el) {
+  const tip = document.getElementById('opt-stat-tip');
+  if (!tip) return;
+  const filterAcct = (document.getElementById('opt-filter-account') || {}).value || '';
+  const rows = filterAcct ? _optPositions.filter(p => p.account_label === filterAcct) : _optPositions;
+  const alertLabel = { emergency: 'Emergency Exit', exit_alert: 'Exit Alert', roll_1: '1st Roll', roll_2: '2nd Roll', roll_3: '3rd Roll' };
+  const lines = [];
+  for (const p of rows) {
+    const af = p.alerts_fired || {};
+    const fired = [];
+    for (const [k, v] of Object.entries(af)) {
+      if (!v) continue;
+      if (k.startsWith('roll_extra_')) { fired.push(`Roll ${k.replace('roll_extra_', '')}`); continue; }
+      fired.push(alertLabel[k] || k);
+    }
+    if (fired.length) lines.push({ sym: p.underlying || p.contract_symbol || '?', alerts: fired });
+  }
+  if (!lines.length) { tip.style.display = 'none'; return; }
+  tip.innerHTML = `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:7px">Active Alerts</div>`
+    + lines.map(l => `<div style="display:flex;align-items:baseline;gap:6px;margin-bottom:3px">
+        <span style="font-weight:700;color:var(--coral);min-width:52px">${l.sym}</span>
+        <span style="color:var(--fg)">${l.alerts.join(', ')}</span>
+      </div>`).join('');
+  tip.style.display = 'block';
+  _optStatTipPosition(el, tip);
+}
+
+function _optStatExpiringTip(el) {
+  const tip = document.getElementById('opt-stat-tip');
+  if (!tip) return;
+  const filterAcct = (document.getElementById('opt-filter-account') || {}).value || '';
+  const rows = filterAcct ? _optPositions.filter(p => p.account_label === filterAcct) : _optPositions;
+  const expiring = rows.filter(p => p.days_to_exp !== null && p.days_to_exp <= 7 && p.days_to_exp >= 0)
+    .sort((a, b) => a.days_to_exp - b.days_to_exp);
+  if (!expiring.length) { tip.style.display = 'none'; return; }
+  tip.innerHTML = `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:7px">Expiring ≤7 Days</div>`
+    + expiring.map(p => {
+        const dte = p.days_to_exp;
+        const dteColor = dte <= 0 ? '#f85149' : dte <= 3 ? '#f97316' : '#facc15';
+        const exp = p.expiration_date ? ` <span style="color:var(--muted);font-size:11px">(${p.expiration_date})</span>` : '';
+        return `<div style="display:flex;align-items:baseline;gap:6px;margin-bottom:3px">
+          <span style="font-weight:700;color:${dteColor};min-width:34px">${dte}d</span>
+          <span style="font-weight:600;color:var(--fg);min-width:52px">${p.underlying || '?'}</span>
+          <span style="font-family:monospace;font-size:10px;color:var(--muted)">${p.contract_symbol || ''}${exp}</span>
+        </div>`;
+      }).join('');
+  tip.style.display = 'block';
+  _optStatTipPosition(el, tip);
+}
+
 function _optDteCell(dte, posId, expirationDate) {
   const color = dte === null ? 'var(--muted)' : dte <= 0 ? '#f85149' : dte <= 7 ? '#f97316' : 'var(--fg)';
   const dteTxt = dte !== null && dte !== undefined ? `${dte}d` : '—';
@@ -13990,6 +14273,76 @@ function _renderOptionsGreeks(el, data) {
       </thead>
       <tbody>${underlyingRows}</tbody>
     </table>` : ''}`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Options YTD Performance Panel
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function loadOptionsPerformancePanel() {
+  const els = [
+    document.getElementById('options-perf-panel'),
+    document.getElementById('options-perf-panel-log'),
+  ].filter(Boolean);
+  if (!els.length) return;
+  try {
+    const data = await apiFetch('/api/options/performance');
+    const html = _renderOptionsPerf(data);
+    els.forEach(el => el.innerHTML = html);
+  } catch(e) {
+    const msg = `<div style="color:var(--muted);font-size:12px;padding:8px">Performance data unavailable</div>`;
+    els.forEach(el => el.innerHTML = msg);
+  }
+}
+
+function _renderOptionsPerf(d) {
+  const pct  = (v, dp=1) => v !== null && v !== undefined ? `${v >= 0 ? '+' : ''}${Number(v).toFixed(dp)}%` : '—';
+  const usd  = (v, force=false) => v !== null && v !== undefined ? `${v >= 0 ? '+' : '−'}$${Math.abs(v).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}` : '—';
+  const num  = (v) => v !== null && v !== undefined ? Number(v).toLocaleString() : '—';
+  const clr  = (v) => v > 0 ? '#22c55e' : v < 0 ? '#ef4444' : 'var(--muted)';
+  const na   = (v) => v !== null && v !== undefined;
+
+  // Show pct if available, else fall back to USD per trade
+  const avgWinVal   = na(d.avg_win_pct)  ? pct(d.avg_win_pct, 2)  : usd(d.avg_win_usd);
+  const avgLossVal  = na(d.avg_loss_pct) ? pct(d.avg_loss_pct, 2) : usd(d.avg_loss_usd);
+  const provenVal   = na(d.proven_edge)  ? pct(d.proven_edge, 2)  : '—';
+
+  const block1 = [
+    { label: 'Total Trades YTD', val: num(d.total_trades_ytd), color: 'var(--fg)', tip: 'Closed option trades year-to-date' },
+    { label: 'YTD P&L', val: usd(d.total_pnl_ytd), color: na(d.total_pnl_ytd) ? clr(d.total_pnl_ytd) : 'var(--muted)', tip: 'Total realized P&L year-to-date' },
+    { label: 'Win Rate', val: na(d.win_rate) ? `${d.win_rate}%` : '—', color: na(d.win_rate) ? clr(d.win_rate - 50) : 'var(--muted)', tip: 'Percentage of trades closed for a profit' },
+    { label: 'Avg Win', val: avgWinVal, color: '#22c55e', tip: 'Average P&L on winning trades (% if available, else USD)' },
+    { label: 'Avg Loss', val: avgLossVal, color: '#ef4444', tip: 'Average P&L on losing trades (% if available, else USD)' },
+    { label: 'Proven Edge', val: provenVal, color: na(d.proven_edge) ? clr(d.proven_edge) : 'var(--muted)', tip: 'Expected value = (WinRate × AvgWin%) + ((1−WinRate) × AvgLoss%)' },
+  ];
+
+  const block2 = [
+    { label: 'YTD Return', val: pct(d.ytd_return_pct), color: na(d.ytd_return_pct) ? clr(d.ytd_return_pct) : 'var(--muted)', tip: 'Portfolio NAV return year-to-date' },
+    { label: 'Ann. Return', val: pct(d.ann_return_pct), color: na(d.ann_return_pct) ? clr(d.ann_return_pct) : 'var(--muted)', tip: 'Annualized return based on YTD performance' },
+    { label: 'SPY YTD', val: pct(d.spy_ytd_pct), color: na(d.spy_ytd_pct) ? clr(d.spy_ytd_pct) : 'var(--muted)', tip: 'SPY benchmark YTD return' },
+    { label: 'SPY Ann.', val: pct(d.spy_ann_pct), color: na(d.spy_ann_pct) ? clr(d.spy_ann_pct) : 'var(--muted)', tip: 'SPY annualized return' },
+    { label: 'Alpha (YTD)', val: pct(d.current_alpha), color: na(d.current_alpha) ? clr(d.current_alpha) : 'var(--muted)', tip: 'Portfolio YTD return minus SPY YTD return' },
+    { label: 'Alpha (Ann.)', val: pct(d.ann_alpha), color: na(d.ann_alpha) ? clr(d.ann_alpha) : 'var(--muted)', tip: 'Annualized portfolio return minus SPY annualized return' },
+  ];
+
+  const renderBlock = (items, borderColor) => `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:0;border:1px solid ${borderColor};border-radius:8px;overflow:hidden">
+      ${items.map((item, i) => `
+        <div style="padding:10px 12px;border-right:${i < items.length-1 ? '1px solid var(--border)' : 'none'};text-align:center" title="${item.tip}">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap">${item.label}</div>
+          <div style="font-size:15px;font-weight:800;color:${item.color};white-space:nowrap">${item.val}</div>
+        </div>`).join('')}
+    </div>`;
+
+  return `
+    <div style="margin-bottom:8px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Trade Statistics</div>
+      ${renderBlock(block1, 'var(--border)')}
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px">Portfolio vs Benchmark</div>
+      ${renderBlock(block2, 'var(--border)')}
+    </div>`;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

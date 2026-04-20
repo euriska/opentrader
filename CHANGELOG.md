@@ -3,6 +3,17 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.63] - 2026-04-20
+
+### Added
+- **Options YTD Performance panel** (Options Dashboard + Trading Log): new `/api/options/performance` endpoint computes year-to-date trade statistics from `option_trade_log` (total trades, total P&L, win rate, avg win/loss USD, proven edge) and portfolio NAV return from `portfolio_snapshots`; SPY benchmark fetched via Polygon.io (fallback yfinance) to compute YTD/annualized returns, alpha (YTD and annualized); panel rendered on both Options Dashboard (above position controls) and Options Trading Log (above Most Profitable Tickers); avg win/loss shows % if `pnl_pct` is populated, otherwise falls back to USD per trade
+- **Library search and sort**: live search field filters by title or ISBN as user types (strips dashes for ISBN matching); two-level sort controls (key select + direction toggle) for title, author, category, year, and date added; sort applies after search filter; all controls in a compact two-row bar above the book grid
+- **Avatar upload in User Configuration**: clickable avatar circle (60×60) with camera icon overlay and "Remove avatar" button in username card; canvas center-crops and scales uploaded image to 128×128 JPEG; base64 stored in `user_preferences` key `avatar`; avatar displayed in profile card and 20×20 circle in topbar next to username
+
+### Fixed
+- **Options stat card hover tooltips**: `event.currentTarget` is null in inline `onmouseenter` handlers; fixed by passing `this` (the DOM element) instead of `event`, with `getBoundingClientRect()` called on the element directly; affects Active Alerts and Expiring ≤7d chips on Options Dashboard
+- **OKLO expiry calendar wrong date**: `COALESCE(existing, new)` in both UPDATE and INSERT ON CONFLICT SQL paths for `expiration_date` and `strike` permanently froze stale v2 API values; fixed to `COALESCE(new, existing)` so fresh scan data overwrites stale; `_parse_v2_legs()` in `brokers/webull/positions.py` now falls back to top-level position fields when `legs[]` is absent; added `_parse_expiry_flexible()` handling ISO, YYYYMMDD, Unix-ms, and Unix-s date formats
+
 ## [3.5.62] - 2026-04-19
 
 ### Added

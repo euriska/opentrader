@@ -49,6 +49,34 @@ MAX_EXTRA_ROLLS      = 7   # gives rolls at +3 … +9 ATR
 WEBULL_DEFAULT_OPTION_TYPE = os.getenv("WEBULL_DEFAULT_OPTION_TYPE", "call")
 
 
+def _parse_option_expiry(raw) -> Optional[date]:
+    """Parse a Webull expiry value into a date. Handles ISO strings, YYYYMMDD, and Unix timestamps."""
+    if not raw:
+        return None
+    s = str(raw).strip()
+    if len(s) >= 10 and s[4] == "-":
+        try:
+            return date.fromisoformat(s[:10])
+        except Exception:
+            return None
+    if len(s) == 8 and s.isdigit():
+        try:
+            return date(int(s[:4]), int(s[4:6]), int(s[6:8]))
+        except Exception:
+            return None
+    if s.isdigit() and len(s) == 13:
+        try:
+            return datetime.fromtimestamp(int(s) / 1000, tz=timezone.utc).date()
+        except Exception:
+            return None
+    if s.isdigit() and len(s) == 10:
+        try:
+            return datetime.fromtimestamp(int(s), tz=timezone.utc).date()
+        except Exception:
+            return None
+    return None
+
+
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 _pool: Optional[asyncpg.Pool] = None
@@ -548,10 +576,7 @@ def _normalise_option_position(pos: dict, acct_label: str, broker: str, mode: st
             raw.get("expire_date") or raw.get("expireDate") or
             raw.get("maturity_date") or raw.get("maturityDate")
         )
-        try:
-            expiration_date = date.fromisoformat(str(raw_expiry)[:10]) if raw_expiry else None
-        except Exception:
-            expiration_date = None
+        expiration_date = _parse_option_expiry(raw_expiry)
 
     return {
         "contract_symbol":  contract_symbol,
@@ -984,8 +1009,8 @@ class OptionsMonitor(BaseAgent):
                     gamma               = $20::NUMERIC,
                     option_type         = CASE WHEN option_type='unknown' AND $14::TEXT IS NOT NULL
                                               THEN $14::TEXT ELSE option_type END,
-                    strike              = COALESCE(strike, $15::NUMERIC),
-                    expiration_date     = COALESCE(expiration_date, $16::DATE)
+                    strike              = COALESCE($15::NUMERIC, strike),
+                    expiration_date     = COALESCE($16::DATE, expiration_date)
                    WHERE id=$1""",
                 pos_id,
                 bp["qty"],
@@ -1038,8 +1063,8 @@ class OptionsMonitor(BaseAgent):
                     delta=$23::NUMERIC, theta=$24::NUMERIC, vega=$25::NUMERIC, gamma=$26::NUMERIC,
                     option_type = CASE WHEN option_positions.option_type='unknown' AND $3 IS NOT NULL AND $3 != 'unknown'
                                       THEN $3 ELSE option_positions.option_type END,
-                    strike = COALESCE(option_positions.strike, $4::NUMERIC),
-                    expiration_date = COALESCE(option_positions.expiration_date, $5)
+                    strike = COALESCE($4::NUMERIC, option_positions.strike),
+                    expiration_date = COALESCE($5, option_positions.expiration_date)
                 RETURNING id""",
                 contract_symbol, underlying, option_type, strike, expiration_date,
                 account_label, account_name, bp["broker"], bp["mode"],
