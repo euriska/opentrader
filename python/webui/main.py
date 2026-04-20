@@ -1136,6 +1136,8 @@ async def on_startup():
     await _div_ensure_tables()
     # Start price alert checker background loop
     asyncio.create_task(_price_alert_loop())
+    # Pre-warm caches in background so first page load is fast
+    asyncio.create_task(_warmup_caches())
 
 
 async def save_job(redis, job: dict):
@@ -2133,7 +2135,7 @@ async def get_broker_status():
 import time as _time
 
 _positions_cache: dict = {"data": None, "ts": 0.0, "refreshing": False}
-_POSITIONS_CACHE_TTL = 120  # serve cache for up to 2 minutes
+_POSITIONS_CACHE_TTL = 300  # serve cache for up to 5 minutes
 
 
 async def _fetch_positions_from_gateway() -> dict:
@@ -2278,6 +2280,104 @@ async def _fetch_positions_from_gateway() -> dict:
         })
 
     return {"accounts": accounts}
+
+
+async def _warmup_caches():
+    """Pre-warm broker positions, options prices, and SPY benchmark on startup."""
+    import asyncio as _asyncio
+
+    # 1. Broker positions — populate in-memory cache so equities pages load instantly
+    try:
+        await _refresh_positions_cache()
+    except Exception:
+        pass
+
+    # 2. Options prices — pre-populate Redis for all active underlying tickers
+    try:
+        if not DB_URL:
+            raise Exception("no db")
+        pool = await _get_db_pool()
+        rows = await pool.fetch(
+            "SELECT DISTINCT underlying FROM option_positions WHERE status = 'active'"
+        )
+        tickers = [r["underlying"] for r in rows if r["underlying"]]
+        if tickers:
+            _redis_w = await get_redis()
+            need_price = []
+            for sym in tickers:
+                if not await _redis_w.get(f"yf:price:{sym}"):
+                    # Also skip if sentiment cache already has it
+                    sent = await _redis_w.hget("sentiment:latest", sym)
+                    if not sent:
+                        need_price.append(sym)
+            if need_price:
+                _poly_key = os.getenv("MASSIVE_API_KEY", "")
+                if _poly_key:
+                    import aiohttp as _aiohttp
+                    from datetime import timedelta as _td
+                    _today = date.today()
+                    _today_str = _today.isoformat()
+                    _from_str  = (_today - _td(days=5)).isoformat()
+                    async def _wp(session, sym):
+                        url = (
+                            f"https://api.polygon.io/v2/aggs/ticker/{sym}/range/1/day"
+                            f"/{_from_str}/{_today_str}?adjusted=true&sort=desc&limit=1&apiKey={_poly_key}"
+                        )
+                        try:
+                            async with session.get(url, timeout=_aiohttp.ClientTimeout(total=8)) as resp:
+                                if resp.status == 200:
+                                    d = await resp.json()
+                                    bars = d.get("results") or []
+                                    if bars:
+                                        return sym, float(bars[0]["c"])
+                        except Exception:
+                            pass
+                        return sym, None
+                    async with _aiohttp.ClientSession() as sess:
+                        results = await _asyncio.gather(*[_wp(sess, s) for s in need_price])
+                    for sym, price in results:
+                        if price is not None:
+                            await _redis_w.setex(f"yf:price:{sym}", 900, str(price))
+                            need_price.remove(sym)
+                # yfinance fallback for anything Polygon missed
+                if need_price:
+                    import yfinance as _yf
+                    import concurrent.futures as _cf
+                    def _batch(syms):
+                        data = _yf.download(syms, period="1d", interval="1d",
+                                            auto_adjust=True, progress=False, threads=False)
+                        out = {}
+                        try:
+                            close = data["Close"] if "Close" in data else data
+                            if hasattr(close, "columns"):
+                                for s in syms:
+                                    if s in close.columns:
+                                        col = close[s].dropna()
+                                        if not col.empty:
+                                            out[s] = float(col.iloc[-1])
+                            else:
+                                col = close.dropna()
+                                if not col.empty and len(syms) == 1:
+                                    out[syms[0]] = float(col.iloc[-1])
+                        except Exception:
+                            pass
+                        return out
+                    loop = _asyncio.get_event_loop()
+                    with _cf.ThreadPoolExecutor(max_workers=1) as ex:
+                        yf_prices = await loop.run_in_executor(ex, _batch, need_price)
+                    _redis_w2 = await get_redis()
+                    for sym, price in yf_prices.items():
+                        await _redis_w2.setex(f"yf:price:{sym}", 900, str(price))
+    except Exception:
+        pass
+
+    # 3. SPY YTD benchmark — pre-populate so options performance loads instantly
+    try:
+        _redis_spy = await get_redis()
+        if not await _redis_spy.get("yf:spy_ytd"):
+            await get_options_performance()
+    except Exception:
+        pass
 
 
 async def _refresh_positions_cache():

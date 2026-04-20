@@ -3,6 +3,15 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.77] - 2026-04-20
+
+### Fixed
+- **Equities/Options dashboards slow load — root cause fixed**: all expensive caches are now pre-warmed on startup via `_warmup_caches()` background task so the first user to open any page hits a warm cache instead of a cold external API
+  - Broker positions: populated immediately on startup (was 20-30s cold start on every server restart)
+  - Options underlying prices: fetched from Polygon in parallel for all active positions on startup
+  - SPY YTD benchmark: fetched on startup so `/api/options/performance` returns instantly
+- **Broker positions cache TTL**: extended from 2 min → 5 min to reduce cold-miss frequency
+
 ## [3.5.76] - 2026-04-20
 
 ### Fixed
