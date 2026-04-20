@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.71] - 2026-04-20
+
+### Added
+- **Options Dashboard — Greek chip tooltips**: hovering any of the four Greek chips (Δ, Θ, ν, Γ) shows a rich popup explaining the Greek's name, formula intuition, and impact on the options contract; tooltip is position-aware and flips above the chip when near the bottom of the viewport
+
 ## [3.5.70] - 2026-04-20
 
 ### Changed
