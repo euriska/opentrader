@@ -314,18 +314,20 @@ class ReviewAgent(BaseAgent):
             return []
 
     async def _get_today_option_closures(self, date_str: str) -> list:
-        """Pull option positions closed today from option_trade_log."""
+        """Pull option positions closed today from option_trade_log, with account context."""
         if not self._db:
             return []
         try:
             rows = await self._db.fetch(
                 """
-                SELECT underlying, contract_symbol, contract_price,
-                       realized_pnl, qty, notes, ts
-                FROM option_trade_log
-                WHERE event_type = 'closed'
-                  AND ts::date = $1
-                ORDER BY ts
+                SELECT otl.underlying, otl.contract_symbol, otl.contract_price,
+                       otl.realized_pnl, otl.qty, otl.notes, otl.ts,
+                       op.account_label, op.broker
+                FROM option_trade_log otl
+                LEFT JOIN option_positions op ON op.id = otl.position_id
+                WHERE otl.event_type = 'closed'
+                  AND otl.ts::date = $1
+                ORDER BY otl.ts
                 """,
                 date.fromisoformat(date_str),
             )
@@ -495,6 +497,7 @@ class ReviewAgent(BaseAgent):
             f"  {o['underlying']:6s}  {o['contract_symbol']}  "
             f"price=${float(o['contract_price']):.2f}  "
             f"P&L=${int(o['realized_pnl']):+d}"
+            f"  [{o.get('account_label') or o.get('broker') or '?'}]"
             for o in (option_closures or [])[:30]
             if o.get("realized_pnl") is not None
         ) or "  None."
@@ -584,6 +587,7 @@ Be direct, analytical, and specific. Use actual tickers from the data.
                 f"  {o['underlying']:6s}  {o['contract_symbol']}  "
                 f"price=${float(o['contract_price']):.2f}  "
                 f"P&L=${int(o['realized_pnl']):+d}"
+                f"  [{o.get('account_label') or o.get('broker') or '?'}]"
                 for o in option_closures
                 if o.get("realized_pnl") is not None
             ) or "  None."

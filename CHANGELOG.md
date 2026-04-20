@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.65] - 2026-04-20
+
+### Fixed
+- **EOD report option closures now include account/broker**: `_get_today_option_closures` joins `option_positions` to retrieve `account_label` and `broker`; template and LLM prompt now show `[account_label]` per closure row so the LLM correctly identifies multi-account positions rather than flagging them as duplicate entries
+
 ## [3.5.64] - 2026-04-20
 
 ### Fixed
