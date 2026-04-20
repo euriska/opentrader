@@ -8103,4 +8103,10 @@ async def serve_ui():
         f'<head>\n<meta name="ot-token" content="{WEBUI_TOKEN}">\n<meta name="ot-version" content="{APP_VERSION}">',
         1,
     )
-    return html
+    return HTMLResponse(
+        content=html,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
