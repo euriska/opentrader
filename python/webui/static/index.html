@@ -1913,23 +1913,28 @@ select option{background:var(--surface2)}
         </div>
       </div>
 
-      <!-- ── Tier 3: Broker → Ticker tree view ── -->
-      <div style="padding:0 0 4px 0;display:flex;align-items:center;gap:10px;margin-bottom:8px">
-        <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">All Positions</span>
+      <!-- ── Active + Historical sections ── -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
         <input id="optlog-search" type="text" placeholder="Filter ticker…" oninput="_optlogFilter()"
-          style="margin-left:auto;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:12px;color:var(--fg);width:150px">
-        <select id="optlog-status-filter" onchange="_optlogFilter()"
-          style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:12px;color:var(--fg)">
-          <option value="">All Statuses</option>
-          <option value="active">Active</option>
-          <option value="closed">Closed</option>
-          <option value="rolled">Rolled</option>
-          <option value="expired">Expired</option>
-        </select>
+          style="margin-left:auto;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:12px;color:var(--fg);width:160px">
       </div>
-      <div id="optlog-tree" style="display:flex;flex-direction:column;gap:12px">
+
+      <!-- Active positions -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--fg)">Active Option Positions</span>
+        <span id="optlog-active-count" style="background:var(--blue);color:#fff;border-radius:10px;padding:1px 9px;font-size:11px;font-weight:700">—</span>
+      </div>
+      <div id="optlog-active-tree" style="display:flex;flex-direction:column;gap:12px;margin-bottom:24px">
         <div style="text-align:center;color:var(--muted);padding:30px;font-size:13px">Loading…</div>
       </div>
+
+      <!-- Historical trades (collapsed by default) -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;cursor:pointer" onclick="_optlogToggleHistory()">
+        <span style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)">Historical Trades</span>
+        <span id="optlog-hist-count" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:10px;padding:1px 9px;font-size:11px;font-weight:700">—</span>
+        <span id="optlog-hist-chevron" style="color:var(--muted);font-size:12px;margin-left:4px">▶ show</span>
+      </div>
+      <div id="optlog-hist-tree" style="display:none;flex-direction:column;gap:12px;margin-bottom:16px"></div>
 
     </div><!-- /page-options-log -->
 
@@ -14009,19 +14014,39 @@ const _optlogEvColors = {
 };
 
 function _optlogFilter() {
-  const search  = (document.getElementById('optlog-search')?.value || '').toLowerCase();
-  const statusF = document.getElementById('optlog-status-filter')?.value || '';
-  const filtered = _optlogAllTrades.filter(t =>
-    (!search  || t.underlying.toLowerCase().includes(search) || (t.contract_symbol||'').toLowerCase().includes(search)) &&
-    (!statusF || t.status === statusF)
-  );
-  _renderOptlogTree(filtered);
+  const search = (document.getElementById('optlog-search')?.value || '').toLowerCase();
+  const matches = t =>
+    !search ||
+    t.underlying.toLowerCase().includes(search) ||
+    (t.contract_symbol||'').toLowerCase().includes(search);
+
+  const active  = _optlogAllTrades.filter(t => t.status === 'active' && matches(t));
+  const history = _optlogAllTrades.filter(t => t.status !== 'active' && matches(t));
+
+  const activeCount = document.getElementById('optlog-active-count');
+  const histCount   = document.getElementById('optlog-hist-count');
+  if (activeCount) activeCount.textContent = active.length;
+  if (histCount)   histCount.textContent   = history.length;
+
+  _renderOptlogTree(active,  'optlog-active-tree');
+  _renderOptlogTree(history, 'optlog-hist-tree');
 }
 
-function _renderOptlogTree(trades) {
-  const container = document.getElementById('optlog-tree');
+function _optlogToggleHistory() {
+  const el  = document.getElementById('optlog-hist-tree');
+  const chev = document.getElementById('optlog-hist-chevron');
+  if (!el) return;
+  const visible = el.style.display !== 'none';
+  el.style.display   = visible ? 'none' : 'flex';
+  if (chev) chev.textContent = visible ? '▶ show' : '▼ hide';
+}
+
+function _renderOptlogTree(trades, containerId) {
+  const container = document.getElementById(containerId || 'optlog-active-tree');
+  if (!container) return;
   if (!trades || !trades.length) {
-    container.innerHTML = '<div style="text-align:center;color:var(--muted);padding:30px;font-size:13px">No positions found</div>';
+    const isHistory = containerId === 'optlog-hist-tree';
+    container.innerHTML = `<div style="text-align:center;color:var(--muted);padding:${isHistory?'16px':'30px'};font-size:13px">${isHistory ? 'No historical trades' : 'No active positions'}</div>`;
     return;
   }
 
@@ -14076,16 +14101,26 @@ function _renderOptlogTree(trades) {
         const tkPnl = positions.reduce((s, p) => s + (p.realized_pnl ?? 0), 0);
         const tkPnlColor = tkPnl >= 0 ? '#22c55e' : '#ef4444';
 
+        const hasActive    = positions.some(p => p.status === 'active');
+        const activeCount  = positions.filter(p => p.status === 'active').length;
+        const closedCount  = positions.filter(p => p.status !== 'active').length;
+        const tkId = `optlog-tk-${broker}-${account}-${ticker}`.replace(/[^a-zA-Z0-9-]/g,'_');
+        // Historical-only tickers collapse by default
+        const startOpen    = hasActive ? 'block' : 'none';
+        const chevron      = hasActive ? '▾' : '▸';
+        const posLabel     = hasActive
+          ? `<span style="background:#3b82f622;color:#3b82f6;border-radius:8px;padding:1px 7px;font-size:9px;font-weight:700">${activeCount} active</span>`
+          : `<span style="font-size:11px;color:var(--muted)">${closedCount} closed</span>`;
         tickersHtml += `
           <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px">
             <div style="display:flex;align-items:center;gap:10px;padding:7px 14px;background:var(--card-header);cursor:pointer"
-                 onclick="const nb=this.nextElementSibling;nb.style.display=nb.style.display==='none'?'block':'none'">
+                 onclick="const nb=document.getElementById('${tkId}');nb.style.display=nb.style.display==='none'?'block':'none';this.querySelector('.tk-chev').textContent=nb.style.display==='none'?'▸':'▾'">
               <span style="font-size:13px;font-weight:800;color:var(--fg);min-width:52px">${ticker}</span>
-              <span style="font-size:11px;color:var(--muted)">${positions.length} position${positions.length!==1?'s':''}</span>
+              ${posLabel}
               <span style="margin-left:auto;font-size:12px;font-weight:700;color:${tkPnlColor}">${tkPnl ? _optFmtPnl(tkPnl) : '—'}</span>
-              <span style="color:var(--muted);font-size:10px">▾</span>
+              <span class="tk-chev" style="color:var(--muted);font-size:10px">${chevron}</span>
             </div>
-            <div>${positions.map(p => _optlogRenderPositionRow(p)).join('')}</div>
+            <div id="${tkId}" style="display:${startOpen}">${positions.map(p => _optlogRenderPositionRow(p)).join('')}</div>
           </div>`;
       }
 
@@ -14153,7 +14188,9 @@ function _optlogRenderPositionRow(p) {
     chainHtml = `<div style="margin:8px 0 4px 4px">${items}</div>`;
   }
 
-  return `<div style="padding:10px 14px;border-top:1px solid var(--border)">
+  const isHistorical = p.status !== 'active';
+  const rowBg = isHistorical ? 'background:var(--surface2);opacity:0.85' : '';
+  return `<div style="padding:10px 14px;border-top:1px solid var(--border);${rowBg}">
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;cursor:pointer" onclick="_optlogOpenDetailModal('${p.id}','${p.underlying}')">
       <span style="font-size:11px;color:var(--muted)">${p.entry_date||'—'}</span>
       ${typeTag}

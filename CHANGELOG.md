@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.67] - 2026-04-20
+
+### Changed
+- **Options Trading Log — Active / Historical split**: positions are now separated into two sections instead of one flat tree. "Active Option Positions" (status=active) renders first with a blue count badge, always expanded. "Historical Trades" (closed/rolled/expired) renders below, collapsed by default with a click-to-expand toggle and count badge. Within each section the existing broker→account→ticker tree structure is preserved. Historical-only ticker rows start collapsed (▸) while active-containing ticker rows start open (▾). Historical position rows are visually muted (surface2 background, reduced opacity). Search filter applies across both sections simultaneously.
+
 ## [3.5.66] - 2026-04-20
 
 ### Added
