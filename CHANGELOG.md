@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.70] - 2026-04-20
+
+### Changed
+- **Options Dashboard**: YTD Performance panel moved above Portfolio Greeks
+
 ## [3.5.69] - 2026-04-20
 
 ### Fixed
