@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.72] - 2026-04-20
+
+### Fixed
+- **Greek chip tooltips not firing**: JSON.stringify inside a double-quoted HTML attribute broke attribute parsing; refactored to pass a short key string and look up tooltip content from a module-level _GREEK_TIPS map
+
 ## [3.5.71] - 2026-04-20
 
 ### Added

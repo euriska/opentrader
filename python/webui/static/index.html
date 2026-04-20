@@ -14525,28 +14525,20 @@ function _renderOptionsGreeks(el, data) {
       <td style="padding:5px 8px;font-size:12px;color:var(--blue)">${fmtG(g.vega)}</td>
       <td style="padding:5px 8px;font-size:12px;color:var(--muted)">${fmtG(g.gamma, 4)}</td>
     </tr>`).join('');
-  const greekTips = {
-    'Portfolio Δ': { title: 'Delta (Δ)', body: 'Measures how much the option price moves per $1 move in the underlying. Portfolio Δ is the net shares-equivalent directional exposure — positive means you profit if the stock rises, negative if it falls. A delta of +50 behaves like owning 50 shares.' },
-    'Θ / day':     { title: 'Theta (Θ) — Time Decay', body: 'The dollar amount your portfolio loses each calendar day purely from the passage of time, assuming everything else stays constant. Negative theta is normal for long options; positive theta means you are a net seller collecting decay. Weekend decay typically shows on Monday.' },
-    'ν (Vega)':    { title: 'Vega (ν) — Volatility Sensitivity', body: 'Dollar P&L change for every 1 percentage-point increase in implied volatility (IV). Positive vega means you profit from IV expansion (e.g. long options before earnings). Negative vega means you profit when IV contracts after an event.' },
-    'Γ (Gamma)':   { title: 'Gamma (Γ) — Delta Acceleration', body: 'Rate at which delta changes per $1 move in the underlying. High gamma near expiration means your delta — and therefore P&L — can shift dramatically with small price moves. Long gamma profits from large moves; short gamma is hurt by them.' },
-  };
   el.innerHTML = `
     <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:12px">
       ${[
-        ['Portfolio Δ', fmtG(t.delta), deltaColor(t.delta)],
-        ['Θ / day', fmtG(t.theta), '#ef4444'],
-        ['ν (Vega)', fmtG(t.vega), 'var(--blue)'],
-        ['Γ (Gamma)', fmtG(t.gamma, 4), 'var(--muted)'],
-      ].map(([label, val, color]) => {
-        const tip = greekTips[label];
-        return `<div style="flex:1;padding:10px 12px;border-right:1px solid var(--border);text-align:center;position:relative;cursor:default"
-            onmouseenter="_greekTipShow(this,'${tip.title}',${JSON.stringify(tip.body)})"
+        ['Portfolio Δ', fmtG(t.delta), deltaColor(t.delta), 'delta'],
+        ['Θ / day',     fmtG(t.theta), '#ef4444',           'theta'],
+        ['ν (Vega)',    fmtG(t.vega),  'var(--blue)',        'vega'],
+        ['Γ (Gamma)',   fmtG(t.gamma, 4), 'var(--muted)',   'gamma'],
+      ].map(([label, val, color, key]) =>
+        `<div style="flex:1;padding:10px 12px;border-right:1px solid var(--border);text-align:center;cursor:default"
+            onmouseenter="_greekTipShow(this,'${key}')"
             onmouseleave="_greekTipHide()">
           <div style="font-size:11px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">${label}</div>
           <div style="font-size:16px;font-weight:800;color:${color}">${val}</div>
-        </div>`;
-      }).join('')}
+        </div>`).join('')}
       <div style="flex:1;padding:10px 12px;text-align:center">
         <div style="font-size:11px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">Positions</div>
         <div style="font-size:16px;font-weight:800;color:var(--fg)">${data.position_count || 0}</div>
@@ -14567,8 +14559,18 @@ function _renderOptionsGreeks(el, data) {
     </table>` : ''}`;
 }
 
+const _GREEK_TIPS = {
+  delta: { title: 'Delta (Δ)', body: 'Measures how much the option price moves per $1 move in the underlying. Portfolio Δ is the net shares-equivalent directional exposure — positive means you profit if the stock rises, negative if it falls. A delta of +50 behaves like owning 50 shares.' },
+  theta: { title: 'Theta (Θ) — Time Decay', body: 'The dollar amount your portfolio loses each calendar day purely from the passage of time, assuming everything else stays constant. Negative theta is normal for long options; positive theta means you are a net seller collecting decay. Weekend decay typically shows on Monday.' },
+  vega:  { title: 'Vega (ν) — Volatility Sensitivity', body: 'Dollar P&L change for every 1 percentage-point increase in implied volatility (IV). Positive vega means you profit from IV expansion (e.g. long options before earnings). Negative vega means you profit when IV contracts after an event.' },
+  gamma: { title: 'Gamma (Γ) — Delta Acceleration', body: 'Rate at which delta changes per $1 move in the underlying. High gamma near expiration means your delta — and therefore P&L — can shift dramatically with small price moves. Long gamma profits from large moves; short gamma is hurt by them.' },
+};
+
 let _greekTipEl = null;
-function _greekTipShow(anchor, title, body) {
+function _greekTipShow(anchor, key) {
+  const tip = _GREEK_TIPS[key];
+  if (!tip) return;
+  const title = tip.title, body = tip.body;
   _greekTipHide();
   const tip = document.createElement('div');
   tip.id = 'greek-tooltip';
