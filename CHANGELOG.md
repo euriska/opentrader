@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.78] - 2026-04-20
+
+### Fixed
+- **Position Sizer dropdown**: was reading from `portfolio_snapshots` DB which is only populated by the scheduler and may be empty/stale; now reads from the live broker positions cache (pre-warmed on startup) with DB snapshots as fallback — accounts and NAV values always reflect current state
+
 ## [3.5.77] - 2026-04-20
 
 ### Fixed

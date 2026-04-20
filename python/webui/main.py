@@ -7501,7 +7501,39 @@ async def capture_portfolio_snapshot(token: str = ""):
 
 @app.get("/api/portfolio/accounts")
 async def get_portfolio_accounts():
-    """Return the latest NAV snapshot per account for use in the position sizer."""
+    """Return the latest NAV per account for the position sizer.
+    Primary: live broker positions cache. Fallback: portfolio_snapshots DB.
+    """
+    # Primary: live broker positions cache (pre-warmed on startup)
+    if _positions_cache["data"] is not None:
+        try:
+            accounts = _positions_cache["data"].get("accounts", [])
+            result = []
+            for acct in accounts:
+                bal = acct.get("balances", {})
+                nav = float(
+                    bal.get("portfolio_value")
+                    or bal.get("net_value")
+                    or bal.get("equity")
+                    or bal.get("total_value")
+                    or 0
+                )
+                if nav <= 0:
+                    continue
+                result.append({
+                    "account_label": acct.get("label", ""),
+                    "broker":        acct.get("broker", ""),
+                    "mode":          acct.get("mode", ""),
+                    "total_nav":     round(nav, 2),
+                })
+            if result:
+                return result
+        except Exception:
+            pass
+
+    # Fallback: portfolio_snapshots DB
+    if not DB_URL:
+        return []
     pool = await _get_db_pool()
     rows = await pool.fetch(
         """SELECT DISTINCT ON (account_label)
