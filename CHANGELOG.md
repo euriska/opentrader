@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.64] - 2026-04-20
+
+### Fixed
+- **EOD report missing manual option trades**: `_run_eod_report` now queries `option_trade_log` for `event_type = 'closed'` entries on the report date via `_get_today_option_closures()`; `_compute_stats` accepts the option closures and computes separate opt_closed/opt_wins/opt_losses/opt_win_rate/opt_pnl fields plus combined totals; template report gains an OPTIONS CLOSURES section and a COMBINED section when both equity and options are present; LLM prompt includes the options closure table and includes options P&L analysis in the requested report structure
+
 ## [3.5.63] - 2026-04-20
 
 ### Added

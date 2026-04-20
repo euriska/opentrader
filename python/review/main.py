@@ -258,30 +258,33 @@ class ReviewAgent(BaseAgent):
         date_str = trigger_data.get("date") or now_et().date().isoformat()
         log.info("review-agent.eod_report.start", date=date_str)
 
-        # 1. Pull today's trades from DB
+        # 1. Pull today's equity trades from DB
         trades = await self._get_today_trades(date_str)
 
-        # 2. Enrich with actual fills from all broker accounts
+        # 2. Pull today's manually-closed option positions from option_trade_log
+        option_closures = await self._get_today_option_closures(date_str)
+
+        # 3. Enrich with actual fills from all broker accounts
         fills = await self._get_all_broker_fills()
 
-        # 3. Build summary stats
-        stats = self._compute_stats(trades, fills)
+        # 4. Build summary stats
+        stats = self._compute_stats(trades, fills, option_closures)
 
-        # 4. Generate report (LLM if available, else template)
+        # 5. Generate report (LLM if available, else template)
         sector_breakdown = await self._get_sector_breakdown(trades)
-        if USE_LLM and (trades or fills):
-            report_text = await self._llm_eod_report(date_str, stats, trades, fills)
+        if USE_LLM and (trades or fills or option_closures):
+            report_text = await self._llm_eod_report(date_str, stats, trades, fills, option_closures)
         else:
-            report_text = self._template_eod_report(date_str, stats, trades, sector_breakdown)
+            report_text = self._template_eod_report(date_str, stats, trades, sector_breakdown, option_closures)
 
-        # 5. Save to DB
+        # 6. Save to DB
         await self._save_review_log(report_text, stats)
 
-        # 6. Notify
+        # 7. Notify
         subject = f"OpenTrader EOD Report — {date_str}"
         await self.notifier.eod_report(subject, report_text)
 
-        # 7. Publish to review stream
+        # 8. Publish to review stream
         await self.redis.xadd(REV_STREAM, {
             "type":    "eod_report",
             "date":    date_str,
@@ -289,7 +292,7 @@ class ReviewAgent(BaseAgent):
         }, maxlen=500)
 
         log.info("review-agent.eod_report.done",
-                 trades=len(trades), fills=len(fills))
+                 trades=len(trades), fills=len(fills), option_closures=len(option_closures))
 
     async def _get_today_trades(self, date_str: str) -> list:
         if not self._db:
@@ -308,6 +311,27 @@ class ReviewAgent(BaseAgent):
             return [dict(r) for r in rows]
         except Exception as e:
             log.error("review-agent.db_trades_error", error=str(e))
+            return []
+
+    async def _get_today_option_closures(self, date_str: str) -> list:
+        """Pull option positions closed today from option_trade_log."""
+        if not self._db:
+            return []
+        try:
+            rows = await self._db.fetch(
+                """
+                SELECT underlying, contract_symbol, contract_price,
+                       realized_pnl, qty, notes, ts
+                FROM option_trade_log
+                WHERE event_type = 'closed'
+                  AND ts::date = $1
+                ORDER BY ts
+                """,
+                date.fromisoformat(date_str),
+            )
+            return [dict(r) for r in rows]
+        except Exception as e:
+            log.error("review-agent.db_option_closures_error", error=str(e))
             return []
 
     async def _get_all_broker_fills(self) -> list:
@@ -367,7 +391,8 @@ class ReviewAgent(BaseAgent):
                 fills.extend(r)
         return fills
 
-    def _compute_stats(self, trades: list, fills: list) -> dict:
+    def _compute_stats(self, trades: list, fills: list, option_closures: list = None) -> dict:
+        option_closures = option_closures or []
         rejects  = [t for t in trades if t.get("status") == "reject"]
         active   = [t for t in trades if t.get("status") != "reject"]
         total    = len(active)
@@ -378,21 +403,41 @@ class ReviewAgent(BaseAgent):
         closed    = [t for t in active if t.get("pnl") is not None]
         wins      = [t for t in closed if (t.get("pnl") or 0) > 0]
         losses    = [t for t in closed if (t.get("pnl") or 0) < 0]
-        total_pnl = sum(float(t.get("pnl") or 0) for t in closed)
+        equity_pnl = sum(float(t.get("pnl") or 0) for t in closed)
+
+        opt_with_pnl = [o for o in option_closures if o.get("realized_pnl") is not None]
+        opt_wins     = [o for o in opt_with_pnl if float(o["realized_pnl"]) > 0]
+        opt_losses   = [o for o in opt_with_pnl if float(o["realized_pnl"]) <= 0]
+        opt_pnl      = sum(float(o["realized_pnl"]) for o in opt_with_pnl)
+
+        total_pnl = equity_pnl + opt_pnl
+        total_closed = len(closed) + len(opt_with_pnl)
+        total_wins   = len(wins) + len(opt_wins)
+        total_losses = len(losses) + len(opt_losses)
 
         return {
-            "date":         now_et().date().isoformat(),
-            "total_trades": total,
-            "longs":        longs,
-            "shorts":       shorts,
-            "filled":       filled,
-            "rejected":     len(rejects),
-            "closed":       len(closed),
-            "wins":         len(wins),
-            "losses":       len(losses),
-            "win_rate":     round(len(wins) / len(closed) * 100, 1) if closed else 0.0,
-            "total_pnl":    round(total_pnl, 2),
-            "avg_pnl":      round(total_pnl / len(closed), 2) if closed else 0.0,
+            "date":              now_et().date().isoformat(),
+            "total_trades":      total,
+            "longs":             longs,
+            "shorts":            shorts,
+            "filled":            filled,
+            "rejected":          len(rejects),
+            "closed":            len(closed),
+            "wins":              len(wins),
+            "losses":            len(losses),
+            "win_rate":          round(len(wins) / len(closed) * 100, 1) if closed else 0.0,
+            "total_pnl":         round(equity_pnl, 2),
+            "avg_pnl":           round(equity_pnl / len(closed), 2) if closed else 0.0,
+            "opt_closed":        len(opt_with_pnl),
+            "opt_wins":          len(opt_wins),
+            "opt_losses":        len(opt_losses),
+            "opt_win_rate":      round(len(opt_wins) / len(opt_with_pnl) * 100, 1) if opt_with_pnl else 0.0,
+            "opt_pnl":           round(opt_pnl, 2),
+            "combined_pnl":      round(total_pnl, 2),
+            "combined_closed":   total_closed,
+            "combined_wins":     total_wins,
+            "combined_losses":   total_losses,
+            "combined_win_rate": round(total_wins / total_closed * 100, 1) if total_closed else 0.0,
         }
 
     async def _get_sector_breakdown(self, trades: list) -> dict:
@@ -420,7 +465,7 @@ class ReviewAgent(BaseAgent):
         return breakdown
 
     async def _llm_eod_report(
-        self, date_str: str, stats: dict, trades: list, fills: list
+        self, date_str: str, stats: dict, trades: list, fills: list, option_closures: list = None
     ) -> str:
         from llm.connector import LLMConnector
 
@@ -446,6 +491,14 @@ class ReviewAgent(BaseAgent):
             for f in fills[:20]
         ) or "  No broker fills today."
 
+        opt_closure_lines = "\n".join(
+            f"  {o['underlying']:6s}  {o['contract_symbol']}  "
+            f"price=${float(o['contract_price']):.2f}  "
+            f"P&L=${int(o['realized_pnl']):+d}"
+            for o in (option_closures or [])[:30]
+            if o.get("realized_pnl") is not None
+        ) or "  None."
+
         sector_breakdown = await self._get_sector_breakdown(trades)
         sector_lines = "\n".join(
             f"  {sector}: {', '.join(sorted(tickers))}"
@@ -455,13 +508,19 @@ class ReviewAgent(BaseAgent):
         prompt = f"""
 Date: {date_str}
 
-Trading Summary:
+Equity Trading Summary:
   Total signals acted on: {stats['total_trades']}
   Rejected orders: {stats['rejected']}
   Filled orders (all brokers): {stats['filled']}
-  Closed P&L: ${stats['total_pnl']} ({stats['wins']}W / {stats['losses']}L, {stats['win_rate']}% win rate)
+  Equity P&L: ${stats['total_pnl']} ({stats['wins']}W / {stats['losses']}L, {stats['win_rate']}% win rate)
 
-Trades entered:
+Options Summary (manually closed via broker):
+  Closed positions: {stats.get('opt_closed', 0)}
+  Options P&L: ${stats.get('opt_pnl', 0)} ({stats.get('opt_wins', 0)}W / {stats.get('opt_losses', 0)}L, {stats.get('opt_win_rate', 0.0)}% win rate)
+
+Combined P&L: ${stats.get('combined_pnl', stats['total_pnl'])} across {stats.get('combined_closed', stats['closed'])} closed positions
+
+Equity trades entered:
 {trade_lines}
 
 Rejected orders:
@@ -470,16 +529,18 @@ Rejected orders:
 Broker fills:
 {fill_lines}
 
-Sector breakdown of new positions:
+Options closed today (manually via broker):
+{opt_closure_lines}
+
+Sector breakdown of new equity positions:
 {sector_lines}
 
 Write a concise EOD trading report (3-5 paragraphs) covering:
 1. What happened today — which signals fired and what was acted on
-2. P&L performance and notable winners/losers
-3. Rejected orders — what caused them and whether they represent a systemic issue
-4. Signal quality assessment — were OVTLYR signals accurate?
-5. Sector concentration risk — any concerning concentration in the sector breakdown?
-6. One concrete recommendation for tomorrow
+2. P&L performance and notable winners/losers across both equity and options
+3. Options activity — which manually-closed positions were winners vs losers and why
+4. Rejected orders — what caused them and whether they represent a systemic issue
+5. One concrete recommendation for tomorrow
 
 Be direct, analytical, and specific. Use actual tickers from the data.
 """
@@ -500,6 +561,7 @@ Be direct, analytical, and specific. Use actual tickers from the data.
         stats: dict,
         trades: list = None,
         sector_breakdown: dict = None,
+        option_closures: list = None,
     ) -> str:
         rejected_trades = [t for t in (trades or []) if t.get("status") == "reject"]
         reject_lines = "\n".join(
@@ -516,23 +578,52 @@ Be direct, analytical, and specific. Use actual tickers from the data.
         else:
             sector_lines = "  No sector data available."
 
+        opt_lines = ""
+        if option_closures:
+            rows = "\n".join(
+                f"  {o['underlying']:6s}  {o['contract_symbol']}  "
+                f"price=${float(o['contract_price']):.2f}  "
+                f"P&L=${int(o['realized_pnl']):+d}"
+                for o in option_closures
+                if o.get("realized_pnl") is not None
+            ) or "  None."
+            opt_lines = f"""
+OPTIONS CLOSURES (manual / broker-detected)
+  Closed:        {stats.get('opt_closed', 0)}
+  Wins / Losses: {stats.get('opt_wins', 0)} / {stats.get('opt_losses', 0)}
+  Win rate:      {stats.get('opt_win_rate', 0.0)}%
+  Options P&L:   ${stats.get('opt_pnl', 0)}
+
+{rows}
+"""
+
+        combined = ""
+        if stats.get('opt_closed', 0) > 0 and stats.get('closed', 0) > 0:
+            combined = f"""
+COMBINED (Equity + Options)
+  Total closed:  {stats.get('combined_closed', 0)}
+  Wins / Losses: {stats.get('combined_wins', 0)} / {stats.get('combined_losses', 0)}
+  Win rate:      {stats.get('combined_win_rate', 0.0)}%
+  Total P&L:     ${stats.get('combined_pnl', 0)}
+"""
+
         return f"""OpenTrader EOD Report — {date_str}
 {'=' * 40}
 
-TRADING SUMMARY
+EQUITY TRADING SUMMARY
   Total trades:  {stats['total_trades']}
   Rejected:      {stats.get('rejected', 0)}
   Filled:        {stats['filled']}
   Longs:         {stats['longs']}
   Shorts:        {stats['shorts']}
 
-PERFORMANCE
+EQUITY PERFORMANCE
   Closed trades: {stats['closed']}
   Wins / Losses: {stats['wins']} / {stats['losses']}
   Win rate:      {stats['win_rate']}%
-  Total P&L:     ${stats['total_pnl']}
+  Equity P&L:    ${stats['total_pnl']}
   Avg P&L:       ${stats['avg_pnl']}
-
+{opt_lines}{combined}
 REJECTED ORDERS
 {reject_lines}
 
