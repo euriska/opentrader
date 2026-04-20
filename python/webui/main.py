@@ -6375,31 +6375,38 @@ async def get_option_positions(status: str = "active"):
                 else:
                     still_missing.append(sym)
             if still_missing:
-                # Primary: Polygon.io (MASSIVE_API_KEY)
+                # Primary: Polygon.io (MASSIVE_API_KEY) — all tickers in parallel
                 _poly_key = os.getenv("MASSIVE_API_KEY", "")
                 if _poly_key:
                     import aiohttp as _aiohttp
+                    import asyncio as _asyncio
                     from datetime import timedelta
                     _today_str = date.today().isoformat()
                     _from_str  = (date.today() - timedelta(days=5)).isoformat()
+                    async def _fetch_poly_price(session, sym):
+                        url = (
+                            f"https://api.polygon.io/v2/aggs/ticker/{sym}/range/1/day"
+                            f"/{_from_str}/{_today_str}?adjusted=true&sort=desc&limit=1&apiKey={_poly_key}"
+                        )
+                        try:
+                            async with session.get(url, timeout=_aiohttp.ClientTimeout(total=8)) as resp:
+                                if resp.status == 200:
+                                    d = await resp.json()
+                                    bars = d.get("results") or []
+                                    if bars:
+                                        return sym, float(bars[0]["c"])
+                        except Exception:
+                            pass
+                        return sym, None
                     async with _aiohttp.ClientSession() as _psess:
-                        for sym in list(still_missing):
-                            try:
-                                url = (
-                                    f"https://api.polygon.io/v2/aggs/ticker/{sym}/range/1/day"
-                                    f"/{_from_str}/{_today_str}?adjusted=true&sort=desc&limit=1&apiKey={_poly_key}"
-                                )
-                                async with _psess.get(url, timeout=_aiohttp.ClientTimeout(total=8)) as resp:
-                                    if resp.status == 200:
-                                        d = await resp.json()
-                                        bars = d.get("results") or []
-                                        if bars:
-                                            price = float(bars[0]["c"])
-                                            live_prices[sym] = price
-                                            await _redis2.setex(f"yf:price:{sym}", 900, str(price))
-                                            still_missing.remove(sym)
-                            except Exception:
-                                pass
+                        results = await _asyncio.gather(*[
+                            _fetch_poly_price(_psess, sym) for sym in still_missing
+                        ])
+                    for sym, price in results:
+                        if price is not None:
+                            live_prices[sym] = price
+                            await _redis2.setex(f"yf:price:{sym}", 900, str(price))
+                            still_missing.remove(sym)
                 # Fallback: yfinance for anything Polygon didn't cover
                 if still_missing:
                     import yfinance as _yf
@@ -6507,23 +6514,25 @@ async def get_option_positions(status: str = "active"):
                 import yfinance as _yf
                 import concurrent.futures as _cf
                 import asyncio as _asyncio
-                def _fetch_recs(syms):
-                    out = {}
-                    for sym in syms:
-                        try:
-                            rec = _yf.Ticker(sym).info.get("recommendationKey", "")
-                            mapped = _REC_MAP.get((rec or "").lower())
-                            if mapped:
-                                out[sym] = {"direction": mapped[0], "confidence": mapped[1], "source": "yahoo"}
-                        except Exception:
-                            pass
-                    return out
+                def _fetch_one_rec(sym):
+                    try:
+                        rec = _yf.Ticker(sym).info.get("recommendationKey", "")
+                        mapped = _REC_MAP.get((rec or "").lower())
+                        if mapped:
+                            return sym, {"direction": mapped[0], "confidence": mapped[1], "source": "yahoo"}
+                    except Exception:
+                        pass
+                    return sym, None
                 loop = _asyncio.get_event_loop()
-                with _cf.ThreadPoolExecutor(max_workers=4) as ex:
-                    yf_sigs = await loop.run_in_executor(ex, _fetch_recs, still_missing_sig)
-                for sym, sig in yf_sigs.items():
-                    await _redis3.setex(f"yf:rec:{sym}", 14400, json.dumps(sig))
-                live_signals.update(yf_sigs)
+                with _cf.ThreadPoolExecutor(max_workers=min(len(still_missing_sig), 8)) as ex:
+                    rec_results = await _asyncio.gather(*[
+                        loop.run_in_executor(ex, _fetch_one_rec, sym)
+                        for sym in still_missing_sig
+                    ])
+                for sym, sig in rec_results:
+                    if sig:
+                        await _redis3.setex(f"yf:rec:{sym}", 14400, json.dumps(sig))
+                        live_signals[sym] = sig
         except Exception:
             pass
 

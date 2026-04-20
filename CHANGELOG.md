@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.76] - 2026-04-20
+
+### Fixed
+- **Options Dashboard — Polygon price fetches parallelized**: was calling Polygon one ticker at a time (sequential awaits); now uses `asyncio.gather` so all tickers resolve in one round trip instead of N serial requests
+- **Options Dashboard — Yahoo recs parallelized**: was submitting one job to a thread pool that looped sequentially; now submits one job per ticker (up to 8 threads) so all `.info` calls run concurrently
+
 ## [3.5.75] - 2026-04-20
 
 ### Fixed
