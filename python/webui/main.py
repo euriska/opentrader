@@ -7512,10 +7512,12 @@ async def get_portfolio_accounts():
             for acct in accounts:
                 bal = acct.get("balances", {})
                 nav = float(
-                    bal.get("portfolio_value")
-                    or bal.get("net_value")
-                    or bal.get("equity")
-                    or bal.get("total_value")
+                    bal.get("portfolio_value")   # Alpaca
+                    or bal.get("net_value")       # Webull (net_liquidation_value)
+                    or bal.get("total_equity")    # Tradier (equity=0 on margin accounts)
+                    or bal.get("account_value")   # Tradier alternative
+                    or bal.get("equity")          # Alpaca secondary
+                    or bal.get("total_value")     # generic
                     or 0
                 )
                 if nav <= 0:
