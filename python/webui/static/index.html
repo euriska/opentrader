@@ -14435,9 +14435,9 @@ const _GREEK_TIPS = {
 
 let _greekTipEl = null;
 function _greekTipShow(anchor, key) {
-  const tip = _GREEK_TIPS[key];
-  if (!tip) return;
-  const title = tip.title, body = tip.body;
+  const tipDef = _GREEK_TIPS[key];
+  if (!tipDef) return;
+  const title = tipDef.title, body = tipDef.body;
   _greekTipHide();
   const tip = document.createElement('div');
   tip.id = 'greek-tooltip';

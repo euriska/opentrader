@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.85] - 2026-04-20
+
+### Fixed
+- **Options dashboards blank**: duplicate `const tip` in `_greekTipShow` caused a SyntaxError that prevented the entire JS file from loading; renamed first binding to `tipDef`
+
 ## [3.5.84] - 2026-04-20
 
 ### Removed
