@@ -17,14 +17,17 @@ An AI-driven algorithmic trading platform built on a microservices architecture 
 - **TradingView Charts** — Embedded charts with EMA/SMA/BB/RSI/MACD overlays, live position picker, and per-ticker sentiment sub-panel (F&G score, component breakdown, 30-day trend sparkline)
 - **Market Breadth** — OVTLYR bull/bear breadth gauge with crossover detection and sparkline history
 - **Equity / Options separation** — Active Positions, Trades, and Dividends pages show equity-only data; Options Dashboard is a dedicated section
-- **Options Dashboard** — Live options position tracker with DTE, strike, delta, ATR levels, current underlying price, buy/sell signal (OVTLYR → predictor → Yahoo Finance chain), and Yahoo Finance chain enrichment; includes download and scheduled email report
-- **Options Trading Log** — Full P&L history organized as a broker → account → ticker tree with collapsible position rows, cost basis, milestone chains (Open → Roll 1/2/3 → Closed/Expired), per-event realized P&L, and post-close AI analysis via Claude Haiku; 18-month retention
+- **Options Dashboard** — Live options position tracker with DTE, strike, delta, ATR levels, underlying price, buy/sell signal, Yahoo Finance chain enrichment; Portfolio Greeks panel (Δ/Θ/ν/Γ per underlying); YTD Performance panel (trades, P&L, win rate, alpha vs SPY); stat card hover tooltips; download and scheduled email report
+- **Options Trading Log** — Full P&L history as broker → account → ticker tree; milestone chains (Open → Roll → Closed/Expired); per-event P&L; post-close AI analysis via Claude Haiku; YTD performance panel; 18-month retention
+- **Options Expiry Calendar** — Active positions grouped by expiration date with DTE urgency color coding (critical ≤3d, warning ≤7d, caution ≤14d); per-expiry Greeks totals
 - **Strategy Engineer** — AI-assisted strategy builder with version control and real Backtrader backtesting
 - **Backtrader Engine** — EMA 10/21 crossover strategy with stop-loss/take-profit, full trade log, PDF + CSV exports, and equity/chart tabs
 - **Trade Directives** — Natural-language GTC directives evaluated every 5 minutes by an LLM agent and executed automatically
 - **Market Intelligence** — Per-ticker intelligence pipeline: WSB sentiment, SeekingAlpha, Yahoo Finance news, analyst ratings, earnings proximity, and Unusual Whales options flow + dark pool data
 - **Unusual Whales MCP** — Real-time options flow, dark pool prints, market tide, greek exposure, and short interest via MCP server
-- **Scheduler** — Market-hours-aware job runner with DB-persisted configuration and per-job execution history (last run, status, error, run count)
+- **Portfolio NAV History** — 90-day equity curve on Trading Dashboard from daily broker snapshots; drawdown tracking
+- **Daily P&L / Loss Limit** — Trading Dashboard widget with color-coded budget bar and circuit breaker banner
+- **Scheduler** — Market-hours-aware job runner with DB-persisted configuration and per-job execution history (last run, status chip, error, run count)
 - **MCP Agents** — Model Context Protocol servers for Yahoo Finance, Alpaca, TradingView, Webull, and Unusual Whales
 - **Dividends** — Dividend tracking with yield, history, and per-account breakdown (equity positions only)
 - **Library** — Trading book library with ISBN lookup, cover art, ratings, and reader rank achievement system
@@ -141,7 +144,7 @@ cp .env.sample .env && nano .env
 cp config/accounts.toml.sample config/accounts.toml
 
 # Pull images (replace X.Y.Z with the release version)
-export OT_VERSION=3.5.61
+export OT_VERSION=3.5.85
 podman pull ghcr.io/euriska/ot-webui:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-python:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-mcp-yahoo:${OT_VERSION}
@@ -221,7 +224,9 @@ The dashboard is organized into six sections:
 ### Options
 | Page | Description |
 |---|---|
-| Options Dashboard | Live options positions with DTE, strike, delta, ATR levels, and Yahoo Finance chain enrichment |
+| Options Dashboard | Live options positions with DTE, strike, delta, ATR levels, Yahoo Finance chain enrichment, Portfolio Greeks, and YTD Performance |
+| Trading Log | Full P&L tree (broker → account → ticker) with milestone chains, AI post-close analysis, and YTD performance |
+| Expiry Calendar | Active positions grouped by expiry date with DTE urgency coding and per-expiry Greeks totals |
 
 ### Trading Plan
 | Page | Description |
@@ -244,6 +249,7 @@ The dashboard is organized into six sections:
 | Logs | Live container log viewer |
 | Scheduler | Job manager — create, edit, enable/disable, run now; per-job execution history with last run, status chip, and run count |
 | System | Circuit breaker, halt/resume, container table |
+| User Configuration | API key management (22 keys), clock color + 12hr/24hr, sector/stock exclusions, risk controls |
 
 ---
 
