@@ -3,6 +3,19 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.86] - 2026-04-23
+
+### Added
+- **Options Trader page**: new dedicated trading dashboard at `page-options-trader`
+  - Top-left account selector dropdown populates from live broker accounts
+  - Left sidebar: scrollable open positions list + OVTLYR buy signals (sorted by nine_score)
+  - Right top: LightweightCharts candlestick chart with EMA 10/20/50 overlays; earnings and ex-dividend date markers; entry price line for held positions
+  - Right bottom: full options chain table (calls left, puts right, strike center) with bid/ask/mid, **extrinsic value**, delta, IV, OI; current positions highlighted in blue; expiration dates with open position marked with a blue dot
+  - Chain controls: expiry selector, Puts toggle, Near ATM filter
+  - Risk & Sizing Calculator panel (shown on position/ticker select): available cash, open position count, capital-at-risk, animated SVG risk gauge, contract sizing calculator by % risk
+- **4 new API endpoints**: `/api/options/trader/buys`, `/api/options/trader/chain`, `/api/options/trader/ticker-meta`, `/api/options/trader/risk`
+- Navigation entry "Options Trader" added to Options nav group
+
 ## [3.5.85] - 2026-04-20
 
 ### Fixed

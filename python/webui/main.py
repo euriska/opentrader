@@ -7999,6 +7999,262 @@ async def _price_alert_loop():
         await asyncio.sleep(300)  # 5 minutes
 
 
+# ── Options Trader dashboard helpers ─────────────────────────────────────────
+
+@app.get("/api/options/trader/buys")
+async def get_trader_ovtlyr_buys(token: str = ""):
+    """OVTLYR tickers with active buy signals, sorted by nine_score desc."""
+    check_token(token)
+    import json as _json
+    _redis = await get_redis()
+
+    results: list[dict] = []
+    seen: set[str] = set()
+
+    # Bull list
+    raw = await _redis.get("ovtlyr:list:bull")
+    if raw:
+        try:
+            for e in _json.loads(raw):
+                t = e.get("ticker", "")
+                if not t or t in seen:
+                    continue
+                seen.add(t)
+                results.append({
+                    "ticker": t,
+                    "name": e.get("name", ""),
+                    "nine_score": e.get("nine_score"),
+                    "signal": e.get("signal", "buy"),
+                    "signal_date": e.get("signal_date", ""),
+                    "last_price": e.get("last_price"),
+                    "source": "bull",
+                })
+        except Exception:
+            pass
+
+    # Screener cache (scanner:ovtlyr:latest)
+    screener_raw = await _redis.hgetall("scanner:ovtlyr:latest")
+    for ticker, raw_val in screener_raw.items():
+        if ticker in seen:
+            continue
+        try:
+            d = _json.loads(raw_val)
+        except Exception:
+            continue
+        direction = (d.get("direction") or d.get("signal") or "").lower()
+        if direction not in ("buy", "long", "bull"):
+            continue
+        seen.add(ticker)
+        results.append({
+            "ticker": ticker,
+            "name": d.get("name", ""),
+            "nine_score": d.get("nine_score"),
+            "signal": direction,
+            "signal_date": d.get("signal_date", ""),
+            "last_price": d.get("last_close"),
+            "source": "screener",
+        })
+
+    results.sort(key=lambda r: (-(r.get("nine_score") or 0), r["ticker"]))
+    return {"buys": results, "count": len(results)}
+
+
+@app.get("/api/options/trader/chain")
+async def get_options_chain_data(ticker: str, token: str = ""):
+    """Options chain from Yahoo Finance with extrinsic value; open positions marked."""
+    check_token(token)
+    import asyncio as _asyncio
+
+    def _fetch(sym: str) -> dict:
+        import yfinance as _yf
+        t = _yf.Ticker(sym)
+        info = t.info or {}
+        price = float(info.get("currentPrice") or info.get("regularMarketPrice")
+                      or info.get("previousClose") or 0)
+        exps = t.options
+        if not exps:
+            return {"ticker": sym, "price": price, "expirations": [], "calls": [], "puts": []}
+
+        all_calls, all_puts = [], []
+        for exp in exps[:10]:
+            try:
+                chain = t.option_chain(exp)
+                for df, otype in ((chain.calls, "call"), (chain.puts, "put")):
+                    for _, row in df.iterrows():
+                        strike = float(row.get("strike") or 0)
+                        bid    = float(row.get("bid") or 0)
+                        ask    = float(row.get("ask") or 0)
+                        last   = float(row.get("lastPrice") or 0)
+                        mid    = round((bid + ask) / 2, 2) if bid and ask else last
+                        intrinsic = round(max(0, price - strike) if otype == "call" else max(0, strike - price), 2)
+                        extrinsic = round(max(0, mid - intrinsic), 2)
+                        iv    = row.get("impliedVolatility")
+                        delta = row.get("delta")
+                        gamma = row.get("gamma")
+                        theta = row.get("theta")
+                        vega  = row.get("vega")
+                        rec = {
+                            "contract":   row.get("contractSymbol", ""),
+                            "strike":     strike,
+                            "expiration": exp,
+                            "bid":        bid,
+                            "ask":        ask,
+                            "mid":        mid,
+                            "last":       last,
+                            "intrinsic":  intrinsic,
+                            "extrinsic":  extrinsic,
+                            "iv":    round(float(iv), 4)    if iv    is not None else None,
+                            "delta": round(float(delta), 4) if delta is not None else None,
+                            "gamma": round(float(gamma), 6) if gamma is not None else None,
+                            "theta": round(float(theta), 4) if theta is not None else None,
+                            "vega":  round(float(vega), 4)  if vega  is not None else None,
+                            "volume": int(row.get("volume") or 0),
+                            "oi":     int(row.get("openInterest") or 0),
+                            "itm":    bool(row.get("inTheMoney", False)),
+                            "has_position": False,
+                        }
+                        (all_calls if otype == "call" else all_puts).append(rec)
+            except Exception:
+                pass
+
+        return {
+            "ticker": sym, "price": round(price, 2),
+            "expirations": list(exps[:10]),
+            "calls": all_calls, "puts": all_puts,
+        }
+
+    loop = _asyncio.get_event_loop()
+    data = await loop.run_in_executor(None, _fetch, ticker.upper())
+
+    # Mark open positions
+    data["open_expiries"] = []
+    if DB_URL:
+        try:
+            pool = await _get_db_pool()
+            rows = await pool.fetch(
+                "SELECT contract_symbol, expiration_date FROM option_positions "
+                "WHERE underlying=$1 AND status='active'",
+                ticker.upper(),
+            )
+            open_contracts = {r["contract_symbol"] for r in rows}
+            data["open_expiries"] = list({r["expiration_date"].isoformat() for r in rows})
+            for c in data["calls"] + data["puts"]:
+                c["has_position"] = c["contract"] in open_contracts
+        except Exception:
+            pass
+
+    return data
+
+
+@app.get("/api/options/trader/ticker-meta")
+async def get_trader_ticker_meta(ticker: str, token: str = ""):
+    """Earnings date, ex-dividend date and current price for chart markers."""
+    check_token(token)
+    import asyncio as _asyncio
+
+    def _fetch(sym: str) -> dict:
+        import yfinance as _yf
+        from datetime import datetime as _dt
+        try:
+            t = _yf.Ticker(sym)
+            info = t.info or {}
+            price = float(info.get("currentPrice") or info.get("regularMarketPrice")
+                          or info.get("previousClose") or 0)
+            ex_date = None
+            ex_raw = info.get("exDividendDate")
+            if ex_raw:
+                try:
+                    ex_date = _dt.fromtimestamp(float(ex_raw)).strftime("%Y-%m-%d")
+                except Exception:
+                    pass
+            earnings_date = None
+            try:
+                cal = t.calendar
+                if cal is not None and not cal.empty:
+                    col = None
+                    for c in ("Earnings Date", "earningsDate"):
+                        if c in cal.columns:
+                            col = c; break
+                    if col:
+                        ed = cal[col].iloc[0]
+                        if hasattr(ed, "strftime"):
+                            earnings_date = ed.strftime("%Y-%m-%d")
+            except Exception:
+                pass
+            return {
+                "ticker": sym,
+                "price": round(price, 2) if price else None,
+                "ex_dividend_date": ex_date,
+                "earnings_date": earnings_date,
+                "company_name": info.get("longName", ""),
+            }
+        except Exception as e:
+            return {"ticker": sym, "price": None, "ex_dividend_date": None,
+                    "earnings_date": None, "error": str(e)}
+
+    loop = _asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _fetch, ticker.upper())
+
+
+@app.get("/api/options/trader/risk")
+async def get_trader_risk_data(account: str = "", token: str = ""):
+    """Risk calculator: available cash, open position count, portfolio risk gauge."""
+    check_token(token)
+
+    cash = 0.0
+    try:
+        pos_data = _positions_cache.get("data") or {}
+        for acct in pos_data.get("accounts", []):
+            if account and acct.get("label", "") != account:
+                continue
+            for bal in acct.get("balances", []):
+                c = float(bal.get("cash") or bal.get("buying_power")
+                          or bal.get("net_liquidation") or 0)
+                cash += c
+    except Exception:
+        pass
+
+    position_count = 0
+    total_risk = 0.0
+    positions_risk: list[dict] = []
+    if DB_URL:
+        try:
+            pool = await _get_db_pool()
+            rows = await pool.fetch(
+                """SELECT underlying, qty, entry_price, strike, option_type,
+                          expiration_date, account_label
+                   FROM option_positions WHERE status='active'
+                   AND ($1 = '' OR account_label = $1)""",
+                account,
+            )
+            position_count = len(rows)
+            for r in rows:
+                max_loss = float(r["entry_price"] or 0) * float(r["qty"] or 0) * 100
+                total_risk += max_loss
+                positions_risk.append({
+                    "underlying":  r["underlying"],
+                    "option_type": r["option_type"],
+                    "strike":      float(r["strike"] or 0),
+                    "expiration":  r["expiration_date"].isoformat() if r["expiration_date"] else "",
+                    "qty":         float(r["qty"] or 0),
+                    "max_loss":    round(max_loss, 2),
+                    "account":     r["account_label"],
+                })
+        except Exception:
+            pass
+
+    portfolio_value = cash + total_risk
+    risk_fraction = round(total_risk / portfolio_value, 4) if portfolio_value > 0 else 0.0
+
+    return {
+        "available_cash":  round(cash, 2),
+        "position_count":  position_count,
+        "total_risk":      round(total_risk, 2),
+        "risk_fraction":   risk_fraction,
+        "positions_risk":  positions_risk,
+    }
+
+
 # ── Serve frontend ────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)

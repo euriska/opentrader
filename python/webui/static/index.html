@@ -309,6 +309,10 @@ select option{background:var(--surface2)}
         <span class="nav-dot" style="background:#e879f9"></span>
         Expiry Calendar
       </div>
+      <div class="nav-item" draggable="true" onclick="navigate('page-options-trader')" data-page="page-options-trader">
+        <span class="nav-dot" style="background:#06b6d4"></span>
+        Options Trader
+      </div>
     </div>
     <div class="nav-group" data-group="plan">
       <div class="nav-label">Trading Plan</div>
@@ -2217,6 +2221,213 @@ select option{background:var(--surface2)}
     </div><!-- /page-options-expiry -->
 
     <!-- ════════════════════════════════════════
+         PAGE: Options Trader
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-options-trader">
+
+      <!-- Top bar -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+        <div style="font-size:16px;font-weight:700;color:var(--fg);flex:1">Options Trader</div>
+        <label style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em">Account:</label>
+        <select id="ot-account-select" onchange="_otSelectAccount(this.value)"
+          style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:12px;min-width:170px">
+          <option value="">All Accounts</option>
+        </select>
+        <button onclick="_otRefreshAll()" style="background:var(--blue);color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">↻ Refresh</button>
+      </div>
+
+      <!-- Main grid: left sidebar + right content area -->
+      <div style="display:grid;grid-template-columns:270px 1fr;gap:12px;align-items:start">
+
+        <!-- ── LEFT COLUMN ── -->
+        <div style="display:flex;flex-direction:column;gap:10px">
+
+          <!-- Open Positions -->
+          <div class="card">
+            <div class="card-header" style="padding:8px 12px;display:flex;align-items:center;justify-content:space-between">
+              <span class="card-title" style="font-size:12px">Open Positions</span>
+              <span id="ot-pos-count" style="font-size:10px;color:var(--muted)">—</span>
+            </div>
+            <div id="ot-positions-list" style="max-height:340px;overflow-y:auto;padding:6px 0">
+              <div style="text-align:center;color:var(--muted);font-size:12px;padding:20px">Loading…</div>
+            </div>
+          </div>
+
+          <!-- OVTLYR Buy Signals -->
+          <div class="card">
+            <div class="card-header" style="padding:8px 12px;display:flex;align-items:center;justify-content:space-between">
+              <span class="card-title" style="font-size:12px">OVTLYR Buy Signals</span>
+              <span id="ot-buys-count" style="font-size:10px;color:var(--muted)">—</span>
+            </div>
+            <div id="ot-buys-list" style="max-height:340px;overflow-y:auto;padding:6px 0">
+              <div style="text-align:center;color:var(--muted);font-size:12px;padding:20px">Loading…</div>
+            </div>
+          </div>
+
+        </div><!-- /left column -->
+
+        <!-- ── RIGHT COLUMN ── -->
+        <div style="display:flex;flex-direction:column;gap:10px">
+
+          <!-- Chart card -->
+          <div class="card">
+            <div class="card-header" style="padding:8px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <span id="ot-chart-title" class="card-title" style="font-size:12px">Chart</span>
+              <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+                <input id="ot-chart-symbol" type="text" placeholder="AAPL"
+                  style="background:var(--input-bg,#0d1117);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:4px 9px;font-size:12px;width:80px;text-transform:uppercase"
+                  onkeydown="if(event.key==='Enter')_otLoadChart(this.value.trim().toUpperCase())">
+                <button onclick="_otLoadChart(document.getElementById('ot-chart-symbol').value.trim().toUpperCase())"
+                  style="background:rgba(59,130,246,.2);color:#60a5fa;border:1px solid rgba(59,130,246,.3);padding:4px 12px;border-radius:5px;font-size:11px;cursor:pointer">Load</button>
+                <select id="ot-chart-tf" onchange="_otLoadChart(_otActiveTicker)"
+                  style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:11px">
+                  <option value="1d" selected>1D</option>
+                  <option value="4h">4H</option>
+                  <option value="1h">1H</option>
+                  <option value="1w">1W</option>
+                </select>
+              </div>
+            </div>
+            <!-- Chart legend -->
+            <div id="ot-chart-legend" style="display:none;padding:4px 14px 0;font-size:10px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap">
+              <span><span style="color:#4ade80">&#9644;</span> EMA10</span>
+              <span><span style="color:#3b82f6">&#9644;</span> EMA20</span>
+              <span><span style="color:#f59e0b">&#9644;</span> EMA50</span>
+              <span id="ot-chart-meta" style="margin-left:auto"></span>
+            </div>
+            <div id="ot-chart-placeholder" style="height:340px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px">
+              Select a ticker or position to load chart
+            </div>
+            <div id="ot-chart-container" style="height:340px;display:none"></div>
+            <!-- Earnings / ex-div marker legend -->
+            <div id="ot-chart-markers-legend" style="display:none;padding:4px 14px 6px;font-size:10px;color:var(--muted);display:flex;gap:16px">
+              <span><span style="color:#f59e0b">▲</span> Earnings</span>
+              <span><span style="color:#22c55e">◆</span> Ex-Dividend</span>
+            </div>
+          </div>
+
+          <!-- Options Chain card -->
+          <div class="card">
+            <div class="card-header" style="padding:8px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <span class="card-title" style="font-size:12px">Options Chain — <span id="ot-chain-ticker">—</span></span>
+              <span id="ot-chain-price" style="font-size:11px;color:var(--muted)"></span>
+              <div style="display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap">
+                <select id="ot-chain-expiry" onchange="_otFilterChain()"
+                  style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:4px 9px;font-size:11px">
+                  <option value="">All Expirations</option>
+                </select>
+                <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer">
+                  <input type="checkbox" id="ot-show-puts" checked onchange="_otFilterChain()"> Puts
+                </label>
+                <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer">
+                  <input type="checkbox" id="ot-near-money" checked onchange="_otFilterChain()"> Near ATM
+                </label>
+              </div>
+            </div>
+            <!-- Chain loading state -->
+            <div id="ot-chain-loading" style="display:none;text-align:center;padding:20px;color:var(--muted);font-size:12px">Loading options chain…</div>
+            <!-- Chain table wrapper -->
+            <div id="ot-chain-wrap" style="overflow-x:auto;max-height:380px;overflow-y:auto">
+              <div style="text-align:center;color:var(--muted);font-size:12px;padding:30px">
+                Select a ticker to load the options chain
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /right column -->
+      </div><!-- /main grid -->
+
+      <!-- Risk / Sizing Calculator (shown when a ticker/position is selected) -->
+      <div id="ot-risk-panel" style="display:none;margin-top:12px">
+        <div class="card">
+          <div class="card-header" style="padding:8px 14px;display:flex;align-items:center;justify-content:space-between">
+            <span class="card-title" style="font-size:12px">Risk &amp; Sizing Calculator — <span id="ot-risk-ticker" style="color:#60a5fa">—</span></span>
+            <span onclick="document.getElementById('ot-risk-panel').style.display='none'"
+              style="font-size:11px;color:var(--muted);cursor:pointer">✕ Close</span>
+          </div>
+          <div style="padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;align-items:start">
+
+            <!-- Cash + positions summary -->
+            <div>
+              <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Portfolio</div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;justify-content:space-between;font-size:12px">
+                  <span style="color:var(--muted)">Available Cash</span>
+                  <strong id="ot-risk-cash" style="color:#4ade80">—</strong>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:12px">
+                  <span style="color:var(--muted)">Open Positions</span>
+                  <strong id="ot-risk-pos-count" style="color:var(--fg)">—</strong>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:12px">
+                  <span style="color:var(--muted)">Capital at Risk</span>
+                  <strong id="ot-risk-total" style="color:#f87171">—</strong>
+                </div>
+              </div>
+            </div>
+
+            <!-- Risk gauge -->
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+              <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Portfolio Risk</div>
+              <svg id="ot-risk-gauge" width="140" height="80" viewBox="0 0 140 80">
+                <!-- Background arc -->
+                <path d="M15,70 A55,55 0 0,1 125,70" fill="none" stroke="var(--border)" stroke-width="12" stroke-linecap="round"/>
+                <!-- Filled arc (JS sets stroke-dasharray) -->
+                <path id="ot-gauge-fill" d="M15,70 A55,55 0 0,1 125,70" fill="none" stroke="#4ade80"
+                  stroke-width="12" stroke-linecap="round"
+                  stroke-dasharray="0 173" style="transition:stroke-dasharray .6s,stroke .4s"/>
+                <!-- Needle -->
+                <line id="ot-gauge-needle" x1="70" y1="70" x2="70" y2="22"
+                  stroke="var(--fg)" stroke-width="2" stroke-linecap="round"
+                  style="transform-origin:70px 70px;transform:rotate(0deg);transition:transform .6s"/>
+                <circle cx="70" cy="70" r="4" fill="var(--fg)"/>
+                <!-- Labels -->
+                <text x="10" y="78" font-size="8" fill="var(--muted)">0%</text>
+                <text x="62" y="18" font-size="8" fill="var(--muted)" text-anchor="middle">50%</text>
+                <text x="122" y="78" font-size="8" fill="var(--muted)" text-anchor="end">100%</text>
+              </svg>
+              <div id="ot-gauge-label" style="font-size:13px;font-weight:700;color:#4ade80">0%</div>
+            </div>
+
+            <!-- Sizing input -->
+            <div>
+              <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Position Sizing</div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div>
+                  <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Risk per trade (%)</div>
+                  <input id="ot-risk-pct" type="number" value="2" min="0.1" max="10" step="0.1"
+                    onchange="_otCalcSizing()"
+                    style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:5px 9px;font-size:12px;width:100%">
+                </div>
+                <div>
+                  <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Option Premium ($)</div>
+                  <input id="ot-risk-premium" type="number" min="0.01" step="0.01" placeholder="e.g. 2.50"
+                    onchange="_otCalcSizing()"
+                    style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:5px 9px;font-size:12px;width:100%">
+                </div>
+                <div style="padding:8px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);border-radius:6px">
+                  <div style="font-size:10px;color:var(--muted)">Suggested Contracts</div>
+                  <div id="ot-risk-contracts" style="font-size:18px;font-weight:700;color:#818cf8">—</div>
+                  <div id="ot-risk-cost" style="font-size:10px;color:var(--muted)">Total cost: —</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Position breakdown -->
+            <div>
+              <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Risk by Position</div>
+              <div id="ot-risk-breakdown" style="max-height:120px;overflow-y:auto;display:flex;flex-direction:column;gap:4px">
+                <div style="font-size:11px;color:var(--muted)">—</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div><!-- /risk panel -->
+
+    </div><!-- /page-options-trader -->
+
+    <!-- ════════════════════════════════════════
          PAGE: Price Alerts
     ════════════════════════════════════════ -->
     <div class="page" id="page-trading-alerts">
@@ -3108,6 +3319,7 @@ const PAGE_TITLES = {
   'page-trading-options':    'Options Dashboard',
   'page-options-log':        'Options Trading Log',
   'page-options-expiry':     'Options Expiry Calendar',
+  'page-options-trader':     'Options Trader',
   'page-trading-charts':     'Charts',
   'page-trading-directives': 'Trade Directives',
   'page-plan-engineer':      'Strategy Engineer',
@@ -3239,6 +3451,7 @@ function navigate(pageId) {
     case 'page-trading-options':    loadOptionsPositions(); loadOptionsGreeksPanel(); loadOptionsPerformancePanel(); break;
     case 'page-options-log':        loadOptionsLog(); loadOptionsPerformancePanel(); break;
     case 'page-options-expiry':     loadOptionsExpiryCalendar(); break;
+    case 'page-options-trader':     loadOptionsTraderPage(); break;
     case 'page-trading-charts':     loadChartsPage();       break;
     case 'page-trading-directives': loadDirectivesPage();   break;
     case 'page-plan-engineer':      loadEngineerPage();     break;
@@ -14692,6 +14905,508 @@ async function _journalSave() {
   } catch(e) {
     toast('error', 'Save failed', e.message);
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Options Trader Page
+// ══════════════════════════════════════════════════════════════════════════════
+
+let _otChartInst   = null;   // LightweightCharts instance
+let _otActiveTicker = '';    // currently selected ticker
+let _otChainData   = null;   // raw chain data {calls, puts, price, expirations, open_expiries}
+let _otRiskData    = null;   // risk API response
+let _otPositions   = [];     // open option positions
+
+async function loadOptionsTraderPage() {
+  await _ensureLwc(() => {});  // pre-load charting lib
+  _otLoadPositions();
+  _otLoadBuys();
+  _otLoadRisk();
+  _otPopulateAccounts();
+}
+
+async function _otPopulateAccounts() {
+  const sel = document.getElementById('ot-account-select');
+  if (!sel) return;
+  try {
+    const data = await apiFetch('/api/broker/positions');
+    const accounts = data.accounts || [];
+    // Remove stale options, keep "All"
+    while (sel.options.length > 1) sel.remove(1);
+    accounts.forEach(a => {
+      const opt = document.createElement('option');
+      opt.value = a.label || a.name || '';
+      opt.textContent = a.name || a.label || a.broker || '?';
+      sel.appendChild(opt);
+    });
+  } catch(e) { /* best effort */ }
+}
+
+async function _otLoadPositions() {
+  const el = document.getElementById('ot-positions-list');
+  if (!el) return;
+  const account = (document.getElementById('ot-account-select')?.value || '');
+  try {
+    const data = await apiFetch('/api/options/positions?status=active');
+    let positions = data.positions || data || [];
+    if (account) positions = positions.filter(p => p.account_label === account);
+    _otPositions = positions;
+    document.getElementById('ot-pos-count').textContent = positions.length + ' open';
+    if (!positions.length) {
+      el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:20px">No open positions</div>';
+      return;
+    }
+    el.innerHTML = positions.map(p => {
+      const dte = p.dte != null ? p.dte + 'd' : '—';
+      const typeColor = p.option_type === 'call' ? '#4ade80' : '#f87171';
+      const typeLabel = (p.option_type || '?').toUpperCase();
+      return `<div onclick="_otSelectPosition('${p.id}','${p.underlying}')"
+        style="display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s"
+        onmouseenter="this.style.background='rgba(255,255,255,.04)'" onmouseleave="this.style.background=''">
+        <span style="font-weight:700;font-size:12px;color:#60a5fa;min-width:44px">${p.underlying}</span>
+        <span style="font-size:10px;color:${typeColor};background:${typeColor}20;padding:1px 5px;border-radius:3px">${typeLabel}</span>
+        <span style="font-size:11px;color:var(--muted);flex:1">$${Number(p.strike).toFixed(0)}</span>
+        <span style="font-size:10px;color:var(--muted)">${dte}</span>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:12px">Error: ${e.message}</div>`;
+  }
+}
+
+async function _otLoadBuys() {
+  const el = document.getElementById('ot-buys-list');
+  if (!el) return;
+  try {
+    const data = await apiFetch('/api/options/trader/buys');
+    const buys = data.buys || [];
+    document.getElementById('ot-buys-count').textContent = buys.length + ' signals';
+    if (!buys.length) {
+      el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:20px">No buy signals</div>';
+      return;
+    }
+    el.innerHTML = buys.map(b => {
+      const score = b.nine_score != null ? b.nine_score : '—';
+      const scoreColor = b.nine_score >= 7 ? '#4ade80' : b.nine_score >= 4 ? '#facc15' : '#94a3b8';
+      const price = b.last_price != null ? '$' + Number(b.last_price).toFixed(2) : '—';
+      return `<div onclick="_otSelectTicker('${b.ticker}')"
+        style="display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s"
+        onmouseenter="this.style.background='rgba(255,255,255,.04)'" onmouseleave="this.style.background=''">
+        <span style="font-weight:700;font-size:12px;color:#60a5fa;min-width:44px">${b.ticker}</span>
+        <span style="font-size:10px;color:${scoreColor};background:${scoreColor}18;padding:1px 6px;border-radius:3px;font-weight:700">${score}/9</span>
+        <span style="font-size:11px;color:var(--muted);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${b.name || ''}</span>
+        <span style="font-size:10px;color:var(--muted)">${price}</span>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:12px">Error: ${e.message}</div>`;
+  }
+}
+
+async function _otLoadRisk(account) {
+  const acct = account || document.getElementById('ot-account-select')?.value || '';
+  try {
+    _otRiskData = await apiFetch(`/api/options/trader/risk?account=${encodeURIComponent(acct)}`);
+  } catch(e) { _otRiskData = null; }
+}
+
+function _otSelectAccount(acct) {
+  _otLoadPositions();
+  _otLoadRisk(acct);
+}
+
+function _otRefreshAll() {
+  _otLoadPositions();
+  _otLoadBuys();
+  _otLoadRisk();
+  if (_otActiveTicker) {
+    _otLoadChart(_otActiveTicker);
+    _otLoadChain(_otActiveTicker);
+  }
+}
+
+function _otSelectTicker(ticker) {
+  if (!ticker) return;
+  _otActiveTicker = ticker;
+  document.getElementById('ot-chart-symbol').value = ticker;
+  _otLoadChart(ticker);
+  _otLoadChain(ticker);
+  // Show risk panel with current ticker
+  document.getElementById('ot-risk-ticker').textContent = ticker;
+  document.getElementById('ot-risk-panel').style.display = '';
+  _otRenderRiskPanel();
+}
+
+function _otSelectPosition(posId, ticker) {
+  _otSelectTicker(ticker);
+  // Pre-fill premium from matching position
+  const pos = _otPositions.find(p => p.id === posId);
+  if (pos?.entry_price) {
+    document.getElementById('ot-risk-premium').value = Number(pos.entry_price).toFixed(2);
+    _otCalcSizing();
+  }
+  // Highlight selected row
+  document.querySelectorAll('#ot-positions-list > div').forEach(d => d.style.background = '');
+  event?.currentTarget?.style && (event.currentTarget.style.background = 'rgba(96,165,250,.12)');
+}
+
+async function _otLoadChart(ticker) {
+  if (!ticker) return;
+  _otActiveTicker = ticker;
+  const tf = document.getElementById('ot-chart-tf')?.value || '1d';
+  const container = document.getElementById('ot-chart-container');
+  const placeholder = document.getElementById('ot-chart-placeholder');
+  const titleEl = document.getElementById('ot-chart-title');
+  if (titleEl) titleEl.textContent = `Chart — ${ticker}`;
+
+  placeholder.textContent = 'Loading chart…';
+  placeholder.style.display = 'flex';
+  container.style.display = 'none';
+  container.innerHTML = '';
+
+  if (_otChartInst) { try { _otChartInst.remove(); } catch(_){} _otChartInst = null; }
+
+  await new Promise(r => _ensureLwc(r));
+
+  try {
+    const [d, meta] = await Promise.all([
+      apiFetch(`/api/charts/data?symbol=${encodeURIComponent(ticker)}&timeframe=${tf}&bars=200`),
+      apiFetch(`/api/options/trader/ticker-meta?ticker=${encodeURIComponent(ticker)}`).catch(() => ({})),
+    ]);
+    const candles = (d.ohlcv || []).filter(c => c.open && c.high && c.low && c.close)
+                                   .sort((a, b) => a.time - b.time);
+    if (!candles.length) { placeholder.textContent = `No data for ${ticker}`; return; }
+
+    placeholder.style.display = 'none';
+    container.style.display = '';
+
+    const chartDiv = document.createElement('div');
+    chartDiv.style.cssText = 'width:100%;height:340px';
+    container.appendChild(chartDiv);
+
+    const LC = LightweightCharts;
+    const chart = LC.createChart(chartDiv, {
+      layout:   { background: { color: '#0a0e1a' }, textColor: '#94a3b8' },
+      grid:     { vertLines: { color: '#1e2a4a' }, horzLines: { color: '#1e2a4a' } },
+      crosshair:{ mode: LC.CrosshairMode.Normal },
+      rightPriceScale: { borderColor: '#1e2a4a' },
+      timeScale: { borderColor: '#1e2a4a', timeVisible: false },
+      width: chartDiv.clientWidth, height: 340,
+    });
+    _otChartInst = chart;
+    new ResizeObserver(() => chart.applyOptions({ width: chartDiv.clientWidth })).observe(chartDiv);
+
+    const closes = candles.map(c => c.close);
+    const times  = candles.map(c => c.time);
+    function toSeries(vals) {
+      return vals.map((v, i) => v != null ? { time: times[i], value: v } : null).filter(Boolean);
+    }
+
+    // Candlesticks
+    const cSeries = chart.addCandlestickSeries({
+      upColor:'#22c55e', downColor:'#ef4444',
+      borderUpColor:'#22c55e', borderDownColor:'#ef4444',
+      wickUpColor:'#22c55e', wickDownColor:'#ef4444',
+    });
+    cSeries.setData(candles);
+
+    // Volume
+    const vSeries = chart.addHistogramSeries({
+      priceFormat: { type: 'volume' }, priceScaleId: 'vol',
+      scaleMargins: { top: 0.84, bottom: 0 },
+    });
+    vSeries.setData(candles.map(c => ({
+      time: c.time, value: c.volume,
+      color: c.close >= c.open ? 'rgba(34,197,94,.25)' : 'rgba(239,68,68,.25)',
+    })));
+
+    // EMAs
+    function addLine(vals, color, title) {
+      const s = chart.addLineSeries({ color, lineWidth: 1, title, lastValueVisible: true, priceLineVisible: false });
+      s.setData(toSeries(vals));
+    }
+    addLine(_calcEMA(closes, 10), '#4ade80', 'EMA10');
+    addLine(_calcEMA(closes, 20), '#3b82f6', 'EMA20');
+    addLine(_calcEMA(closes, 50), '#f59e0b', 'EMA50');
+
+    // Markers: earnings + ex-dividend
+    const markers = [];
+    if (meta?.earnings_date) {
+      const ts = Math.floor(new Date(meta.earnings_date + 'T12:00:00').getTime() / 1000);
+      markers.push({ time: ts, position: 'aboveBar', color: '#f59e0b', shape: 'arrowDown', text: 'Earnings' });
+    }
+    if (meta?.ex_dividend_date) {
+      const ts = Math.floor(new Date(meta.ex_dividend_date + 'T12:00:00').getTime() / 1000);
+      markers.push({ time: ts, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'Ex-Div' });
+    }
+    // Mark existing position entry price as a horizontal line
+    const myPos = _otPositions.find(p => p.underlying === ticker);
+    if (myPos?.underlying_entry) {
+      const entryLine = chart.addLineSeries({
+        color: 'rgba(96,165,250,.7)', lineWidth: 1, lineStyle: LC.LineStyle.Dashed,
+        title: `Entry $${Number(myPos.underlying_entry).toFixed(2)}`,
+        lastValueVisible: true, priceLineVisible: false,
+      });
+      entryLine.setData(times.map(t => ({ time: t, value: myPos.underlying_entry })));
+    }
+    if (markers.length) cSeries.setMarkers(markers.sort((a, b) => a.time - b.time));
+
+    chart.timeScale().fitContent();
+
+    // Update legend
+    const last = candles[candles.length - 1];
+    const prev = candles[candles.length - 2];
+    const metaEl = document.getElementById('ot-chart-meta');
+    if (last && prev && metaEl) {
+      const chg = last.close - prev.close;
+      const pct = (chg / prev.close * 100).toFixed(2);
+      const clr = chg >= 0 ? '#22c55e' : '#ef4444';
+      metaEl.innerHTML = `<span style="color:${clr}">${chg >= 0 ? '+' : ''}${pct}%</span>
+        <span style="margin-left:6px;color:var(--fg)">$${last.close.toFixed(2)}</span>`;
+    }
+    document.getElementById('ot-chart-legend').style.display = 'flex';
+    const markLegend = document.getElementById('ot-chart-markers-legend');
+    if (markLegend) markLegend.style.display = markers.length ? 'flex' : 'none';
+
+  } catch(e) {
+    placeholder.textContent = `Error: ${e.message}`;
+    placeholder.style.display = 'flex';
+    container.style.display = 'none';
+  }
+}
+
+async function _otLoadChain(ticker) {
+  if (!ticker) return;
+  const loading  = document.getElementById('ot-chain-loading');
+  const wrap     = document.getElementById('ot-chain-wrap');
+  const tickerEl = document.getElementById('ot-chain-ticker');
+  const priceEl  = document.getElementById('ot-chain-price');
+  const expSel   = document.getElementById('ot-chain-expiry');
+
+  if (tickerEl) tickerEl.textContent = ticker;
+  loading.style.display = '';
+  wrap.innerHTML = '';
+
+  try {
+    const data = await apiFetch(`/api/options/trader/chain?ticker=${encodeURIComponent(ticker)}`);
+    _otChainData = data;
+    loading.style.display = 'none';
+
+    if (priceEl) priceEl.textContent = data.price ? `$${data.price.toFixed(2)}` : '';
+
+    // Populate expiry selector
+    while (expSel.options.length > 1) expSel.remove(1);
+    (data.expirations || []).forEach(exp => {
+      const opt = document.createElement('option');
+      opt.value = exp;
+      const hasPos = (data.open_expiries || []).includes(exp);
+      opt.textContent = exp + (hasPos ? ' ●' : '');
+      if (hasPos) opt.style.color = '#60a5fa';
+      expSel.appendChild(opt);
+    });
+
+    _otFilterChain();
+  } catch(e) {
+    loading.style.display = 'none';
+    wrap.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:20px">Error: ${e.message}</div>`;
+  }
+}
+
+function _otFilterChain() {
+  const data = _otChainData;
+  const wrap = document.getElementById('ot-chain-wrap');
+  if (!data || !wrap) return;
+
+  const showPuts   = document.getElementById('ot-show-puts')?.checked;
+  const nearMoney  = document.getElementById('ot-near-money')?.checked;
+  const selExpiry  = document.getElementById('ot-chain-expiry')?.value || '';
+  const price      = data.price || 0;
+
+  let calls = data.calls || [];
+  let puts  = data.puts  || [];
+
+  if (selExpiry) {
+    calls = calls.filter(c => c.expiration === selExpiry);
+    puts  = puts.filter(c => c.expiration === selExpiry);
+  }
+  if (nearMoney && price) {
+    const range = price * 0.15;
+    calls = calls.filter(c => Math.abs(c.strike - price) <= range);
+    puts  = puts.filter(c => Math.abs(c.strike - price) <= range);
+  }
+
+  // Build table: calls | strike | puts side-by-side, keyed by (strike, expiry)
+  const strikeMap = new Map();
+  calls.forEach(c => {
+    const key = c.expiration + '|' + c.strike;
+    if (!strikeMap.has(key)) strikeMap.set(key, { strike: c.strike, exp: c.expiration, call: null, put: null });
+    strikeMap.get(key).call = c;
+  });
+  puts.forEach(c => {
+    const key = c.expiration + '|' + c.strike;
+    if (!strikeMap.has(key)) strikeMap.set(key, { strike: c.strike, exp: c.expiration, call: null, put: null });
+    strikeMap.get(key).put = c;
+  });
+
+  const rows = [...strikeMap.values()].sort((a, b) => a.strike - b.strike || a.exp.localeCompare(b.exp));
+
+  const openExpiries = new Set(data.open_expiries || []);
+  const fmt2 = v => v != null ? v.toFixed(2) : '—';
+  const fmtPct = v => v != null ? (v * 100).toFixed(1) + '%' : '—';
+
+  const callHdr = `<th style="padding:5px 7px;text-align:right;white-space:nowrap">Bid</th>
+    <th style="padding:5px 7px;text-align:right">Ask</th>
+    <th style="padding:5px 7px;text-align:right">Mid</th>
+    <th style="padding:5px 7px;text-align:right;color:#a5d6ff">Extrinsic</th>
+    <th style="padding:5px 7px;text-align:right">Delta</th>
+    <th style="padding:5px 7px;text-align:right">IV</th>
+    <th style="padding:5px 7px;text-align:right">OI</th>`;
+
+  const putHdr = `<th style="padding:5px 7px;text-align:right">Bid</th>
+    <th style="padding:5px 7px;text-align:right">Ask</th>
+    <th style="padding:5px 7px;text-align:right">Mid</th>
+    <th style="padding:5px 7px;text-align:right;color:#a5d6ff">Extrinsic</th>
+    <th style="padding:5px 7px;text-align:right">Delta</th>
+    <th style="padding:5px 7px;text-align:right">IV</th>
+    <th style="padding:5px 7px;text-align:right">OI</th>`;
+
+  function cellsFor(c, isCall) {
+    if (!c) return `<td colspan="7" style="background:rgba(0,0,0,.2)"></td>`;
+    const posStyle = c.has_position ? 'background:rgba(96,165,250,.15);' : '';
+    const itm = c.itm ? (isCall ? 'rgba(34,197,94,.08)' : 'rgba(239,68,68,.08)') : '';
+    const bg = c.has_position ? 'background:rgba(96,165,250,.18);' : (itm ? `background:${itm};` : '');
+    return `<td style="padding:4px 7px;text-align:right;${bg}">${fmt2(c.bid)}</td>
+      <td style="padding:4px 7px;text-align:right;${bg}">${fmt2(c.ask)}</td>
+      <td style="padding:4px 7px;text-align:right;${bg}font-weight:${c.has_position?'700':'400'};color:${c.has_position?'#93c5fd':'inherit'}">${fmt2(c.mid)}</td>
+      <td style="padding:4px 7px;text-align:right;${bg}color:#a5d6ff">${fmt2(c.extrinsic)}</td>
+      <td style="padding:4px 7px;text-align:right;${bg}">${fmt2(c.delta)}</td>
+      <td style="padding:4px 7px;text-align:right;${bg}">${fmtPct(c.iv)}</td>
+      <td style="padding:4px 7px;text-align:right;${bg}">${c.oi != null ? c.oi.toLocaleString() : '—'}</td>`;
+  }
+
+  let lastExp = '';
+  const bodyRows = rows.map(r => {
+    const isAtm  = price && Math.abs(r.strike - price) < (price * 0.005);
+    const atmSty = isAtm ? 'border-top:1px solid rgba(245,158,11,.5);border-bottom:1px solid rgba(245,158,11,.5);' : '';
+    const hasPos = openExpiries.has(r.exp);
+    let expHeader = '';
+    if (r.exp !== lastExp) {
+      lastExp = r.exp;
+      const dot = hasPos ? ' <span style="color:#60a5fa;font-size:9px">●</span>' : '';
+      expHeader = `<tr><td colspan="${showPuts ? 16 : 9}" style="background:rgba(255,255,255,.04);padding:4px 10px;font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.06em;text-transform:uppercase">
+        ${r.exp}${dot}
+      </td></tr>`;
+    }
+    const strikeSty = `padding:4px 10px;text-align:center;font-weight:700;font-size:12px;background:var(--card-header);${atmSty}`;
+    const putsHtml = showPuts ? cellsFor(r.put, false) : '';
+    return expHeader + `<tr style="border-bottom:1px solid rgba(255,255,255,.03);${atmSty}">
+      ${cellsFor(r.call, true)}
+      <td style="${strikeSty}">${r.strike.toFixed(0)}</td>
+      ${putsHtml}
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:11px">
+    <thead>
+      <tr style="background:var(--card-header);color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.06em;position:sticky;top:0;z-index:2">
+        ${callHdr}
+        <th style="padding:5px 10px;text-align:center;font-size:12px;background:var(--card-header)">Strike</th>
+        ${showPuts ? putHdr : ''}
+      </tr>
+    </thead>
+    <tbody>${bodyRows}</tbody>
+  </table>`;
+
+  // Click on chain row to pre-fill premium in risk calc
+  wrap.querySelectorAll('tbody tr').forEach(tr => {
+    tr.style.cursor = 'pointer';
+    tr.addEventListener('mouseenter', () => tr.style.background = 'rgba(255,255,255,.03)');
+    tr.addEventListener('mouseleave', () => tr.style.background = '');
+    tr.addEventListener('click', () => {
+      const midCell = tr.querySelectorAll('td')[2];
+      if (midCell) {
+        const v = parseFloat(midCell.textContent);
+        if (!isNaN(v)) {
+          document.getElementById('ot-risk-premium').value = v.toFixed(2);
+          document.getElementById('ot-risk-panel').style.display = '';
+          document.getElementById('ot-risk-ticker').textContent = _otActiveTicker;
+          _otRenderRiskPanel();
+          _otCalcSizing();
+        }
+      }
+    });
+  });
+}
+
+function _otRenderRiskPanel() {
+  const d = _otRiskData;
+  if (!d) return;
+  const fmt$ = v => v != null ? '$' + Number(v).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
+
+  document.getElementById('ot-risk-cash').textContent     = fmt$(d.available_cash);
+  document.getElementById('ot-risk-pos-count').textContent = d.position_count ?? '—';
+  document.getElementById('ot-risk-total').textContent    = fmt$(d.total_risk);
+
+  // Gauge
+  const frac  = Math.min(1, Math.max(0, d.risk_fraction || 0));
+  const pct   = Math.round(frac * 100);
+  const ARC   = 173;  // total arc length in SVG units
+  const fill  = Math.round(frac * ARC);
+  const gaugeFill   = document.getElementById('ot-gauge-fill');
+  const gaugeNeedle = document.getElementById('ot-gauge-needle');
+  const gaugeLabel  = document.getElementById('ot-gauge-label');
+  const color = frac < 0.3 ? '#4ade80' : frac < 0.6 ? '#facc15' : '#f87171';
+  if (gaugeFill) {
+    gaugeFill.setAttribute('stroke-dasharray', `${fill} ${ARC}`);
+    gaugeFill.setAttribute('stroke', color);
+  }
+  if (gaugeNeedle) {
+    const deg = -90 + frac * 180;
+    gaugeNeedle.style.transform = `rotate(${deg}deg)`;
+  }
+  if (gaugeLabel) { gaugeLabel.textContent = pct + '%'; gaugeLabel.style.color = color; }
+
+  // Breakdown
+  const bd = document.getElementById('ot-risk-breakdown');
+  if (bd && d.positions_risk?.length) {
+    bd.innerHTML = d.positions_risk.map(p =>
+      `<div style="display:flex;justify-content:space-between;font-size:11px">
+        <span style="color:var(--muted)">${p.underlying} ${p.option_type?.toUpperCase() || ''} $${p.strike.toFixed(0)}</span>
+        <span style="color:#f87171">-${fmt$(p.max_loss)}</span>
+      </div>`
+    ).join('');
+  } else if (bd) {
+    bd.innerHTML = '<div style="font-size:11px;color:var(--muted)">No positions</div>';
+  }
+
+  _otCalcSizing();
+}
+
+function _otCalcSizing() {
+  const d = _otRiskData;
+  const contractsEl = document.getElementById('ot-risk-contracts');
+  const costEl      = document.getElementById('ot-risk-cost');
+  if (!contractsEl) return;
+
+  const cash    = d?.available_cash || 0;
+  const riskPct = parseFloat(document.getElementById('ot-risk-pct')?.value) || 2;
+  const premium = parseFloat(document.getElementById('ot-risk-premium')?.value) || 0;
+
+  if (!cash || !premium) {
+    contractsEl.textContent = '—';
+    if (costEl) costEl.textContent = 'Enter premium above';
+    return;
+  }
+
+  const riskBudget   = cash * (riskPct / 100);
+  const costPerContract = premium * 100;
+  const contracts    = Math.floor(riskBudget / costPerContract);
+  const totalCost    = contracts * costPerContract;
+
+  contractsEl.textContent = contracts > 0 ? contracts : '< 1';
+  if (costEl) costEl.textContent = contracts > 0
+    ? `Total cost: $${totalCost.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`
+    : 'Insufficient cash for 1 contract';
 }
 </script>
 
