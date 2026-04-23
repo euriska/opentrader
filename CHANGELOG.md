@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.87] - 2026-04-23
+
+### Changed
+- **Options Trader — chain source**: replaced Yahoo Finance with Tradier API (live or sandbox); falls back to yfinance when no Tradier key is configured. All expirations fetched in parallel. Greeks (delta/gamma/theta/vega) and IV now come from Tradier's real-time chain endpoint.
+- **Options Trader — account dropdown**: now shows `display_name` env var when set, then `Broker (mode)`, instead of the raw internal label
+
 ## [3.5.86] - 2026-04-23
 
 ### Added

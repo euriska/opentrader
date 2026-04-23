@@ -8059,72 +8059,197 @@ async def get_trader_ovtlyr_buys(token: str = ""):
     return {"buys": results, "count": len(results)}
 
 
+def _tradier_keys() -> tuple[str, str]:
+    """Return (api_key, base_url) for the best available Tradier key."""
+    env = _read_env_file()
+    prod_key = env.get("TRADIER_PRODUCTION_API_KEY") or os.getenv("TRADIER_PRODUCTION_API_KEY", "")
+    sand_key = env.get("TRADIER_SANDBOX_API_KEY")    or os.getenv("TRADIER_SANDBOX_API_KEY", "")
+    if prod_key and not _is_placeholder(prod_key):
+        return prod_key, "https://api.tradier.com/v1"
+    if sand_key and not _is_placeholder(sand_key):
+        return sand_key, "https://sandbox.tradier.com/v1"
+    return "", ""
+
+
+def _chain_contract(c: dict, otype: str, price: float) -> dict:
+    """Normalise one Tradier option contract dict into our chain schema."""
+    strike    = float(c.get("strike") or 0)
+    bid       = float(c.get("bid") or 0)
+    ask       = float(c.get("ask") or 0)
+    last      = float(c.get("last") or 0)
+    mid       = round((bid + ask) / 2, 2) if bid and ask else last
+    intrinsic = round(max(0.0, price - strike) if otype == "call" else max(0.0, strike - price), 2)
+    extrinsic = round(max(0.0, mid - intrinsic), 2)
+    greeks    = c.get("greeks") or {}
+
+    def _g(key): return round(float(greeks[key]), 6) if greeks.get(key) is not None else None
+
+    iv = greeks.get("mid_iv") or greeks.get("smv_vol")
+    return {
+        "contract":   c.get("symbol", ""),
+        "strike":     strike,
+        "expiration": c.get("expiration_date", ""),
+        "bid":        bid,
+        "ask":        ask,
+        "mid":        mid,
+        "last":       last,
+        "intrinsic":  intrinsic,
+        "extrinsic":  extrinsic,
+        "iv":         round(float(iv), 4) if iv is not None else None,
+        "delta":      _g("delta"),
+        "gamma":      _g("gamma"),
+        "theta":      _g("theta"),
+        "vega":       _g("vega"),
+        "volume":     int(c.get("volume") or 0),
+        "oi":         int(c.get("open_interest") or 0),
+        "itm":        (otype == "call" and price > strike) or (otype == "put" and price < strike),
+        "has_position": False,
+    }
+
+
 @app.get("/api/options/trader/chain")
 async def get_options_chain_data(ticker: str, token: str = ""):
-    """Options chain from Yahoo Finance with extrinsic value; open positions marked."""
+    """
+    Options chain with extrinsic value; open positions marked.
+    Primary source: Tradier (live or sandbox).
+    Fallback: Yahoo Finance (yfinance) when no Tradier key is configured.
+    """
     check_token(token)
+    import aiohttp as _aiohttp
     import asyncio as _asyncio
 
-    def _fetch(sym: str) -> dict:
-        import yfinance as _yf
-        t = _yf.Ticker(sym)
-        info = t.info or {}
-        price = float(info.get("currentPrice") or info.get("regularMarketPrice")
-                      or info.get("previousClose") or 0)
-        exps = t.options
-        if not exps:
-            return {"ticker": sym, "price": price, "expirations": [], "calls": [], "puts": []}
+    sym = ticker.upper()
+    api_key, base_url = _tradier_keys()
 
-        all_calls, all_puts = [], []
-        for exp in exps[:10]:
+    async def _tradier_chain() -> dict:
+        hdrs = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+        timeout = _aiohttp.ClientTimeout(total=12)
+
+        async with _aiohttp.ClientSession(headers=hdrs) as s:
+            # ── Quote ──────────────────────────────────────────────────────────
+            price = 0.0
             try:
-                chain = t.option_chain(exp)
-                for df, otype in ((chain.calls, "call"), (chain.puts, "put")):
-                    for _, row in df.iterrows():
-                        strike = float(row.get("strike") or 0)
-                        bid    = float(row.get("bid") or 0)
-                        ask    = float(row.get("ask") or 0)
-                        last   = float(row.get("lastPrice") or 0)
-                        mid    = round((bid + ask) / 2, 2) if bid and ask else last
-                        intrinsic = round(max(0, price - strike) if otype == "call" else max(0, strike - price), 2)
-                        extrinsic = round(max(0, mid - intrinsic), 2)
-                        iv    = row.get("impliedVolatility")
-                        delta = row.get("delta")
-                        gamma = row.get("gamma")
-                        theta = row.get("theta")
-                        vega  = row.get("vega")
-                        rec = {
-                            "contract":   row.get("contractSymbol", ""),
-                            "strike":     strike,
-                            "expiration": exp,
-                            "bid":        bid,
-                            "ask":        ask,
-                            "mid":        mid,
-                            "last":       last,
-                            "intrinsic":  intrinsic,
-                            "extrinsic":  extrinsic,
-                            "iv":    round(float(iv), 4)    if iv    is not None else None,
-                            "delta": round(float(delta), 4) if delta is not None else None,
-                            "gamma": round(float(gamma), 6) if gamma is not None else None,
-                            "theta": round(float(theta), 4) if theta is not None else None,
-                            "vega":  round(float(vega), 4)  if vega  is not None else None,
-                            "volume": int(row.get("volume") or 0),
-                            "oi":     int(row.get("openInterest") or 0),
-                            "itm":    bool(row.get("inTheMoney", False)),
-                            "has_position": False,
-                        }
-                        (all_calls if otype == "call" else all_puts).append(rec)
+                async with s.get(f"{base_url}/markets/quotes",
+                                 params={"symbols": sym, "greeks": "false"},
+                                 timeout=timeout) as r:
+                    if r.status == 200:
+                        d = await r.json(content_type=None)
+                        q = d.get("quotes", {}).get("quote", {})
+                        if isinstance(q, dict):
+                            price = float(q.get("last") or q.get("prevclose") or 0)
             except Exception:
                 pass
 
-        return {
-            "ticker": sym, "price": round(price, 2),
-            "expirations": list(exps[:10]),
-            "calls": all_calls, "puts": all_puts,
-        }
+            # ── Expirations ────────────────────────────────────────────────────
+            expirations: list[str] = []
+            async with s.get(f"{base_url}/markets/options/expirations",
+                             params={"symbol": sym, "includeAllRoots": "false"},
+                             timeout=timeout) as r:
+                if r.status == 200:
+                    d = await r.json(content_type=None)
+                    raw = (d.get("expirations") or {})
+                    if raw and raw != "null":
+                        dates = raw.get("date", [])
+                        expirations = dates if isinstance(dates, list) else [dates]
 
-    loop = _asyncio.get_event_loop()
-    data = await loop.run_in_executor(None, _fetch, ticker.upper())
+            if not expirations:
+                return {"ticker": sym, "price": round(price, 2),
+                        "expirations": [], "calls": [], "puts": [], "source": "tradier"}
+
+            # ── Chain (parallel fetch, up to 8 nearest expirations) ────────────
+            async def _fetch_exp(exp: str):
+                try:
+                    async with s.get(f"{base_url}/markets/options/chains",
+                                     params={"symbol": sym, "expiration": exp, "greeks": "true"},
+                                     timeout=timeout) as r:
+                        if r.status != 200:
+                            return []
+                        d = await r.json(content_type=None)
+                        opts = d.get("options") or {}
+                        if not opts or opts == "null":
+                            return []
+                        raw = opts.get("option", [])
+                        return raw if isinstance(raw, list) else [raw]
+                except Exception:
+                    return []
+
+            results = await _asyncio.gather(*[_fetch_exp(e) for e in expirations[:8]])
+            all_calls, all_puts = [], []
+            for contracts in results:
+                for c in contracts:
+                    if not isinstance(c, dict):
+                        continue
+                    otype = (c.get("option_type") or "").lower()
+                    rec = _chain_contract(c, otype, price)
+                    (all_calls if otype == "call" else all_puts).append(rec)
+
+            return {
+                "ticker": sym, "price": round(price, 2),
+                "expirations": expirations[:8],
+                "calls": all_calls, "puts": all_puts,
+                "source": "tradier",
+            }
+
+    async def _yfinance_chain() -> dict:
+        def _fetch_yf(s: str) -> dict:
+            import yfinance as _yf
+            t = _yf.Ticker(s)
+            info  = t.info or {}
+            price = float(info.get("currentPrice") or info.get("regularMarketPrice")
+                          or info.get("previousClose") or 0)
+            exps  = t.options
+            if not exps:
+                return {"ticker": s, "price": price, "expirations": [], "calls": [], "puts": []}
+            all_calls, all_puts = [], []
+            for exp in exps[:8]:
+                try:
+                    chain = t.option_chain(exp)
+                    for df, otype in ((chain.calls, "call"), (chain.puts, "put")):
+                        for _, row in df.iterrows():
+                            strike = float(row.get("strike") or 0)
+                            bid    = float(row.get("bid") or 0)
+                            ask    = float(row.get("ask") or 0)
+                            last   = float(row.get("lastPrice") or 0)
+                            mid    = round((bid + ask) / 2, 2) if bid and ask else last
+                            intrinsic = round(max(0, price - strike) if otype == "call" else max(0, strike - price), 2)
+                            iv    = row.get("impliedVolatility")
+                            delta = row.get("delta")
+                            gamma = row.get("gamma")
+                            theta = row.get("theta")
+                            vega  = row.get("vega")
+                            rec = {
+                                "contract":   row.get("contractSymbol", ""),
+                                "strike":     strike,
+                                "expiration": exp,
+                                "bid":        bid, "ask": ask, "mid": mid, "last": last,
+                                "intrinsic":  intrinsic,
+                                "extrinsic":  round(max(0, mid - intrinsic), 2),
+                                "iv":    round(float(iv), 4)    if iv    is not None else None,
+                                "delta": round(float(delta), 4) if delta is not None else None,
+                                "gamma": round(float(gamma), 6) if gamma is not None else None,
+                                "theta": round(float(theta), 4) if theta is not None else None,
+                                "vega":  round(float(vega), 4)  if vega  is not None else None,
+                                "volume": int(row.get("volume") or 0),
+                                "oi":     int(row.get("openInterest") or 0),
+                                "itm":    bool(row.get("inTheMoney", False)),
+                                "has_position": False,
+                            }
+                            (all_calls if otype == "call" else all_puts).append(rec)
+                except Exception:
+                    pass
+            return {"ticker": s, "price": round(price, 2), "expirations": list(exps[:8]),
+                    "calls": all_calls, "puts": all_puts, "source": "yahoo"}
+        return await _asyncio.get_event_loop().run_in_executor(None, _fetch_yf, sym)
+
+    # Choose source
+    if api_key:
+        try:
+            data = await _tradier_chain()
+        except Exception as e:
+            log.warning("options_trader.chain.tradier_error", ticker=sym, error=str(e))
+            data = await _yfinance_chain()
+    else:
+        data = await _yfinance_chain()
 
     # Mark open positions
     data["open_expiries"] = []
@@ -8134,7 +8259,7 @@ async def get_options_chain_data(ticker: str, token: str = ""):
             rows = await pool.fetch(
                 "SELECT contract_symbol, expiration_date FROM option_positions "
                 "WHERE underlying=$1 AND status='active'",
-                ticker.upper(),
+                sym,
             )
             open_contracts = {r["contract_symbol"] for r in rows}
             data["open_expiries"] = list({r["expiration_date"].isoformat() for r in rows})

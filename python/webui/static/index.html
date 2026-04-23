@@ -14931,12 +14931,15 @@ async function _otPopulateAccounts() {
   try {
     const data = await apiFetch('/api/broker/positions');
     const accounts = data.accounts || [];
-    // Remove stale options, keep "All"
     while (sel.options.length > 1) sel.remove(1);
     accounts.forEach(a => {
       const opt = document.createElement('option');
-      opt.value = a.label || a.name || '';
-      opt.textContent = a.name || a.label || a.broker || '?';
+      opt.value = a.label || '';
+      // Prefer display_name, then friendly label parts, then raw label
+      const friendly = a.display_name || '';
+      const broker   = (a.broker || '').charAt(0).toUpperCase() + (a.broker || '').slice(1);
+      const mode     = a.mode ? ` (${a.mode})` : '';
+      opt.textContent = friendly || (broker ? broker + mode : a.label || '?');
       sel.appendChild(opt);
     });
   } catch(e) { /* best effort */ }
