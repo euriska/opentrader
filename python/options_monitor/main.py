@@ -358,10 +358,10 @@ async def _fetch_option_chain_details(
                     score = 1.0 / max(oi, 1)
                     threshold = 1.0
 
-                # Require a meaningfully better score to displace the current best.
-                # A 10% improvement threshold means ties (and near-ties) keep the
-                # EARLIER expiry (since we iterate expiry dates in chronological order).
-                improvement_required = best_score * 0.90
+                # A later expiry must beat the current best by 25% to displace it.
+                # This strongly prefers the EARLIEST expiry with a qualifying score,
+                # preventing a marginally better far-dated match from winning.
+                improvement_required = best_score * 0.75
                 if score < improvement_required and score < threshold:
                     best_score = score
                     best = {
@@ -890,8 +890,10 @@ class OptionsMonitor(BaseAgent):
         # Runs whenever: type unknown, strike missing, expiry missing, or no delta yet
         delta = theta = vega = gamma = None
         current_opt_price = bp["current_price"]
-        # Use entry_price as reference when market is closed and current price is 0
-        price_ref = current_opt_price if current_opt_price > 0 else bp.get("entry_price", 0)
+        # Use only the live price — entry_price is stale and causes wrong expiry matches
+        # for decayed options (e.g. deep-OTM near expiry matched against a later expiry
+        # whose price happens to be close to the original cost basis).
+        price_ref = current_opt_price if current_opt_price > 0 else 0
         expiry_locked = bool(existing and existing.get("expiry_locked"))
         # Run chain enrichment when any key field is missing.
         # Check BOTH the incoming bp (broker position) AND the existing DB row:
@@ -1010,7 +1012,8 @@ class OptionsMonitor(BaseAgent):
                     option_type         = CASE WHEN option_type='unknown' AND $14::TEXT IS NOT NULL
                                               THEN $14::TEXT ELSE option_type END,
                     strike              = COALESCE($15::NUMERIC, strike),
-                    expiration_date     = COALESCE($16::DATE, expiration_date)
+                    expiration_date     = COALESCE($16::DATE, expiration_date),
+                    expiry_locked       = CASE WHEN $16::DATE IS NOT NULL THEN TRUE ELSE expiry_locked END
                    WHERE id=$1""",
                 pos_id,
                 bp["qty"],
