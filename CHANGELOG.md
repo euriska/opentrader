@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.19] - 2026-04-24
+
+### Changed
+- **Dividend forecast — history-based average projection** — `/api/dividends/forecast` now queries 18 months of actual `dividend_history` records from the DB. Completed past months display real recorded income with per-ticker breakdown. The average of all captured months (excluding the current partial month) is used as the projection for the current and all future months, replacing the previous API-metadata-based per-ticker calculation. Future months retain a proportional per-ticker breakdown (scaled from current holdings weights) so account-level filtering continues to work in the dashboard. The stat card monthly sub-line now reads actual avg/mo with count of captured months instead of `annual ÷ 12`.
+
 ## [3.6.18] - 2026-04-24
 
 ### Fixed

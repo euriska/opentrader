@@ -6164,8 +6164,9 @@ async def div_forecast(token: str = ""):
 
     # Build from holdings
     holdings = await div_holdings(token=token)
-    from datetime import date as _date
+    from datetime import date as _date, timedelta as _td
     today = _date.today()
+    current_month_key = today.strftime("%Y-%m")
     # Window: 1 prior month + current + 11 future = 13 months total.
     # i=-1 = prior month; i=0 = current; i=1..11 = future.
     months = [_date(today.year + (today.month + i - 1) // 12,
@@ -6181,32 +6182,74 @@ async def div_forecast(token: str = ""):
             if p["is_dividend_payer"]:
                 positions_flat.append({**p, "account_label": acct["label"]})
 
-    # Fetch most-recent actual payment date per ticker to anchor projections
-    # for tickers with a null ex_date from the API (e.g. HOOW).
-    last_pay: dict = {}
+    # Fetch 18 months of actual dividend history from DB, grouped by month + ticker.
+    # Captured months drive the average; the average then projects all future months.
+    actual_by_month: dict[str, float] = {}   # month_key -> total received
+    actual_breakdown: dict[str, dict] = {}    # month_key -> {ticker: total}
+    cutoff_18mo = today - _td(days=548)
     if DB_URL:
         try:
             pool = await _get_db_pool()
-            rows = await pool.fetch(
-                "SELECT ticker, MAX(pay_date)::date AS last_pay FROM dividend_history GROUP BY ticker"
-            )
+            rows = await pool.fetch("""
+                SELECT to_char(pay_date, 'YYYY-MM') AS month_key,
+                       ticker,
+                       SUM(total_received)::float AS total
+                FROM dividend_history
+                WHERE pay_date >= $1
+                GROUP BY month_key, ticker
+                ORDER BY month_key, total DESC
+            """, cutoff_18mo)
             for r in rows:
-                last_pay[r["ticker"]] = r["last_pay"]
+                mk = r["month_key"]
+                actual_by_month[mk] = actual_by_month.get(mk, 0) + float(r["total"])
+                actual_breakdown.setdefault(mk, {})[r["ticker"]] = float(r["total"])
         except Exception:
             pass
 
-    monthly_raw = _div_project_payments(positions_flat, month_keys, last_pay=last_pay)
+    # Average is computed from fully completed months only (exclude current partial month).
+    captured = {mk: v for mk, v in actual_by_month.items() if mk < current_month_key}
+    avg_monthly = (sum(captured.values()) / len(captured)) if captured else 0.0
+    captured_count = len(captured)
 
-    # Reshape monthly
+    # Build a proportional per-ticker breakdown for projected months so the frontend
+    # account-filter (which sums breakdown slices) works correctly for future months.
+    sym_annual: dict[str, float] = {}
+    for p in positions_flat:
+        sym = p["symbol"]
+        sym_annual[sym] = sym_annual.get(sym, 0) + float(p.get("projected_annual_income") or 0)
+    total_sym_annual = sum(sym_annual.values()) or 0
+    future_breakdown = []
+    if total_sym_annual > 0 and avg_monthly > 0:
+        future_breakdown = sorted(
+            [{"symbol": sym, "income": round(ann / total_sym_annual * avg_monthly, 2)}
+             for sym, ann in sym_annual.items()],
+            key=lambda x: -x["income"],
+        )
+
+    # Build monthly output: actual for completed past months, avg for current + future.
+    # Current month uses avg_monthly so the frontend can blend actual-received (green)
+    # against the projected total (blue remainder), matching its two-tone bar logic.
     monthly_out = []
     for mk, lbl in zip(month_keys, month_labels):
-        month_total = sum(monthly_raw[mk].values())
+        if mk in actual_by_month and mk < current_month_key:
+            # Completed past month: use real recorded income
+            income = actual_by_month[mk]
+            breakdown = [
+                {"symbol": sym, "income": round(v, 2)}
+                for sym, v in sorted(actual_breakdown.get(mk, {}).items(), key=lambda x: -x[1])
+            ]
+            source = "actual"
+        else:
+            # Current or future month: project using the captured-history average
+            income = avg_monthly
+            breakdown = future_breakdown
+            source = "projected"
         monthly_out.append({
             "month":            mk,
             "label":            lbl,
-            "projected_income": round(month_total, 2),
-            "breakdown":        [{"symbol": s, "income": round(v, 2)}
-                                 for s, v in sorted(monthly_raw[mk].items(), key=lambda x:-x[1])],
+            "projected_income": round(income, 2),
+            "breakdown":        breakdown,
+            "data_source":      source,
         })
 
     # by_ticker (annual)
@@ -6252,12 +6295,14 @@ async def div_forecast(token: str = ""):
          for lbl, v in acct_totals.items()], key=lambda x: -x["annual_income"])
 
     result = {
-        "monthly":             monthly_out,
-        "by_ticker":           by_ticker,
-        "by_sector":           by_sector,
-        "by_account":          by_account,
-        "by_yield":            by_yield,
+        "monthly":              monthly_out,
+        "by_ticker":            by_ticker,
+        "by_sector":            by_sector,
+        "by_account":           by_account,
+        "by_yield":             by_yield,
         "total_projected_12mo": round(sum(m["projected_income"] for m in monthly_out), 2),
+        "avg_monthly_income":   round(avg_monthly, 2),
+        "captured_months_count": captured_count,
     }
     await redis.set("dividend:forecast:cache", json.dumps(result), ex=3600)
     return result
