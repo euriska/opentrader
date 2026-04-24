@@ -6217,45 +6217,42 @@ async def div_forecast(token: str = ""):
         except Exception:
             pass
 
-    # Denominator = total elapsed calendar months in the lookback window (not months
-    # that had payments). A quarterly payer has 6 payment-months in 18 calendar months;
-    # using 6 as the denominator inflates avg_monthly by 3×. Using 18 gives the correct
-    # per-calendar-month average regardless of payment frequency.
-    cutoff_month_start = (today - _td(days=548)).replace(day=1)
-    current_month_start = today.replace(day=1)
-    months_elapsed = max(1, (current_month_start.year - cutoff_month_start.year) * 12 +
-                            (current_month_start.month - cutoff_month_start.month))
-
-    # captured_count = months that actually had payments (used as UI metadata only)
+    # History metadata only (for stat card display)
     captured_count = sum(1 for mk in actual_by_month if mk < current_month_key)
-
     total_received_all = sum(acct_ticker_totals.values())
-    avg_monthly = total_received_all / months_elapsed if total_received_all > 0 else 0.0
 
-    # Future breakdown: per-(account, ticker) so the frontend account-filter sums
-    # only the shares actually held in each broker — not the whole portfolio.
+    # Future projection: current shares × current forward annual rate / 12.
+    # This is the only correct basis for a forward-looking forecast — the backfill
+    # stores payments at CURRENT quantities, so history-based averages are inflated
+    # whenever the portfolio has grown. API metadata reflects what you hold RIGHT NOW.
     future_breakdown: list[dict] = []
-    if total_received_all > 0:
-        future_breakdown = sorted(
-            [{"symbol": ticker, "account_label": acct,
-              "income": round(total / months_elapsed, 2)}
-             for (acct, ticker), total in acct_ticker_totals.items()],
-            key=lambda x: -x["income"],
-        )
+    api_monthly_total = 0.0
+    for p in positions_flat:
+        ann = float(p.get("projected_annual_income") or 0)
+        if ann <= 0:
+            continue
+        monthly = ann / 12
+        api_monthly_total += monthly
+        future_breakdown.append({
+            "symbol":        p["symbol"],
+            "account_label": p["account_label"],
+            "income":        round(monthly, 2),
+        })
+    future_breakdown.sort(key=lambda x: -x["income"])
 
-    # Build monthly output: actual for completed past months, avg for current + future.
-    # Current month uses avg_monthly so the frontend can blend actual-received (green)
-    # against the projected total (blue remainder), matching its two-tone bar logic.
+    # Build monthly output: actual for completed past months, API projection for the rest.
+    # Current month uses the API projection so the frontend can show actual-received (green)
+    # vs projected remaining (blue) using the two-tone bar logic.
     monthly_out = []
     for mk, lbl in zip(month_keys, month_labels):
         if mk in actual_by_month and mk < current_month_key:
-            # Completed past month: per-(account, ticker) breakdown so account-filter works.
+            # Completed past month: real recorded income, per-(account, ticker) breakdown.
             income = actual_by_month[mk]
             breakdown = sorted(actual_breakdown.get(mk, []), key=lambda x: -x["income"])
             source = "actual"
         else:
-            # Current or future month: project using the captured-history average
-            income = avg_monthly
+            # Current or future month: current-holdings-based API projection.
+            income = api_monthly_total
             breakdown = future_breakdown
             source = "projected"
         monthly_out.append({
@@ -6315,9 +6312,8 @@ async def div_forecast(token: str = ""):
         "by_account":            by_account,
         "by_yield":              by_yield,
         "total_projected_12mo":  round(sum(m["projected_income"] for m in monthly_out), 2),
-        "avg_monthly_income":    round(avg_monthly, 2),
+        "avg_monthly_income":    round(api_monthly_total, 2),
         "captured_months_count": captured_count,
-        "months_elapsed":        months_elapsed,
         "total_received_history": round(total_received_all, 2),
     }
     await redis.set("dividend:forecast:cache", json.dumps(result), ex=3600)

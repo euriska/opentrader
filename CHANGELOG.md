@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.23] - 2026-04-24
+
+### Fixed
+- **Dividend forecast — future projection now uses current holdings, not inflated history** — the history-based average was producing projections 3–4× too high because the backfill records historical payments at *current* share quantities (not the quantities held at the time of each payment). Future months now project from `current qty × forward annual rate / 12` per position per account — the only value that correctly reflects what you actually hold today. Past months continue to display real recorded income from `dividend_history`. The stat card monthly sub-line shows the API-based monthly estimate plus a history-months count.
+
 ## [3.6.22] - 2026-04-24
 
 ### Fixed

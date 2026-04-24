@@ -12662,13 +12662,10 @@ function _divRenderStats(s) {
   if (!s) return;
   const annual = s.annual_projected_income || 0;
   document.getElementById('div-stat-annual').textContent    = _divFmt$(annual);
-  // Prefer the actual historical average over the API-derived annual/12 estimate
-  const capturedAvg = _divForecast?.avg_monthly_income;
-  const capturedN   = _divForecast?.captured_months_count || 0;
-  const moAvg = (capturedAvg != null && capturedN > 0) ? capturedAvg : annual / 12;
-  const moSub = (capturedN > 0)
-    ? _divFmt$(moAvg) + '/mo · ' + capturedN + ' mos actual'
-    : _divFmt$(moAvg) + '/mo est';
+  // API-based monthly projection (current shares × forward rate / 12)
+  const moAvg = _divForecast?.avg_monthly_income ?? (annual / 12);
+  const capturedN = _divForecast?.captured_months_count || 0;
+  const moSub = _divFmt$(moAvg) + '/mo' + (capturedN > 0 ? ' · ' + capturedN + ' mos history' : '');
   document.getElementById('div-stat-annual-sub').textContent = moSub;
   document.getElementById('div-stat-yield').textContent     = (+s.forward_yield_on_portfolio_pct || 0).toFixed(2) + '%';
   document.getElementById('div-stat-payers').textContent    = s.dividend_payers || 0;
