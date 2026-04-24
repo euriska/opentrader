@@ -7191,9 +7191,11 @@ async def get_options_log_summary():
             ticker_pnl[sym]["total_pnl"] += pnl
             ticker_pnl[sym]["count"] += 1
 
-    # Top 5 most profitable tickers
-    top_tickers = sorted(ticker_pnl.values(), key=lambda x: x["total_pnl"], reverse=True)[:5]
-    for t in top_tickers:
+    # Top 5 most / bottom 5 least profitable tickers
+    all_ticker_list = list(ticker_pnl.values())
+    top_tickers    = sorted(all_ticker_list, key=lambda x: x["total_pnl"], reverse=True)[:5]
+    bottom_tickers = sorted(all_ticker_list, key=lambda x: x["total_pnl"])[:5]
+    for t in top_tickers + bottom_tickers:
         t["total_pnl"] = round(t["total_pnl"], 2)
 
     closed_count = winning + losing
@@ -7217,6 +7219,7 @@ async def get_options_log_summary():
         "avg_days_in_trade":  avg_dit,
         "capital_efficiency": cap_eff,
         "top_tickers":        top_tickers,
+        "bottom_tickers":     bottom_tickers,
         "trades":             trades,
     }
 

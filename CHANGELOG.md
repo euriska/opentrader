@@ -3,6 +3,14 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.4] - 2026-04-24
+
+### Added
+- **Trading Log / By Account — draggable columns**: all columns can be dragged to any position; order is persisted to localStorage and survives page refresh. A subtle ⠿ handle appears on each header.
+- **Least Profitable Tickers panel**: sits to the right of Most Profitable inside the same card, separated by a divider. Both panels use the same hover popup system.
+- **Ticker chip hover popup**: hovering over any ticker chip (top or bottom) shows a 220ms-delayed popup with P&L summary, win rate, avg DIT, best/worst trade, rule-based analysis of what drove results, and improvement suggestions.
+- **Monthly Trade Analysis table**: new panel between By Account and the position trees. Columns: Month, Trades, Win Rate, Avg DIT, Avg Win, Avg Loss, Edge/Trade, Top Ticker, Total P&L, Analysis. Analysis column gives a one-line rule-based read (execution quality, risk/reward asymmetry, hold discipline).
+
 ## [3.6.3] - 2026-04-24
 
 ### Added
