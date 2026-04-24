@@ -6182,47 +6182,54 @@ async def div_forecast(token: str = ""):
             if p["is_dividend_payer"]:
                 positions_flat.append({**p, "account_label": acct["label"]})
 
-    # Fetch 18 months of actual dividend history from DB, grouped by month + ticker.
-    # Captured months drive the average; the average then projects all future months.
-    actual_by_month: dict[str, float] = {}   # month_key -> total received
-    actual_breakdown: dict[str, dict] = {}    # month_key -> {ticker: total}
+    # Fetch 18 months of actual dividend history from DB, split by account + ticker.
+    # This single query drives: past-month actuals, portfolio avg, and per-account
+    # future breakdown so account filtering shows the correct share per broker.
+    actual_by_month: dict[str, float] = {}    # month_key -> portfolio total
+    actual_breakdown: dict[str, dict] = {}    # month_key -> {ticker: portfolio total}
+    acct_ticker_totals: dict[tuple, float] = {}  # (acct, ticker) -> total in completed months
     cutoff_18mo = today - _td(days=548)
     if DB_URL:
         try:
             pool = await _get_db_pool()
             rows = await pool.fetch("""
                 SELECT to_char(pay_date, 'YYYY-MM') AS month_key,
+                       account_label,
                        ticker,
                        SUM(total_received)::float AS total
                 FROM dividend_history
                 WHERE pay_date >= $1
-                GROUP BY month_key, ticker
+                GROUP BY month_key, account_label, ticker
                 ORDER BY month_key, total DESC
             """, cutoff_18mo)
             for r in rows:
-                mk = r["month_key"]
-                actual_by_month[mk] = actual_by_month.get(mk, 0) + float(r["total"])
-                actual_breakdown.setdefault(mk, {})[r["ticker"]] = float(r["total"])
+                mk, acct, ticker = r["month_key"], r["account_label"], r["ticker"]
+                total = float(r["total"])
+                actual_by_month[mk] = actual_by_month.get(mk, 0) + total
+                actual_breakdown.setdefault(mk, {})[ticker] = (
+                    actual_breakdown.get(mk, {}).get(ticker, 0) + total
+                )
+                if mk < current_month_key:
+                    key = (acct, ticker)
+                    acct_ticker_totals[key] = acct_ticker_totals.get(key, 0) + total
         except Exception:
             pass
 
-    # Average is computed from fully completed months only (exclude current partial month).
+    # Average from fully completed months only; denominator is captured calendar months
+    # (not payment count) so quarterly and monthly payers are normalised correctly.
     captured = {mk: v for mk, v in actual_by_month.items() if mk < current_month_key}
-    avg_monthly = (sum(captured.values()) / len(captured)) if captured else 0.0
     captured_count = len(captured)
+    total_received_all = sum(acct_ticker_totals.values())
+    avg_monthly = (total_received_all / captured_count) if captured_count > 0 else 0.0
 
-    # Build a proportional per-ticker breakdown for projected months so the frontend
-    # account-filter (which sums breakdown slices) works correctly for future months.
-    sym_annual: dict[str, float] = {}
-    for p in positions_flat:
-        sym = p["symbol"]
-        sym_annual[sym] = sym_annual.get(sym, 0) + float(p.get("projected_annual_income") or 0)
-    total_sym_annual = sum(sym_annual.values()) or 0
-    future_breakdown = []
-    if total_sym_annual > 0 and avg_monthly > 0:
+    # Future breakdown: per-(account, ticker) so the frontend account-filter sums
+    # only the shares actually held in each broker — not the whole portfolio.
+    future_breakdown: list[dict] = []
+    if captured_count > 0 and total_received_all > 0:
         future_breakdown = sorted(
-            [{"symbol": sym, "income": round(ann / total_sym_annual * avg_monthly, 2)}
-             for sym, ann in sym_annual.items()],
+            [{"symbol": ticker, "account_label": acct,
+              "income": round(total / captured_count, 2)}
+             for (acct, ticker), total in acct_ticker_totals.items()],
             key=lambda x: -x["income"],
         )
 

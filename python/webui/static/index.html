@@ -12789,10 +12789,16 @@ function _divComputeFromAccounts(accounts) {
     .sort((a, b) => b.forward_yield_pct - a.forward_yield_pct)
     .slice(0, 12);
 
-  // monthly — filter existing server monthly data to only symbols in these accounts
+  // monthly — filter existing server monthly data to only symbols/accounts in scope.
+  // Projected months carry per-(account, ticker) breakdown entries so the filter
+  // only sums shares actually held in each broker, not the whole portfolio.
   const symbols = new Set(positions.map(p => p.symbol));
+  const acctLabels = new Set(accounts.map(a => a.label));
   const monthly = (_divForecast?.monthly || []).map(m => {
-    const bd = (m.breakdown || []).filter(b => symbols.has(b.symbol));
+    const bd = (m.breakdown || []).filter(b =>
+      symbols.has(b.symbol) &&
+      (!b.account_label || acctLabels.has(b.account_label))
+    );
     return { ...m, projected_income: bd.reduce((s, b) => s + b.income, 0), breakdown: bd };
   });
 

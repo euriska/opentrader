@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.20] - 2026-04-24
+
+### Fixed
+- **Dividend forecast — per-account accuracy** — the DB query now groups by `(month, account_label, ticker)` so each broker's actual share quantities drive its projected income independently. Future-month breakdown entries include `account_label`; the frontend account-filter now matches on both symbol and account label so filtering to one broker shows only that broker's projected dividends, not the whole portfolio's.
+
 ## [3.6.19] - 2026-04-24
 
 ### Changed
