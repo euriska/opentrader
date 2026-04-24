@@ -7185,11 +7185,13 @@ async def get_options_log_summary():
                 winning += 1
             elif pnl < 0:
                 losing += 1
-            sym = r["underlying"]
-            if sym not in ticker_pnl:
-                ticker_pnl[sym] = {"underlying": sym, "total_pnl": 0.0, "count": 0}
-            ticker_pnl[sym]["total_pnl"] += pnl
-            ticker_pnl[sym]["count"] += 1
+            # Only closed/rolled/expired trades count toward ticker P&L panels
+            if r["status"] not in ("active",):
+                sym = r["underlying"]
+                if sym not in ticker_pnl:
+                    ticker_pnl[sym] = {"underlying": sym, "total_pnl": 0.0, "count": 0}
+                ticker_pnl[sym]["total_pnl"] += pnl
+                ticker_pnl[sym]["count"] += 1
 
     # Top 5 most / bottom 5 least profitable tickers
     all_ticker_list = list(ticker_pnl.values())

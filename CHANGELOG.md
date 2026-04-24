@@ -3,6 +3,15 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.6] - 2026-04-24
+
+### Fixed
+- **Trading Log / By Account — column header alignment**: `total_pnl` and other right-aligned columns were incorrectly forced to left-align because `sticky:true` columns bypassed the `align` field. Headers now use `c.align` directly; all headers match their data cells.
+- **Least Profitable Tickers — active positions included**: `ticker_pnl` accumulation now filters to closed/rolled/expired trades only (`status not in ('active')`), so the panel shows only historical results.
+
+### Added
+- **Trading Log / By Account — hide columns**: each non-sticky column header shows a faint ✕ button; clicking it hides that column. Hidden state is persisted to localStorage (`optlog_col_hidden_v1`). A "↺ Reset columns (N hidden)" footer appears in the table when any columns are hidden, restoring all columns in one click.
+
 ## [3.6.5] - 2026-04-24
 
 ### Fixed

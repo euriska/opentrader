@@ -14110,7 +14110,8 @@ const _ACCT_COL_DEFS = [
   { id:'avg_risk',   label:'Avg Risk/Trade', align:'right', tip:'Average premium per closed trade' },
   { id:'total_pnl',  label:'Total P&L',      align:'right', sticky:true  },
 ];
-const _ACCT_COL_LS = 'optlog_col_order_v1';
+const _ACCT_COL_LS   = 'optlog_col_order_v1';
+const _ACCT_COL_HIDE_LS = 'optlog_col_hidden_v1';
 
 function _acctColOrder() {
   try {
@@ -14122,6 +14123,25 @@ function _acctColOrder() {
 
 function _acctSaveOrder(order) {
   localStorage.setItem(_ACCT_COL_LS, JSON.stringify(order));
+}
+
+function _acctHiddenCols() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(_ACCT_COL_HIDE_LS) || '[]');
+    if (Array.isArray(saved)) return new Set(saved);
+  } catch(e) {}
+  return new Set();
+}
+
+function _acctHideCol(id) {
+  const h = _acctHiddenCols(); h.add(id);
+  localStorage.setItem(_ACCT_COL_HIDE_LS, JSON.stringify([...h]));
+  apiFetch('/api/options/log/accounts').then(_renderOptlogAccounts).catch(() => {});
+}
+
+function _acctResetCols() {
+  localStorage.removeItem(_ACCT_COL_HIDE_LS);
+  apiFetch('/api/options/log/accounts').then(_renderOptlogAccounts).catch(() => {});
 }
 
 function _acctCellVal(a, colId) {
@@ -14152,29 +14172,45 @@ function _renderOptlogAccounts(accounts) {
     el.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">No account data</div>';
     return;
   }
-  const order = _acctColOrder();
-  const cols = order.map(id => _ACCT_COL_DEFS.find(c => c.id === id)).filter(Boolean);
+  const order  = _acctColOrder();
+  const hidden = _acctHiddenCols();
+  const cols   = order.map(id => _ACCT_COL_DEFS.find(c => c.id === id)).filter(c => c && !hidden.has(c.id));
 
   const thHtml = cols.map((c, i) => {
-    const tip = c.tip ? ` title="${c.tip}"` : '';
-    const align = c.sticky ? 'left' : c.align;
+    const tip     = c.tip ? ` title="${c.tip}"` : '';
+    const align   = c.align;
+    const hideBtn = c.sticky ? '' :
+      ` <span onclick="event.stopPropagation();_acctHideCol('${c.id}')"
+          style="margin-left:5px;cursor:pointer;opacity:.35;font-size:10px;line-height:1;vertical-align:middle"
+          onmouseover="this.style.opacity=1;this.style.color='#ef4444'"
+          onmouseout="this.style.opacity=.35;this.style.color=''">✕</span>`;
     return `<th draggable="true" data-col="${c.id}" data-idx="${i}"
       style="padding:8px ${c.id==='account'?'16px':'12px'};text-align:${align};cursor:grab;user-select:none;white-space:nowrap"${tip}
       ondragstart="_acctDragStart(event)"
       ondragover="_acctDragOver(event)"
       ondrop="_acctDrop(event)"
-      ondragend="_acctDragEnd(event)">${c.label}<span style="color:var(--muted);margin-left:4px;font-size:9px;opacity:.5">⠿</span></th>`;
+      ondragend="_acctDragEnd(event)">${c.label}<span style="color:var(--muted);margin-left:4px;font-size:9px;opacity:.5">⠿</span>${hideBtn}</th>`;
   }).join('');
 
   const rowsHtml = accounts.map(a =>
     `<tr style="border-top:1px solid var(--border)">${cols.map(c => _acctCellVal(a, c.id)).join('')}</tr>`
   ).join('');
 
+  const tfootHtml = hidden.size > 0
+    ? `<tfoot><tr><td colspan="${cols.length}" style="padding:8px 12px;text-align:center;border-top:1px solid var(--border)">
+        <span onclick="_acctResetCols()" style="cursor:pointer;color:var(--muted);font-size:11px"
+          onmouseover="this.style.color='var(--fg)'" onmouseout="this.style.color='var(--muted)'">
+          ↺ Reset columns (${hidden.size} hidden)
+        </span>
+      </td></tr></tfoot>`
+    : '';
+
   el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr id="optlog-acct-header" style="background:var(--card-header);color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">
       ${thHtml}
     </tr></thead>
     <tbody>${rowsHtml}</tbody>
+    ${tfootHtml}
   </table>`;
 }
 
