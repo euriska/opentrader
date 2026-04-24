@@ -8128,39 +8128,38 @@ async def get_options_chain_data(ticker: str, account_label: str = "", token: st
             _REDIS_URL = os.getenv("REDIS_URL", "redis://ot-redis:6379/0")
             _r = await _aioredis.from_url(
                 _REDIS_URL, encoding="utf-8", decode_responses=True,
-                socket_connect_timeout=5, socket_timeout=30,
+                socket_connect_timeout=5, socket_timeout=35,
             )
+
+            req_id = str(_uuid.uuid4())
+            cmd: dict = {
+                "command":       "get_option_chain",
+                "request_id":    req_id,
+                "symbol":        sym,
+                "issued_by":     "webui",
+            }
+            if acct_label:
+                cmd["account_label"] = acct_label
+
+            await _r.xadd(STREAMS["broker_commands"], cmd)
+            result = await _r.blpop([f"broker:reply:{req_id}"], timeout=30)
+            await _r.aclose()
+
+            if not result:
+                return None
+            raw = _json.loads(result[1])
+            results_list = raw if isinstance(raw, list) else [raw]
+            for r in results_list:
+                if r.get("status") == "ok":
+                    d = r.get("data", {})
+                    d["source"] = r.get("broker", "broker")
+                    return d
+            errs = [r.get("error", "") for r in results_list]
+            log.warning("options_trader.chain.gateway_error", ticker=sym, errors=errs)
+            return None
         except Exception as e:
-            log.warning("options_trader.chain.redis_unavail", error=str(e))
+            log.warning("options_trader.chain.gateway_failed", ticker=sym, error=str(e))
             return None
-
-        req_id = str(_uuid.uuid4())
-        cmd: dict = {
-            "command":       "get_option_chain",
-            "request_id":    req_id,
-            "symbol":        sym,
-            "issued_by":     "webui",
-        }
-        if acct_label:
-            cmd["account_label"] = acct_label
-
-        await _r.xadd(STREAMS["broker_commands"], cmd)
-        result = await _r.blpop([f"broker:reply:{req_id}"], timeout=30)
-        await _r.aclose()
-
-        if not result:
-            return None
-        raw = _json.loads(result[1])
-        results_list = raw if isinstance(raw, list) else [raw]
-        for r in results_list:
-            if r.get("status") == "ok":
-                d = r.get("data", {})
-                d["source"] = r.get("broker", "broker")
-                return d
-        # All results errored
-        errs = [r.get("error", "") for r in results_list]
-        log.warning("options_trader.chain.gateway_error", ticker=sym, errors=errs)
-        return None
 
     # ── Tradier direct fallback ───────────────────────────────────────────────
     async def _tradier_fallback() -> dict | None:
@@ -8294,6 +8293,8 @@ async def get_options_chain_data(ticker: str, account_label: str = "", token: st
         data = await _yf_fallback()
 
     # ── Mark open positions ───────────────────────────────────────────────────
+    if data is None:
+        data = {"ticker": sym, "price": 0.0, "expirations": [], "calls": [], "puts": [], "source": "none"}
     data["open_expiries"] = []
     if DB_URL:
         try:

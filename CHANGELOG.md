@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.90] - 2026-04-24
+
+### Fixed
+- **Options Trader — HTTP error on chain load**: `_gateway_chain` only wrapped the Redis connection setup in try/except; the `xadd` and `blpop` calls were unprotected — a Redis `TimeoutError` during the gateway wait propagated uncaught and caused FastAPI to return HTTP 500. All Redis operations now share a single try/except so any failure falls through to the Tradier → Yahoo Finance fallback chain instead of crashing.
+- Added null safety guard so `data` can never be `None` when marking open positions.
+
 ## [3.5.89] - 2026-04-24
 
 ### Fixed
