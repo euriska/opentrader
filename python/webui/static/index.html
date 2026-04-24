@@ -14150,8 +14150,8 @@ function _acctCellVal(a, colId) {
   switch (colId) {
     case 'account':   return `<td style="padding:8px 16px;font-weight:600;color:var(--fg);white-space:nowrap">${a.account_name}</td>`;
     case 'broker':    return `<td style="padding:8px 12px;color:var(--muted)">${a.broker}</td>`;
-    case 'positions': return `<td style="padding:8px 12px;text-align:right;color:var(--fg)">${a.total_positions} <span style="color:var(--muted);font-size:10px">(${a.closed_count} closed)</span></td>`;
-    case 'win_rate':  return `<td style="padding:8px 12px;text-align:right;color:var(--fg)">${a.win_rate}% <span style="font-size:10px;color:var(--muted)">${a.winning}W/${a.losing}L</span></td>`;
+    case 'positions': return `<td style="padding:6px 12px;text-align:right"><div style="color:var(--fg);font-weight:500">${a.total_positions}</div><div style="font-size:10px;color:var(--muted)">${a.closed_count} closed</div></td>`;
+    case 'win_rate':  return `<td style="padding:6px 12px;text-align:right"><div style="color:var(--fg)">${a.win_rate}%</div><div style="font-size:10px;color:var(--muted)">${a.winning}W/${a.losing}L</div></td>`;
     case 'avg_dit':   return `<td style="padding:8px 12px;text-align:right;color:var(--fg)">${a.avg_days_in_trade != null ? a.avg_days_in_trade+'d' : '—'}</td>`;
     case 'cap_eff': {
       const s = a.capital_efficiency != null ? (a.capital_efficiency >= 0 ? '+' : '') + a.capital_efficiency + '%' : '—';
@@ -14341,12 +14341,115 @@ function _showChipPopup(chip, ticker) {
 }
 
 // ── Monthly Trade Analysis ────────────────────────────────────────────────────
+// ── Monthly Trade Analysis with draggable / hideable columns ─────────────────
+const _MON_COL_DEFS = [
+  { id:'month',      label:'Month',      align:'left',  sticky:true  },
+  { id:'trades',     label:'Trades',     align:'right' },
+  { id:'win_rate',   label:'Win Rate',   align:'right' },
+  { id:'avg_dit',    label:'Avg DIT',    align:'right' },
+  { id:'avg_win',    label:'Avg Win',    align:'right' },
+  { id:'avg_loss',   label:'Avg Loss',   align:'right' },
+  { id:'edge',       label:'Edge/Trade', align:'right', tip:'(WinRate × AvgWin) + ((1−WinRate) × AvgLoss)' },
+  { id:'top_ticker', label:'Top Ticker', align:'right' },
+  { id:'total_pnl',  label:'Total P&L',  align:'right', sticky:true  },
+  { id:'analysis',   label:'Analysis',   align:'left'  },
+];
+const _MON_COL_LS      = 'optlog_mon_col_order_v1';
+const _MON_COL_HIDE_LS = 'optlog_mon_col_hidden_v1';
+
+function _monColOrder() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(_MON_COL_LS) || 'null');
+    if (Array.isArray(saved) && saved.length === _MON_COL_DEFS.length) return saved;
+  } catch(e) {}
+  return _MON_COL_DEFS.map(c => c.id);
+}
+function _monSaveOrder(order) { localStorage.setItem(_MON_COL_LS, JSON.stringify(order)); }
+function _monHiddenCols() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(_MON_COL_HIDE_LS) || '[]');
+    if (Array.isArray(saved)) return new Set(saved);
+  } catch(e) {}
+  return new Set();
+}
+function _monHideCol(id) {
+  const h = _monHiddenCols(); h.add(id);
+  localStorage.setItem(_MON_COL_HIDE_LS, JSON.stringify([...h]));
+  _renderOptlogMonthly(_optlogAllTrades);
+}
+function _monResetCols() {
+  localStorage.removeItem(_MON_COL_HIDE_LS);
+  _renderOptlogMonthly(_optlogAllTrades);
+}
+
+function _monCellVal(r, colId) {
+  switch (colId) {
+    case 'month':      return `<td style="padding:8px 14px;font-weight:600;color:var(--fg);white-space:nowrap">${r.label}</td>`;
+    case 'trades':     return `<td style="padding:8px 12px;text-align:right;color:var(--fg)">${r.count}</td>`;
+    case 'win_rate': {
+      const wrc = r.winRate >= 50 ? '#22c55e' : '#ef4444';
+      return `<td style="padding:6px 12px;text-align:right"><div style="font-weight:600;color:${wrc}">${r.winRate}%</div><div style="font-size:10px;color:var(--muted)">${r.wins}W/${r.losses}L</div></td>`;
+    }
+    case 'avg_dit':    return `<td style="padding:8px 12px;text-align:right;color:var(--fg)">${r.avgDIT}d</td>`;
+    case 'avg_win':    return `<td style="padding:8px 12px;text-align:right;color:#22c55e">${r.avgWin > 0 ? _optFmtPnl(r.avgWin) : '—'}</td>`;
+    case 'avg_loss':   return `<td style="padding:8px 12px;text-align:right;color:#ef4444">${r.avgLoss < 0 ? _optFmtPnl(r.avgLoss) : '—'}</td>`;
+    case 'edge': {
+      const ec = r.edgeUsd != null ? (r.edgeUsd >= 0 ? '#22c55e' : '#ef4444') : 'var(--muted)';
+      return `<td style="padding:8px 12px;text-align:right;font-weight:600;color:${ec}">${r.edgeUsd != null ? _optFmtPnl(r.edgeUsd) : '—'}</td>`;
+    }
+    case 'top_ticker': return `<td style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px">${r.topTicker}</td>`;
+    case 'total_pnl': {
+      const pc = r.pnl >= 0 ? '#22c55e' : '#ef4444';
+      return `<td style="padding:8px 12px;text-align:right;font-weight:700;color:${pc}">${_optFmtPnl(r.pnl)}</td>`;
+    }
+    case 'analysis':   return `<td style="padding:8px 12px;font-size:11px;color:var(--muted)">${r.notes || '—'}</td>`;
+    default:           return '<td>—</td>';
+  }
+}
+
+let _monDragSrc = null;
+function _monDragStart(e) {
+  _monDragSrc = e.currentTarget;
+  e.currentTarget.style.opacity = '0.4';
+  e.dataTransfer.effectAllowed = 'move';
+}
+function _monDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('#optlog-mon-header th').forEach(th => th.style.background = '');
+  e.currentTarget.style.background = 'var(--surface2)';
+}
+function _monDrop(e) {
+  e.preventDefault();
+  if (!_monDragSrc || _monDragSrc === e.currentTarget) return;
+  const order = _monColOrder();
+  const fromId = _monDragSrc.dataset.col, toId = e.currentTarget.dataset.col;
+  const fi = order.indexOf(fromId), ti = order.indexOf(toId);
+  if (fi < 0 || ti < 0) return;
+  order.splice(fi, 1); order.splice(ti, 0, fromId);
+  _monSaveOrder(order);
+  _renderOptlogMonthly(_optlogAllTrades);
+}
+function _monDragEnd(e) {
+  e.currentTarget.style.opacity = '';
+  document.querySelectorAll('#optlog-mon-header th').forEach(th => th.style.background = '');
+}
+
 function _renderOptlogMonthly(trades) {
   const el = document.getElementById('optlog-monthly-body');
   if (!el) return;
-  const closed = (trades || []).filter(t => t.status !== 'active' && t.realized_pnl != null && t.closed_at);
+
+  // Rolling 12-month window (closed_at within last 12 months)
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - 12);
+  const cutoffYM = cutoff.toISOString().slice(0, 7);
+
+  const closed = (trades || []).filter(t =>
+    t.status !== 'active' && t.realized_pnl != null && t.closed_at &&
+    t.closed_at.slice(0, 7) >= cutoffYM
+  );
   if (!closed.length) {
-    el.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">No closed trades</div>';
+    el.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">No closed trades in the last 12 months</div>';
     return;
   }
 
@@ -14358,9 +14461,8 @@ function _renderOptlogMonthly(trades) {
     months[key].push(t);
   });
 
-  const sorted = Object.entries(months).sort((a, b) => b[0].localeCompare(a[0]));
-
-  const rows = sorted.map(([month, mTrades]) => {
+  // Pre-compute row objects
+  const rowData = Object.entries(months).sort((a, b) => b[0].localeCompare(a[0])).map(([month, mTrades]) => {
     const wins    = mTrades.filter(t => t.realized_pnl > 0);
     const losses  = mTrades.filter(t => t.realized_pnl < 0);
     const pnl     = mTrades.reduce((s, t) => s + t.realized_pnl, 0);
@@ -14368,54 +14470,60 @@ function _renderOptlogMonthly(trades) {
     const avgDIT  = mTrades.length ? Math.round(mTrades.reduce((s,t) => s+(t.days_in_trade||0),0)/mTrades.length) : 0;
     const avgWin  = wins.length   ? wins.reduce((s,t)=>s+t.realized_pnl,0)/wins.length   : 0;
     const avgLoss = losses.length ? losses.reduce((s,t)=>s+t.realized_pnl,0)/losses.length : 0;
-    // Most traded ticker
     const tickerCounts = {};
     mTrades.forEach(t => { tickerCounts[t.underlying] = (tickerCounts[t.underlying]||0)+1; });
     const topTicker = Object.entries(tickerCounts).sort((a,b)=>b[1]-a[1])[0]?.[0] || '—';
-    // Edge
     const edgeUsd = mTrades.length ? (winRate/100 * avgWin) + ((1-winRate/100) * avgLoss) : null;
-    // Analysis blurb
-    const notes = [];
-    if (winRate >= 60) notes.push('Strong execution');
-    else if (winRate < 40) notes.push('Poor win rate — review entries');
-    if (Math.abs(avgLoss) > avgWin * 1.5 && losses.length) notes.push('Losses outsize wins');
-    if (pnl > 0 && winRate >= 50) notes.push('Positive edge');
-    if (pnl < 0) notes.push(winRate >= 50 ? 'Wins too small vs losses' : 'Both frequency and size work against');
-    if (avgDIT > 30) notes.push('Long holds — tighten roll discipline');
-
-    const pnlColor = pnl >= 0 ? '#22c55e' : '#ef4444';
-    const wrColor  = winRate >= 50 ? '#22c55e' : '#ef4444';
+    const noteArr = [];
+    if (winRate >= 60) noteArr.push('Strong execution');
+    else if (winRate < 40) noteArr.push('Poor win rate — review entries');
+    if (losses.length && Math.abs(avgLoss) > avgWin * 1.5) noteArr.push('Losses outsize wins');
+    if (pnl > 0 && winRate >= 50) noteArr.push('Positive edge');
+    if (pnl < 0) noteArr.push(winRate >= 50 ? 'Wins too small vs losses' : 'Both frequency and size work against');
+    if (avgDIT > 30) noteArr.push('Long holds — tighten roll discipline');
     const [yr, mo] = month.split('-');
     const label = new Date(+yr, +mo-1, 1).toLocaleString('en-US', {month:'short', year:'numeric'});
+    return { month, label, count: mTrades.length, winRate, wins: wins.length, losses: losses.length, avgDIT, avgWin, avgLoss, topTicker, edgeUsd, pnl, notes: noteArr.join(' · ') };
+  });
 
-    return `<tr style="border-top:1px solid var(--border)">
-      <td style="padding:8px 14px;font-weight:600;color:var(--fg);white-space:nowrap">${label}</td>
-      <td style="padding:8px 12px;text-align:right;color:var(--fg)">${mTrades.length}</td>
-      <td style="padding:8px 12px;text-align:right;color:${wrColor};font-weight:600">${winRate}% <span style="font-size:10px;font-weight:400;color:var(--muted)">${wins.length}W/${losses.length}L</span></td>
-      <td style="padding:8px 12px;text-align:right;color:var(--fg)">${avgDIT}d</td>
-      <td style="padding:8px 12px;text-align:right;color:#22c55e">${avgWin > 0 ? _optFmtPnl(avgWin) : '—'}</td>
-      <td style="padding:8px 12px;text-align:right;color:#ef4444">${avgLoss < 0 ? _optFmtPnl(avgLoss) : '—'}</td>
-      <td style="padding:8px 12px;text-align:right;color:${edgeUsd>=0?'#22c55e':'#ef4444'};font-weight:600">${edgeUsd!=null?_optFmtPnl(edgeUsd):'—'}</td>
-      <td style="padding:8px 12px;text-align:right;color:var(--muted);font-size:11px">${topTicker}</td>
-      <td style="padding:8px 12px;text-align:right;font-weight:700;color:${pnlColor}">${_optFmtPnl(pnl)}</td>
-      <td style="padding:8px 12px;font-size:11px;color:var(--muted)">${notes.join(' · ') || '—'}</td>
-    </tr>`;
+  const order  = _monColOrder();
+  const hidden = _monHiddenCols();
+  const cols   = order.map(id => _MON_COL_DEFS.find(c => c.id === id)).filter(c => c && !hidden.has(c.id));
+
+  const thHtml = cols.map((c, i) => {
+    const tip     = c.tip ? ` title="${c.tip}"` : '';
+    const hideBtn = c.sticky ? '' :
+      ` <span onclick="event.stopPropagation();_monHideCol('${c.id}')"
+          style="margin-left:5px;cursor:pointer;opacity:.35;font-size:10px;line-height:1;vertical-align:middle"
+          onmouseover="this.style.opacity=1;this.style.color='#ef4444'"
+          onmouseout="this.style.opacity=.35;this.style.color=''">✕</span>`;
+    return `<th draggable="true" data-col="${c.id}" data-idx="${i}"
+      style="padding:8px ${c.id==='month'?'14px':'12px'};text-align:${c.align};cursor:grab;user-select:none;white-space:nowrap"${tip}
+      ondragstart="_monDragStart(event)"
+      ondragover="_monDragOver(event)"
+      ondrop="_monDrop(event)"
+      ondragend="_monDragEnd(event)">${c.label}<span style="color:var(--muted);margin-left:4px;font-size:9px;opacity:.5">⠿</span>${hideBtn}</th>`;
   }).join('');
 
+  const rowsHtml = rowData.map(r =>
+    `<tr style="border-top:1px solid var(--border)">${cols.map(c => _monCellVal(r, c.id)).join('')}</tr>`
+  ).join('');
+
+  const tfootHtml = hidden.size > 0
+    ? `<tfoot><tr><td colspan="${cols.length}" style="padding:8px 12px;text-align:center;border-top:1px solid var(--border)">
+        <span onclick="_monResetCols()" style="cursor:pointer;color:var(--muted);font-size:11px"
+          onmouseover="this.style.color='var(--fg)'" onmouseout="this.style.color='var(--muted)'">
+          ↺ Reset columns (${hidden.size} hidden)
+        </span>
+      </td></tr></tfoot>`
+    : '';
+
   el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
-    <thead><tr style="background:var(--card-header);color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">
-      <th style="padding:8px 14px;text-align:left">Month</th>
-      <th style="padding:8px 12px;text-align:right">Trades</th>
-      <th style="padding:8px 12px;text-align:right">Win Rate</th>
-      <th style="padding:8px 12px;text-align:right">Avg DIT</th>
-      <th style="padding:8px 12px;text-align:right">Avg Win</th>
-      <th style="padding:8px 12px;text-align:right">Avg Loss</th>
-      <th style="padding:8px 12px;text-align:right" title="Expected value per trade = (WinRate × AvgWin) + ((1−WinRate) × AvgLoss)">Edge/Trade</th>
-      <th style="padding:8px 12px;text-align:right">Top Ticker</th>
-      <th style="padding:8px 12px;text-align:right">Total P&amp;L</th>
-      <th style="padding:8px 12px;text-align:left">Analysis</th>
+    <thead><tr id="optlog-mon-header" style="background:var(--card-header);color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">
+      ${thHtml}
     </tr></thead>
-    <tbody>${rows}</tbody>
+    <tbody>${rowsHtml}</tbody>
+    ${tfootHtml}
   </table>`;
 }
 

@@ -7094,6 +7094,9 @@ async def get_options_log_summary():
     losing  = 0
     trades  = []
     ticker_pnl: dict = {}
+    # Tickers that still have at least one active position are excluded from the
+    # top/bottom panels so only fully-historical tickers appear there.
+    active_tickers: set = {r["underlying"] for r in rows if r["status"] == "active"}
 
     for r in rows:
         pnl = float(r["total_realized_pnl"]) if r["total_realized_pnl"] is not None else None
@@ -7185,18 +7188,18 @@ async def get_options_log_summary():
                 winning += 1
             elif pnl < 0:
                 losing += 1
-            # Only closed/rolled/expired trades count toward ticker P&L panels
-            if r["status"] not in ("active",):
+            # Only fully-historical tickers (no remaining active leg) count
+            if r["status"] not in ("active",) and r["underlying"] not in active_tickers:
                 sym = r["underlying"]
                 if sym not in ticker_pnl:
                     ticker_pnl[sym] = {"underlying": sym, "total_pnl": 0.0, "count": 0}
                 ticker_pnl[sym]["total_pnl"] += pnl
                 ticker_pnl[sym]["count"] += 1
 
-    # Top 5 most / bottom 5 least profitable tickers
+    # Top 5 / bottom 5 — only include tickers with strictly positive / negative net P&L
     all_ticker_list = list(ticker_pnl.values())
-    top_tickers    = sorted(all_ticker_list, key=lambda x: x["total_pnl"], reverse=True)[:5]
-    bottom_tickers = sorted(all_ticker_list, key=lambda x: x["total_pnl"])[:5]
+    top_tickers    = sorted([t for t in all_ticker_list if t["total_pnl"] > 0],  key=lambda x: x["total_pnl"], reverse=True)[:5]
+    bottom_tickers = sorted([t for t in all_ticker_list if t["total_pnl"] < 0],  key=lambda x: x["total_pnl"])[:5]
     for t in top_tickers + bottom_tickers:
         t["total_pnl"] = round(t["total_pnl"], 2)
 

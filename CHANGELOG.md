@@ -3,6 +3,18 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.7] - 2026-04-24
+
+### Fixed
+- **Ticker panels — active-position tickers excluded**: tickers with any remaining active position (e.g. NVDA, SKM, SAN, BCS) are now excluded from both Most Profitable and Least Profitable panels; only fully-historical tickers appear, consistent with the History tree filter.
+- **Ticker panels — no cross-contamination**: top panel only shows tickers with net positive P&L; bottom panel only shows tickers with net negative P&L. If fewer than 5 qualify, fewer chips are shown rather than bleeding positive tickers into "least profitable."
+- **By Account — column alignment**: Positions and Win Rate cells now stack the secondary info (e.g. "3 closed", "2W/1L") on a separate line so the primary value right-aligns cleanly with its column header.
+
+### Added
+- **Monthly Trade Analysis — draggable columns**: all 10 columns (Month, Trades, Win Rate, Avg DIT, Avg Win, Avg Loss, Edge/Trade, Top Ticker, Total P&L, Analysis) are draggable; order persists to localStorage (`optlog_mon_col_order_v1`).
+- **Monthly Trade Analysis — hide columns**: each non-sticky column has a faint ✕ button; hidden state persists to `optlog_mon_col_hidden_v1`; reset footer restores all columns.
+- **Monthly Trade Analysis — rolling 12-month window**: only trades closed within the last 12 months are included; older history is excluded automatically.
+
 ## [3.6.6] - 2026-04-24
 
 ### Fixed
