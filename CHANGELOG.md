@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.92] - 2026-04-24
+
+### Fixed
+- **Options Trader — position not highlighted in chain**: `has_position` matched on contract symbol (OCC format from Tradier) against DB symbols (Webull `WBL:XXXXXXXXXX` format) — they never matched. Now matches on (strike, expiration_date, option_type) which is broker-agnostic.
+- **Options Trader — expiration date missing from positions panel**: added expiration date (MM-DD) between strike and DTE in each position row.
+
 ## [3.5.91] - 2026-04-24
 
 ### Fixed

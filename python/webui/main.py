@@ -8305,14 +8305,22 @@ async def get_options_chain_data(ticker: str, account_label: str = "", token: st
         try:
             pool = await _get_db_pool()
             rows = await pool.fetch(
-                "SELECT contract_symbol, expiration_date FROM option_positions "
+                "SELECT strike, expiration_date, option_type FROM option_positions "
                 "WHERE underlying=$1 AND status='active'",
                 sym,
             )
-            open_contracts = {r["contract_symbol"] for r in rows}
-            data["open_expiries"] = list({r["expiration_date"].isoformat() for r in rows})
-            for c in data.get("calls", []) + data.get("puts", []):
-                c["has_position"] = c.get("contract", "") in open_contracts
+            # Build lookup by (strike, expiration_date, option_type) — broker symbols differ across sources
+            pos_keys: set[tuple] = set()
+            for r in rows:
+                exp_str = r["expiration_date"].isoformat() if r["expiration_date"] else ""
+                pos_keys.add((float(r["strike"]), exp_str, (r["option_type"] or "").lower()))
+            data["open_expiries"] = list({k[1] for k in pos_keys})
+            for c in data.get("calls", []):
+                key = (float(c.get("strike", 0)), c.get("expiration", ""), "call")
+                c["has_position"] = key in pos_keys
+            for c in data.get("puts", []):
+                key = (float(c.get("strike", 0)), c.get("expiration", ""), "put")
+                c["has_position"] = key in pos_keys
         except Exception:
             pass
 
