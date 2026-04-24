@@ -5836,10 +5836,11 @@ def _div_fetch_yahoo_sync(ticker: str) -> dict:
                     actions.index = actions.index.tz_localize("America/New_York")
                 recent = actions[actions.index >= cutoff]
                 n = len(recent)
-                if   n >= 10: frequency = 12
-                elif n >= 3:  frequency = 4
-                elif n >= 1:  frequency = 2
-                else:         frequency = 1
+                if   n >= 40: frequency = 52   # weekly
+                elif n >= 10: frequency = 12   # monthly
+                elif n >= 3:  frequency = 4    # quarterly
+                elif n >= 1:  frequency = 2    # semi-annual
+                else:         frequency = 1    # annual
                 if n > 0:
                     aps = float(recent.iloc[-1])
         except Exception:
@@ -5977,16 +5978,20 @@ async def _div_get_meta(tickers: list[str]) -> dict[str, dict]:
     return cached
 
 
-def _div_project_payments(positions_flat: list[dict], months: list[str]) -> dict:
+def _div_project_payments(positions_flat: list[dict], months: list[str],
+                          last_pay: dict | None = None) -> dict:
     """
     Project dividend income for each calendar month.
     positions_flat: list of {symbol, qty, forward_annual_rate, amount_per_share,
                               frequency, ex_date, sector, account_label, projected_annual_income}
-    months: ['2026-04', '2026-05', …] (12 items)
+    months: ['2026-03', '2026-04', …] (13 items: 1 prior + current + 11 future)
+    last_pay: {ticker: most_recent_pay_date} from dividend_history — used to
+              anchor projection for tickers whose API ex_date is null.
     Returns {month_key: {symbol: income, …}, …}
     """
     from datetime import date as _date, timedelta as _td
     monthly: dict[str, dict] = {m: {} for m in months}
+    pay_lag = 14  # typical ex→pay lag in days
 
     for p in positions_flat:
         far  = float(p.get("forward_annual_rate") or 0)
@@ -5999,22 +6004,30 @@ def _div_project_payments(positions_flat: list[dict], months: list[str]) -> dict
         if not aps:
             aps = far / freq
 
-        # Determine first projected payment date
-        ex_str = p.get("ex_date")
-        try:
-            ex = _date.fromisoformat(ex_str) if ex_str else _date.today()
-        except Exception:
-            ex = _date.today()
-        interval = int(365 / freq)
+        interval = max(1, int(365 / freq))
 
-        # Advance to a future ex_date
+        # Anchor ex_date: prefer API ex_date, then derive from last known pay, then default
+        ex_str = p.get("ex_date")
+        ex: _date
+        try:
+            if ex_str:
+                ex = _date.fromisoformat(str(ex_str))
+            elif last_pay and sym in last_pay and last_pay[sym]:
+                # Back-derive ex_date from the most recent actual payment
+                ex = last_pay[sym] - _td(days=pay_lag)
+            else:
+                ex = _date.today() - _td(days=interval)
+        except Exception:
+            ex = _date.today() - _td(days=interval)
+
         today = _date.today()
-        while ex < today - _td(days=interval):
+        # Advance ex until the corresponding pay_date is NOT yet in the past,
+        # so we capture payments whose pay_date is still pending (even if ex already passed).
+        while ex + _td(days=pay_lag) < today:
             ex += _td(days=interval)
 
-        # Project freq payments across the 12-month window
-        pay_lag = 14  # typical ex→pay lag in days
-        for _ in range(freq + 2):
+        # Project payments across the window (freq + a few extra to cover the full window)
+        for _ in range(freq + 4):
             pay_dt = ex + _td(days=pay_lag)
             mk = pay_dt.strftime("%Y-%m")
             if mk in monthly:
@@ -6147,10 +6160,11 @@ async def div_forecast(token: str = ""):
     holdings = await div_holdings(token=token)
     from datetime import date as _date
     today = _date.today()
-    months = [(today.replace(day=1) if i == 0
-               else (_date(today.year + (today.month + i - 1) // 12,
-                           (today.month + i - 1) % 12 + 1, 1)))
-              for i in range(12)]
+    # Window: 1 prior month + current + 11 future = 13 months total.
+    # i=-1 = prior month; i=0 = current; i=1..11 = future.
+    months = [_date(today.year + (today.month + i - 1) // 12,
+                    (today.month + i - 1) % 12 + 1, 1)
+              for i in range(-1, 12)]
     month_keys   = [m.strftime("%Y-%m") for m in months]
     month_labels = [m.strftime("%b %Y") for m in months]
 
@@ -6161,7 +6175,21 @@ async def div_forecast(token: str = ""):
             if p["is_dividend_payer"]:
                 positions_flat.append({**p, "account_label": acct["label"]})
 
-    monthly_raw = _div_project_payments(positions_flat, month_keys)
+    # Fetch most-recent actual payment date per ticker to anchor projections
+    # for tickers with a null ex_date from the API (e.g. HOOW).
+    last_pay: dict = {}
+    if DB_URL:
+        try:
+            pool = await _get_db_pool()
+            rows = await pool.fetch(
+                "SELECT ticker, MAX(pay_date)::date AS last_pay FROM dividend_history GROUP BY ticker"
+            )
+            for r in rows:
+                last_pay[r["ticker"]] = r["last_pay"]
+        except Exception:
+            pass
+
+    monthly_raw = _div_project_payments(positions_flat, month_keys, last_pay=last_pay)
 
     # Reshape monthly
     monthly_out = []

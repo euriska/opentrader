@@ -12609,7 +12609,7 @@ async function loadDividendPage(forceRefresh = false) {
     const [holdings, forecast, history] = await Promise.all([
       apiFetch(`/api/dividends/holdings?token=${encodeURIComponent(token)}`),
       apiFetch(`/api/dividends/forecast?token=${encodeURIComponent(token)}`),
-      apiFetch(`/api/dividends/history?token=${encodeURIComponent(token)}&limit=100`),
+      apiFetch(`/api/dividends/history?token=${encodeURIComponent(token)}&limit=500`),
     ]);
     _divData = holdings;
     _divForecast = forecast;

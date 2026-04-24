@@ -3,6 +3,20 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.9] - 2026-04-24
+
+### Fixed
+- **HOOW (and other weekly payers) missing from April forecast**: two compounding bugs:
+  1. Frequency detection capped at `n >= 10 → 12 (monthly)` — weekly payers like HOOW with 50+ payments in 18 months were misclassified as monthly. Added `n >= 40 → 52 (weekly)` tier.
+  2. Projection algorithm started from `ex_date = today` when API ex_date was null, placing first pay_date 14 days out (May). Now falls back to `last_known_pay_date − pay_lag` from `dividend_history`, so HOOW anchors to April 6 and correctly projects April 27 as the next pending payment.
+  3. Advance condition was `while ex < today − interval`, skipping ex_dates within the current pay cycle. Changed to `while ex + pay_lag < today` so any payment whose pay_date is still upcoming is included, even if the ex_date already passed.
+- **April forecast now shows HOOW**: April projected income updated from $1.19 to $389.12 (HOOW April 27 weekly payment across all accounts).
+
+### Added
+- **13-month forecast window**: bar chart now shows 1 prior month (actual history, gray) + current month (actual received + projected remaining, green/blue split) + 11 future months (projected, blue). Previously started at the current month with no history context.
+- **`last_pay` anchor in `_div_project_payments`**: fetches `MAX(pay_date)` per ticker from `dividend_history` at forecast time and uses it to derive the correct ex_date for tickers missing API ex_date data.
+- **History fetch limit**: increased from 100 to 500 records to ensure all months in the 13-month window are represented in the blend.
+
 ## [3.6.8] - 2026-04-24
 
 ### Fixed
