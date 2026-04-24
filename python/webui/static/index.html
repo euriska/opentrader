@@ -2320,7 +2320,7 @@ select option{background:var(--surface2)}
                   <input type="checkbox" id="ot-show-puts" checked onchange="_otFilterChain()"> Puts
                 </label>
                 <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer">
-                  <input type="checkbox" id="ot-near-money" checked onchange="_otFilterChain()"> Near ATM
+                  <input type="checkbox" id="ot-near-money" onchange="_otFilterChain()"> Near ATM
                 </label>
               </div>
             </div>
@@ -15303,8 +15303,12 @@ function _otFilterChain() {
     if (r.exp !== lastExp) {
       lastExp = r.exp;
       const dot = hasPos ? ' <span style="color:#60a5fa;font-size:9px">●</span>' : '';
-      expHeader = `<tr><td colspan="${showPuts ? 16 : 9}" style="background:rgba(255,255,255,.04);padding:4px 10px;font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.06em;text-transform:uppercase">
-        ${r.exp}${dot}
+      const isSel = selExpiry === r.exp;
+      expHeader = `<tr><td colspan="${showPuts ? 16 : 9}"
+        onclick="(function(){var s=document.getElementById('ot-chain-expiry');s.value=s.value===this?'':this;_otFilterChain();}).call('${r.exp}')"
+        style="background:rgba(255,255,255,.04);padding:4px 10px;font-size:10px;font-weight:700;color:${isSel?'#e2e8f0':'var(--muted)'};letter-spacing:.06em;text-transform:uppercase;cursor:pointer;user-select:none"
+        title="Click to filter to this expiration">
+        ${r.exp}${dot}${isSel?' <span style="color:#60a5fa;font-size:9px">▸ selected</span>':''}
       </td></tr>`;
     }
     const strikeSty = `padding:4px 10px;text-align:center;font-weight:700;font-size:12px;background:var(--card-header);${atmSty}`;

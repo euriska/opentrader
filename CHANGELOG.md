@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.89] - 2026-04-24
+
+### Fixed
+- **Options Trader — chain date selection**: Near ATM filter was checked by default, hiding most strikes; it now defaults to unchecked so selecting an expiry shows the full strike ladder
+- **Options Trader — expiry section headers**: clicking an expiry date row in the chain table now filters the dropdown to that date (click again to clear); selected row is highlighted
+
 ## [3.5.88] - 2026-04-24
 
 ### Changed
