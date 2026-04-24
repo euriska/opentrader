@@ -3,6 +3,13 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.14] - 2026-04-24
+
+### Added
+- **Earnings Date column in Open Option Positions** — new "Earnings" column shows the actual next earnings date (`next_earnings_date`) with the days-until count as a sub-line in orange when ≤14 days. Replaces the old days-only "D/E" column.
+- **Movable columns** — all columns in Open Option Positions can be reordered by drag-and-drop (grip ⠿ handle on each header). Order is persisted in localStorage (`opt_pos_col_order_v1`). Ticker and Journal (✏) columns are fixed anchors.
+- **Hideable columns** — each non-fixed column header has a ✕ button to hide it. Hidden count is shown in a footer with a "Reset columns" link to restore all. Hidden set persisted in localStorage (`opt_pos_col_hide_v1`).
+
 ## [3.6.13] - 2026-04-24
 
 ### Changed

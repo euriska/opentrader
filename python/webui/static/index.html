@@ -1837,32 +1837,9 @@ select option{background:var(--surface2)}
           <span style="font-size:11px;color:var(--muted)">Click ticker to view chart &amp; log</span>
         </div>
         <table id="opt-positions-table" style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead>
-            <tr style="background:var(--card-header);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em">
-              <th style="padding:8px 10px;text-align:left;white-space:nowrap">Ticker</th>
-              <th style="padding:8px 10px;text-align:left;white-space:nowrap">Contract</th>
-              <th style="padding:8px 10px;text-align:left;white-space:nowrap">Account</th>
-              <th style="padding:8px 6px;text-align:center;white-space:nowrap">Type</th>
-              <th style="padding:8px 6px;text-align:right;white-space:nowrap">Strike</th>
-              <th style="padding:8px 6px;text-align:right;white-space:nowrap" title="Number of contracts">Qty</th>
-              <th style="padding:8px 6px;text-align:right;white-space:nowrap" title="Option delta (0–1)">Delta</th>
-              <th style="padding:8px 6px;text-align:right;white-space:nowrap">Entry $</th>
-              <th style="padding:8px 6px;text-align:right;white-space:nowrap">ATR</th>
-              <th style="padding:8px 6px;text-align:center;white-space:nowrap" title="Latest predictor buy/sell signal">Signal</th>
-              <th style="padding:8px 6px;text-align:right;white-space:nowrap;color:#f85149" title="Emergency Exit = Entry − 3×ATR">🚨 Emg Exit</th>
-              <th style="padding:8px 6px;text-align:right;white-space:nowrap;color:#d29922" title="Stop Loss = Entry − 2×ATR">⚠ Stop Loss</th>
-              <th style="padding:8px 6px;text-align:right;white-space:nowrap;color:#79c0ff" title="1st Roll = Entry + 0.5×ATR">Roll 1</th>
-              <th style="padding:8px 6px;text-align:right;white-space:nowrap;color:#a5d6ff" title="2nd Roll = Entry + 1×ATR">Roll 2</th>
-              <th style="padding:8px 6px;text-align:right;white-space:nowrap;color:#cae8ff" title="3rd Roll = Entry + 2×ATR">Roll 3</th>
-              <th style="padding:8px 6px;text-align:center;white-space:nowrap">Alerts</th>
-              <th style="padding:8px 6px;text-align:center;white-space:nowrap" title="Days In Trade">DIT</th>
-              <th style="padding:8px 6px;text-align:center;white-space:nowrap" title="Days To Expiration">DTE</th>
-              <th style="padding:8px 6px;text-align:center;white-space:nowrap" title="Days To Earnings">D/E</th>
-              <th style="padding:8px 6px;text-align:center;white-space:nowrap">Status</th>
-            </tr>
-          </thead>
+          <thead id="opt-positions-head"></thead>
           <tbody id="opt-positions-body">
-            <tr><td colspan="19" style="padding:24px;text-align:center;color:var(--muted)">Loading option positions…</td></tr>
+            <tr><td colspan="21" style="padding:24px;text-align:center;color:var(--muted)">Loading option positions…</td></tr>
           </tbody>
         </table>
       </div>
@@ -13633,61 +13610,198 @@ async function _optDteSave(posId, dateVal) {
   }
 }
 
-function _optRenderTable(rows) {
-  const tbody = document.getElementById('opt-positions-body');
-  if (!tbody) return;
-  if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="19" style="padding:24px;text-align:center;color:var(--muted)">No option positions found</td></tr>';
-    return;
+// ── Options positions: column management ──────────────────────────────────
+const _OPT_COL_DEFS = [
+  { id:'ticker',    label:'Ticker',      align:'left',   fixed:true,  tip:'' },
+  { id:'contract',  label:'Contract',    align:'left',   fixed:false, tip:'' },
+  { id:'account',   label:'Account',     align:'left',   fixed:false, tip:'' },
+  { id:'type',      label:'Type',        align:'center', fixed:false, tip:'' },
+  { id:'strike',    label:'Strike',      align:'right',  fixed:false, tip:'' },
+  { id:'qty',       label:'Qty',         align:'right',  fixed:false, tip:'Number of contracts' },
+  { id:'delta',     label:'Delta',       align:'right',  fixed:false, tip:'Option delta (0–1)' },
+  { id:'entry',     label:'Entry $',     align:'right',  fixed:false, tip:'' },
+  { id:'atr',       label:'ATR',         align:'right',  fixed:false, tip:'' },
+  { id:'signal',    label:'Signal',      align:'center', fixed:false, tip:'Latest predictor buy/sell signal' },
+  { id:'emg_exit',  label:'🚨 Emg Exit', align:'right',  fixed:false, tip:'Emergency Exit = Entry − 3×ATR', color:'#f85149' },
+  { id:'stop_loss', label:'⚠ Stop Loss', align:'right',  fixed:false, tip:'Stop Loss = Entry − 2×ATR', color:'#d29922' },
+  { id:'roll1',     label:'Roll 1',      align:'right',  fixed:false, tip:'1st Roll = Entry + 0.5×ATR', color:'#79c0ff' },
+  { id:'roll2',     label:'Roll 2',      align:'right',  fixed:false, tip:'2nd Roll = Entry + 1×ATR', color:'#a5d6ff' },
+  { id:'roll3',     label:'Roll 3',      align:'right',  fixed:false, tip:'3rd Roll = Entry + 2×ATR', color:'#cae8ff' },
+  { id:'alerts',    label:'Alerts',      align:'center', fixed:false, tip:'' },
+  { id:'dit',       label:'DIT',         align:'center', fixed:false, tip:'Days In Trade' },
+  { id:'dte',       label:'DTE',         align:'center', fixed:false, tip:'Days To Expiration' },
+  { id:'earnings',  label:'Earnings',    align:'center', fixed:false, tip:'Next earnings date + days until' },
+  { id:'status',    label:'Status',      align:'center', fixed:false, tip:'' },
+  { id:'journal',   label:'✏',           align:'center', fixed:true,  tip:'' },
+];
+const _OPT_COL_ORDER_LS = 'opt_pos_col_order_v1';
+const _OPT_COL_HIDE_LS  = 'opt_pos_col_hide_v1';
+
+function _optColOrder() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(_OPT_COL_ORDER_LS) || 'null');
+    if (Array.isArray(saved) && saved.length === _OPT_COL_DEFS.length) return saved;
+  } catch(e) {}
+  return _OPT_COL_DEFS.map(c => c.id);
+}
+function _optSaveColOrder(order) { localStorage.setItem(_OPT_COL_ORDER_LS, JSON.stringify(order)); }
+function _optHiddenCols() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(_OPT_COL_HIDE_LS) || '[]');
+    if (Array.isArray(saved)) return new Set(saved);
+  } catch(e) {}
+  return new Set();
+}
+function _optHideCol(id) {
+  const h = _optHiddenCols(); h.add(id);
+  localStorage.setItem(_OPT_COL_HIDE_LS, JSON.stringify([...h]));
+  const fa = (document.getElementById('opt-filter-account')||{}).value||'';
+  _optRenderTable(_optSortRows(fa ? _optPositions.filter(p=>p.account_label===fa) : _optPositions));
+}
+function _optResetCols() {
+  localStorage.removeItem(_OPT_COL_ORDER_LS);
+  localStorage.removeItem(_OPT_COL_HIDE_LS);
+  const fa = (document.getElementById('opt-filter-account')||{}).value||'';
+  _optRenderTable(_optSortRows(fa ? _optPositions.filter(p=>p.account_label===fa) : _optPositions));
+}
+
+let _optDragSrc = null;
+function _optColDragStart(e) {
+  _optDragSrc = e.currentTarget;
+  e.currentTarget.style.opacity = '0.4';
+  e.dataTransfer.effectAllowed = 'move';
+}
+function _optColDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('#opt-positions-head th').forEach(th => th.style.background = '');
+  e.currentTarget.style.background = 'var(--surface2)';
+}
+function _optColDrop(e) {
+  e.preventDefault();
+  if (!_optDragSrc || _optDragSrc === e.currentTarget) return;
+  const order  = _optColOrder();
+  const fromId = _optDragSrc.dataset.col, toId = e.currentTarget.dataset.col;
+  const fi = order.indexOf(fromId), ti = order.indexOf(toId);
+  if (fi < 0 || ti < 0) return;
+  order.splice(fi, 1); order.splice(ti, 0, fromId);
+  _optSaveColOrder(order);
+  const fa = (document.getElementById('opt-filter-account')||{}).value||'';
+  _optRenderTable(_optSortRows(fa ? _optPositions.filter(p=>p.account_label===fa) : _optPositions));
+}
+function _optColDragEnd(e) {
+  e.currentTarget.style.opacity = '';
+  document.querySelectorAll('#opt-positions-head th').forEach(th => th.style.background = '');
+  _optDragSrc = null;
+}
+
+function _optCellVal(colId, p) {
+  const fmt = v => v != null ? `$${Number(v).toFixed(2)}` : '—';
+  const dte = p.days_to_exp;
+  const typeColor = p.option_type === 'call' ? '#3fb950' : p.option_type === 'put' ? '#f85149' : 'var(--muted)';
+  const typeTxt   = p.option_type === 'call' ? 'CALL' : p.option_type === 'put' ? 'PUT' : 'UNK';
+  switch (colId) {
+    case 'ticker':
+      return `<td style="padding:7px 10px;font-weight:700;white-space:nowrap">
+        <a href="#" onclick="_optOpenModal('${p.id}');return false" style="color:#a855f7;text-decoration:none;font-size:13px">${p.underlying}</a>
+        ${p.has_chart?'<span style="font-size:9px;color:var(--muted)" title="Chart available">📊</span>':''}
+      </td>`;
+    case 'contract':
+      return `<td style="padding:7px 10px;font-family:monospace;font-size:10px;color:var(--muted);white-space:nowrap">${p.contract_symbol}</td>`;
+    case 'account':
+      return `<td style="padding:7px 10px;white-space:nowrap;font-size:11px">${p.account_name}<br><span style="color:var(--muted);font-size:10px">${_optBrokerLabel(p.broker)}</span></td>`;
+    case 'type':
+      return `<td style="padding:7px 6px;text-align:center"><span style="color:${typeColor};font-weight:700;font-size:11px">${typeTxt}</span></td>`;
+    case 'strike':
+      return `<td style="padding:7px 6px;text-align:right;font-weight:600">${p.strike!=null?'$'+Number(p.strike).toFixed(2):'—'}</td>`;
+    case 'qty':
+      return `<td style="padding:7px 6px;text-align:right;font-weight:600">${p.qty!=null?Number(p.qty):'—'}</td>`;
+    case 'delta':
+      return `<td style="padding:7px 6px;text-align:right;font-family:monospace;font-size:11px">${p.delta!=null?Number(p.delta).toFixed(2):'—'}</td>`;
+    case 'entry':
+      return `<td style="padding:7px 6px;text-align:right">${p.underlying_entry!=null?'$'+Number(p.underlying_entry).toFixed(2):'—'}</td>`;
+    case 'atr':
+      return `<td style="padding:7px 6px;text-align:right;color:var(--muted);font-size:11px">${p.atr_14!=null?Number(p.atr_14).toFixed(4):'—'}</td>`;
+    case 'signal': {
+      const s=p.signal||{}, d=(s.direction||'').toLowerCase(), c=s.confidence!=null?' '+Math.round(s.confidence*100)+'%':'';
+      const html = d==='long'?`<span style="color:#4ade80;font-weight:700;font-size:11px">▲ BUY${c}</span>`
+                 : d==='short'?`<span style="color:#f85149;font-weight:700;font-size:11px">▼ SELL${c}</span>`
+                 : '<span style="color:var(--muted);font-size:11px">—</span>';
+      return `<td style="padding:7px 6px;text-align:center;white-space:nowrap">${html}</td>`;
+    }
+    case 'emg_exit':  return `<td style="padding:7px 6px;text-align:right;color:#f85149;font-weight:600">${fmt(p.level_emergency)}</td>`;
+    case 'stop_loss': return `<td style="padding:7px 6px;text-align:right;color:#d29922;font-weight:600">${fmt(p.level_exit_alert)}</td>`;
+    case 'roll1':     return `<td style="padding:7px 6px;text-align:right;color:#79c0ff">${fmt(p.level_roll_1)}</td>`;
+    case 'roll2':     return `<td style="padding:7px 6px;text-align:right;color:#a5d6ff">${fmt(p.level_roll_2)}</td>`;
+    case 'roll3':     return `<td style="padding:7px 6px;text-align:right;color:#cae8ff">${fmt(p.level_roll_3)}</td>`;
+    case 'alerts':    return `<td style="padding:7px 10px">${_optAlertBadge(p.alerts_fired)}</td>`;
+    case 'dit':       return `<td style="padding:7px 6px;text-align:center;color:var(--muted)">${p.days_in_trade!=null?p.days_in_trade+'d':'—'}</td>`;
+    case 'dte':       return _optDteCell(dte, p.id, p.expiration_date);
+    case 'earnings': {
+      const de = p.days_to_earnings, dateStr = p.next_earnings_date || null;
+      const deColor = (de!=null && de<=14) ? '#f97316' : 'var(--muted)';
+      const daysSub = de!=null ? `<div style="font-size:9px;color:${deColor};margin-top:1px">${de}d</div>` : '';
+      return `<td style="padding:7px 6px;text-align:center;font-size:11px;color:${dateStr?'var(--fg)':'var(--muted)'}">${dateStr||'—'}${daysSub}</td>`;
+    }
+    case 'status':  return `<td style="padding:7px 6px;text-align:center"><span style="font-size:10px;color:var(--muted)">${p.status}</span></td>`;
+    case 'journal': return `<td style="padding:7px 6px;text-align:center">
+      <button onclick="_optJournalOpen('${p.id}','${(p.journal||'').replace(/'/g,"\\'").replace(/\n/g,'\\n')}')"
+        style="background:none;border:none;cursor:pointer;padding:2px 4px;border-radius:4px;${p.journal?'color:#f59e0b':'color:var(--muted)'}"
+        title="${p.journal?'Edit journal note':'Add journal note'}">✏</button></td>`;
+    default: return '<td></td>';
   }
-  tbody.innerHTML = rows.map(p => {
-    const dte = p.days_to_exp;
-    const rowStyle = (dte !== null && dte <= 7 && dte >= 0)
-      ? 'background:rgba(249,115,22,.12);border-left:3px solid #f97316'
-      : '';
+}
 
-    const fmt = v => v != null ? `$${Number(v).toFixed(2)}` : '—';
-    const fmtN = v => v != null ? Number(v).toFixed(4) : '—';
+function _optRenderTable(rows) {
+  const table  = document.getElementById('opt-positions-table');
+  const tbody  = document.getElementById('opt-positions-body');
+  if (!table || !tbody) return;
 
-    const typeColor = p.option_type === 'call' ? '#3fb950' : p.option_type === 'put' ? '#f85149' : 'var(--muted)';
-    const typeTxt   = p.option_type === 'call' ? 'CALL' : p.option_type === 'put' ? 'PUT' : 'UNK';
+  const order   = _optColOrder();
+  const hidden  = _optHiddenCols();
+  const cols    = order.map(id => _OPT_COL_DEFS.find(c => c.id === id)).filter(Boolean);
+  const visible = cols.filter(c => !hidden.has(c.id));
+  const nCols   = visible.length;
 
-    const dEarnings = p.days_to_earnings;
-    const dEarnStr  = dEarnings != null ? `${dEarnings}d` : '—';
-    const dEarnColor = (dEarnings != null && dEarnings <= 14) ? '#f97316' : 'var(--muted)';
+  // ── thead ──
+  const thead = document.getElementById('opt-positions-head');
+  if (thead) {
+    thead.innerHTML = `<tr style="background:var(--card-header);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em">${
+      visible.map(c => {
+        const colStyle = `padding:8px 10px;text-align:${c.align};white-space:nowrap;cursor:${c.fixed?'default':'grab'};user-select:none;${c.color?'color:'+c.color+';':''}`;
+        const hideBtn  = !c.fixed
+          ? `<span onclick="event.stopPropagation();_optHideCol('${c.id}')" title="Hide column"
+               style="cursor:pointer;color:var(--muted);font-size:9px;margin-left:3px;opacity:.6;vertical-align:middle">✕</span>`
+          : '';
+        const grip = !c.fixed ? `<span style="color:var(--muted);margin-left:3px;font-size:9px;opacity:.4">⠿</span>` : '';
+        return `<th data-col="${c.id}" ${c.fixed?'':
+          'draggable="true" ondragstart="_optColDragStart(event)" ondragover="_optColDragOver(event)" ondrop="_optColDrop(event)" ondragend="_optColDragEnd(event)"'}
+          style="${colStyle}" title="${c.tip||c.label}">${c.label}${grip}${hideBtn}</th>`;
+      }).join('')
+    }</tr>`;
+  }
 
-    return `<tr style="${rowStyle};border-bottom:1px solid var(--border)">
-      <td style="padding:7px 10px;font-weight:700;white-space:nowrap">
-        <a href="#" onclick="_optOpenModal('${p.id}');return false"
-           style="color:#a855f7;text-decoration:none;font-size:13px">${p.underlying}</a>
-        ${p.has_chart ? '<span style="font-size:9px;color:var(--muted)" title="Chart available">📊</span>' : ''}
-      </td>
-      <td style="padding:7px 10px;font-family:monospace;font-size:10px;color:var(--muted);white-space:nowrap">${p.contract_symbol}</td>
-      <td style="padding:7px 10px;white-space:nowrap;font-size:11px">${p.account_name}<br><span style="color:var(--muted);font-size:10px">${_optBrokerLabel(p.broker)}</span></td>
-      <td style="padding:7px 6px;text-align:center"><span style="color:${typeColor};font-weight:700;font-size:11px">${typeTxt}</span></td>
-      <td style="padding:7px 6px;text-align:right;font-weight:600">${p.strike != null ? '$'+Number(p.strike).toFixed(2) : '—'}</td>
-      <td style="padding:7px 6px;text-align:right;font-weight:600">${p.qty != null ? Number(p.qty) : '—'}</td>
-      <td style="padding:7px 6px;text-align:right;font-family:monospace;font-size:11px">${p.delta != null ? Number(p.delta).toFixed(2) : '—'}</td>
-      <td style="padding:7px 6px;text-align:right">${p.underlying_entry != null ? '$'+Number(p.underlying_entry).toFixed(2) : '—'}</td>
-      <td style="padding:7px 6px;text-align:right;color:var(--muted);font-size:11px">${p.atr_14 != null ? Number(p.atr_14).toFixed(4) : '—'}</td>
-      <td style="padding:7px 6px;text-align:center;white-space:nowrap">${(() => { const s = p.signal || {}; const d = (s.direction||'').toLowerCase(); const c = s.confidence != null ? ' '+Math.round(s.confidence*100)+'%' : ''; return d==='long' ? `<span style="color:#4ade80;font-weight:700;font-size:11px">▲ BUY${c}</span>` : d==='short' ? `<span style="color:#f85149;font-weight:700;font-size:11px">▼ SELL${c}</span>` : '<span style="color:var(--muted);font-size:11px">—</span>'; })()}</td>
-      <td style="padding:7px 6px;text-align:right;color:#f85149;font-weight:600">${fmt(p.level_emergency)}</td>
-      <td style="padding:7px 6px;text-align:right;color:#d29922;font-weight:600">${fmt(p.level_exit_alert)}</td>
-      <td style="padding:7px 6px;text-align:right;color:#79c0ff">${fmt(p.level_roll_1)}</td>
-      <td style="padding:7px 6px;text-align:right;color:#a5d6ff">${fmt(p.level_roll_2)}</td>
-      <td style="padding:7px 6px;text-align:right;color:#cae8ff">${fmt(p.level_roll_3)}</td>
-      <td style="padding:7px 10px">${_optAlertBadge(p.alerts_fired)}</td>
-      <td style="padding:7px 6px;text-align:center;color:var(--muted)">${p.days_in_trade != null ? p.days_in_trade+'d' : '—'}</td>
-      ${_optDteCell(dte, p.id, p.expiration_date)}
-      <td style="padding:7px 6px;text-align:center;color:${dEarnColor};font-size:11px">${dEarnStr}</td>
-      <td style="padding:7px 6px;text-align:center"><span style="font-size:10px;color:var(--muted)">${p.status}</span></td>
-      <td style="padding:7px 6px;text-align:center">
-        <button onclick="_optJournalOpen('${p.id}','${(p.journal||'').replace(/'/g,'\\\'').replace(/\n/g,'\\n')}')"
-          style="background:none;border:none;cursor:pointer;padding:2px 4px;border-radius:4px;${p.journal ? 'color:#f59e0b' : 'color:var(--muted)'}"
-          title="${p.journal ? 'Edit journal note' : 'Add journal note'}">✏</button>
-      </td>
-    </tr>`;
-  }).join('');
+  // ── tbody ──
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="${nCols}" style="padding:24px;text-align:center;color:var(--muted)">No option positions found</td></tr>`;
+  } else {
+    tbody.innerHTML = rows.map(p => {
+      const dte = p.days_to_exp;
+      const rs  = (dte!==null && dte<=7 && dte>=0) ? 'background:rgba(249,115,22,.12);border-left:3px solid #f97316' : '';
+      return `<tr style="${rs};border-bottom:1px solid var(--border)">${visible.map(c => _optCellVal(c.id, p)).join('')}</tr>`;
+    }).join('');
+  }
+
+  // ── tfoot (reset hidden) ──
+  let tf = table.tFoot;
+  if (!tf) tf = table.createTFoot();
+  const hiddenCount = hidden.size;
+  tf.innerHTML = hiddenCount > 0
+    ? `<tr><td colspan="${nCols}" style="padding:5px 12px;text-align:right;font-size:11px;color:var(--muted);border-top:1px solid var(--border)">
+        ${hiddenCount} column${hiddenCount!==1?'s':''} hidden ·
+        <button onclick="_optResetCols()" style="background:none;border:none;cursor:pointer;color:var(--blue);font-size:11px;padding:0">Reset columns</button>
+      </td></tr>`
+    : '';
 }
 
 function _optBuildReportHtml(rows) {
