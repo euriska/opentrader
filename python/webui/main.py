@@ -6215,20 +6215,28 @@ async def div_forecast(token: str = ""):
         except Exception:
             pass
 
-    # Average from fully completed months only; denominator is captured calendar months
-    # (not payment count) so quarterly and monthly payers are normalised correctly.
-    captured = {mk: v for mk, v in actual_by_month.items() if mk < current_month_key}
-    captured_count = len(captured)
+    # Denominator = total elapsed calendar months in the lookback window (not months
+    # that had payments). A quarterly payer has 6 payment-months in 18 calendar months;
+    # using 6 as the denominator inflates avg_monthly by 3×. Using 18 gives the correct
+    # per-calendar-month average regardless of payment frequency.
+    cutoff_month_start = (today - _td(days=548)).replace(day=1)
+    current_month_start = today.replace(day=1)
+    months_elapsed = max(1, (current_month_start.year - cutoff_month_start.year) * 12 +
+                            (current_month_start.month - cutoff_month_start.month))
+
+    # captured_count = months that actually had payments (used as UI metadata only)
+    captured_count = sum(1 for mk in actual_by_month if mk < current_month_key)
+
     total_received_all = sum(acct_ticker_totals.values())
-    avg_monthly = (total_received_all / captured_count) if captured_count > 0 else 0.0
+    avg_monthly = total_received_all / months_elapsed if total_received_all > 0 else 0.0
 
     # Future breakdown: per-(account, ticker) so the frontend account-filter sums
     # only the shares actually held in each broker — not the whole portfolio.
     future_breakdown: list[dict] = []
-    if captured_count > 0 and total_received_all > 0:
+    if total_received_all > 0:
         future_breakdown = sorted(
             [{"symbol": ticker, "account_label": acct,
-              "income": round(total / captured_count, 2)}
+              "income": round(total / months_elapsed, 2)}
              for (acct, ticker), total in acct_ticker_totals.items()],
             key=lambda x: -x["income"],
         )
@@ -6302,14 +6310,16 @@ async def div_forecast(token: str = ""):
          for lbl, v in acct_totals.items()], key=lambda x: -x["annual_income"])
 
     result = {
-        "monthly":              monthly_out,
-        "by_ticker":            by_ticker,
-        "by_sector":            by_sector,
-        "by_account":           by_account,
-        "by_yield":             by_yield,
-        "total_projected_12mo": round(sum(m["projected_income"] for m in monthly_out), 2),
-        "avg_monthly_income":   round(avg_monthly, 2),
+        "monthly":               monthly_out,
+        "by_ticker":             by_ticker,
+        "by_sector":             by_sector,
+        "by_account":            by_account,
+        "by_yield":              by_yield,
+        "total_projected_12mo":  round(sum(m["projected_income"] for m in monthly_out), 2),
+        "avg_monthly_income":    round(avg_monthly, 2),
         "captured_months_count": captured_count,
+        "months_elapsed":        months_elapsed,
+        "total_received_history": round(total_received_all, 2),
     }
     await redis.set("dividend:forecast:cache", json.dumps(result), ex=3600)
     return result

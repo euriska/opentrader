@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.21] - 2026-04-24
+
+### Fixed
+- **Dividend forecast — correct normalization denominator** — `avg_monthly` was dividing by the number of calendar months *that had payments* (e.g. 6 for a quarterly payer over 18 months), making the projection 3× too high for quarterly payers and proportionally wrong for all other frequencies. Denominator is now total elapsed calendar months in the 18-month window (≈18) so the per-calendar-month average is correct regardless of payment frequency. Response now includes `months_elapsed` and `total_received_history` for transparency.
+
 ## [3.6.20] - 2026-04-24
 
 ### Fixed
