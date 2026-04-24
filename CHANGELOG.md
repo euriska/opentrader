@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.94] - 2026-04-24
+
+### Added
+- **Options chain — strike column blue highlight**: strike cell is now highlighted in blue when either the call or put for that row has an open position, matching the data cell highlight.
+- **Options chain — buy/sell row selection**: clicking a chain row activates BUY mode (green tint + green outline); clicking the same row a second time toggles to SELL (red tint). Clicking a position row (blue) goes directly to SELL. Selected side badge (BUY/SELL) appears in the Risk & Sizing Calculator header.
+
 ## [3.5.93] - 2026-04-24
 
 ### Fixed
