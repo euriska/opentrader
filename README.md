@@ -18,6 +18,7 @@ An AI-driven algorithmic trading platform built on a microservices architecture 
 - **Market Breadth** — OVTLYR bull/bear breadth gauge with crossover detection and sparkline history
 - **Equity / Options separation** — Active Positions, Trades, and Dividends pages show equity-only data; Options Dashboard is a dedicated section
 - **Options Dashboard** — Live options position tracker with DTE, strike, delta, ATR levels, underlying price, buy/sell signal, Yahoo Finance chain enrichment; Portfolio Greeks panel (Δ/Θ/ν/Γ per underlying); YTD Performance panel (trades, P&L, win rate, alpha vs SPY); stat card hover tooltips; download and scheduled email report
+- **Options Trader** — Full-featured options trading dashboard: account selector, open positions panel (with expiration date + DTE), OVTLYR buy-signal list, LightweightCharts candlestick chart with EMA 10/20/50 + earnings/ex-dividend markers, broker-native options chain (Tradier → Webull → Alpaca → Yahoo fallback) with extrinsic value, IV, greeks, blue position highlighting; multi-leg order builder with BUY/SELL chips on strike cells; Risk & Sizing Calculator with per-account default risk % (configurable in Broker dashboard) and deviation warning
 - **Options Trading Log** — Full P&L history as broker → account → ticker tree; milestone chains (Open → Roll → Closed/Expired); per-event P&L; post-close AI analysis via Claude Haiku; YTD performance panel; 18-month retention
 - **Options Expiry Calendar** — Active positions grouped by expiration date with DTE urgency color coding (critical ≤3d, warning ≤7d, caution ≤14d); per-expiry Greeks totals
 - **Strategy Engineer** — AI-assisted strategy builder with version control and real Backtrader backtesting
@@ -144,7 +145,7 @@ cp .env.sample .env && nano .env
 cp config/accounts.toml.sample config/accounts.toml
 
 # Pull images (replace X.Y.Z with the release version)
-export OT_VERSION=3.5.85
+export OT_VERSION=3.5.99
 podman pull ghcr.io/euriska/ot-webui:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-python:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-mcp-yahoo:${OT_VERSION}
@@ -225,6 +226,7 @@ The dashboard is organized into six sections:
 | Page | Description |
 |---|---|
 | Options Dashboard | Live options positions with DTE, strike, delta, ATR levels, Yahoo Finance chain enrichment, Portfolio Greeks, and YTD Performance |
+| Options Trader | Full trading dashboard — account selector, positions panel, OVTLYR signals, EMA chart, live broker chain, multi-leg order builder, risk calculator |
 | Trading Log | Full P&L tree (broker → account → ticker) with milestone chains, AI post-close analysis, and YTD performance |
 | Expiry Calendar | Active positions grouped by expiry date with DTE urgency coding and per-expiry Greeks totals |
 
