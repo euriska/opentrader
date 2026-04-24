@@ -3,6 +3,14 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.22] - 2026-04-24
+
+### Fixed
+- **Dividend forecast — per-account filtering now works for all months** — past-month breakdown entries now include `account_label` (same shape as future-month entries) so `_divComputeFromAccounts` correctly sums only the shares held in the selected broker for every bar in the chart. Previously past months aggregated all accounts into one per-ticker total.
+- **Dividend forecast — past months no longer wiped to $0** — `_divBlendMonthly` was overriding backend-computed past-month income with `histByMonth[ym]` which was always 0 because `_divHistoryRecords` hadn't been set yet (load-order bug). Past months now use `m.projected_income` (already account-filtered by `_divComputeFromAccounts`) directly. History records are still used for the current-month confirmed/unconfirmed split.
+- **Load order** — `_divRenderHistory` now sets `_divHistoryRecords` before `_divApplyFilter` runs, ensuring current-month history blend has data on first render.
+- **Backfill** — after completion, triggers `loadDividendPage(true)` (clears forecast cache + full reload) so the new history is immediately reflected in the chart.
+
 ## [3.6.21] - 2026-04-24
 
 ### Fixed

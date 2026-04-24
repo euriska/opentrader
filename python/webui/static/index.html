@@ -12621,8 +12621,8 @@ async function loadDividendPage(forceRefresh = false) {
     _divData = holdings;
     _divForecast = forecast;
     _divActiveAccount = '';
+    _divRenderHistory(history.records || []);   // must set _divHistoryRecords before filter
     _divApplyFilter();
-    _divRenderHistory(history.records || []);
     _divRenderUpcoming(upcoming);
     status.textContent = `Updated ${_fmtTime(new Date())}`;
   } catch(e) {
@@ -12648,10 +12648,8 @@ async function _divBackfill() {
     const d = await r.json();
     status.textContent = `Backfill complete — ${d.saved} records saved across ${d.tickers} tickers`;
     toast('success', 'Dividend Backfill', `Saved ${d.saved} historical payments from ${d.tickers} tickers`);
-    // Reload history table
-    const token2 = getToken();
-    const hist = await apiFetch(`/api/dividends/history?token=${encodeURIComponent(token2)}&limit=500`);
-    _divRenderHistory(hist.records || []);
+    // Force-refresh clears the forecast cache and reloads everything with the new history
+    await loadDividendPage(true);
   } catch(e) {
     status.textContent = 'Backfill failed: ' + e.message;
     toast('error', 'Backfill Failed', e.message);
@@ -12829,14 +12827,16 @@ function _divBlendMonthly(forecastMonthly, historyRecords, filteredLabels) {
 
   return (forecastMonthly || []).map(m => {
     const ym = m.month;
-    const actual = histByMonth[ym] || 0;
     if (ym < currentYM) {
-      // Past month: show actual only
-      return { ...m, projected_income: actual, actual_received: actual, projected_remaining: 0, is_past: true };
+      // Past month: m.projected_income is already account-filtered by _divComputeFromAccounts
+      // (backend returns per-(account,ticker) breakdown for past months, same as future months).
+      // Do NOT re-derive from _divHistoryRecords — that path ignores the account split and
+      // wipes income to $0 when records haven't loaded yet.
+      const income = m.projected_income || 0;
+      return { ...m, actual_received: income, projected_remaining: 0, is_past: true };
     } else if (ym === currentYM) {
-      // Current month: backend projects the FULL month (from the 1st), so use it as the
-      // bar height.  The confirmed portion (green) comes from history; the unconfirmed
-      // remainder (blue) is expected income not yet captured in history.
+      // Current month: actual confirmed so far (from history, account-filtered) vs avg projection.
+      const actual = histByMonth[ym] || 0;
       const fullMonth = m.projected_income || 0;
       const barTotal  = Math.max(actual, fullMonth);
       const unconfirmed = Math.max(0, barTotal - actual);

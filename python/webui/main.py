@@ -6185,9 +6185,9 @@ async def div_forecast(token: str = ""):
     # Fetch 18 months of actual dividend history from DB, split by account + ticker.
     # This single query drives: past-month actuals, portfolio avg, and per-account
     # future breakdown so account filtering shows the correct share per broker.
-    actual_by_month: dict[str, float] = {}    # month_key -> portfolio total
-    actual_breakdown: dict[str, dict] = {}    # month_key -> {ticker: portfolio total}
-    acct_ticker_totals: dict[tuple, float] = {}  # (acct, ticker) -> total in completed months
+    actual_by_month: dict[str, float] = {}         # month_key -> portfolio total
+    actual_breakdown: dict[str, list] = {}         # month_key -> [{symbol,account_label,income}]
+    acct_ticker_totals: dict[tuple, float] = {}    # (acct, ticker) -> total in completed months
     cutoff_18mo = today - _td(days=548)
     if DB_URL:
         try:
@@ -6206,8 +6206,10 @@ async def div_forecast(token: str = ""):
                 mk, acct, ticker = r["month_key"], r["account_label"], r["ticker"]
                 total = float(r["total"])
                 actual_by_month[mk] = actual_by_month.get(mk, 0) + total
-                actual_breakdown.setdefault(mk, {})[ticker] = (
-                    actual_breakdown.get(mk, {}).get(ticker, 0) + total
+                # Per-(account, ticker) entry — same shape as future_breakdown so the
+                # frontend account-filter works identically for past and future months.
+                actual_breakdown.setdefault(mk, []).append(
+                    {"symbol": ticker, "account_label": acct, "income": round(total, 2)}
                 )
                 if mk < current_month_key:
                     key = (acct, ticker)
@@ -6247,12 +6249,9 @@ async def div_forecast(token: str = ""):
     monthly_out = []
     for mk, lbl in zip(month_keys, month_labels):
         if mk in actual_by_month and mk < current_month_key:
-            # Completed past month: use real recorded income
+            # Completed past month: per-(account, ticker) breakdown so account-filter works.
             income = actual_by_month[mk]
-            breakdown = [
-                {"symbol": sym, "income": round(v, 2)}
-                for sym, v in sorted(actual_breakdown.get(mk, {}).items(), key=lambda x: -x[1])
-            ]
+            breakdown = sorted(actual_breakdown.get(mk, []), key=lambda x: -x["income"])
             source = "actual"
         else:
             # Current or future month: project using the captured-history average
