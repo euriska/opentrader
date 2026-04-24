@@ -15302,14 +15302,19 @@ function _otFilterChain() {
     <th style="padding:5px 7px;text-align:right">IV</th>
     <th style="padding:5px 7px;text-align:right">OI</th>`;
 
-  function cellsFor(c, isCall) {
+  function cellsFor(c, isCall, leg) {
     if (!c) return `<td colspan="7" style="background:rgba(0,0,0,.2)"></td>`;
-    const posStyle = c.has_position ? 'background:rgba(96,165,250,.15);' : '';
+    const sellSelected = leg?.side === 'sell';
     const itm = c.itm ? (isCall ? 'rgba(34,197,94,.08)' : 'rgba(239,68,68,.08)') : '';
-    const bg = c.has_position ? 'background:rgba(96,165,250,.18);' : (itm ? `background:${itm};` : '');
+    const bg = sellSelected
+      ? 'background:rgba(248,113,113,.13);'
+      : c.has_position ? 'background:rgba(96,165,250,.18);'
+      : (itm ? `background:${itm};` : '');
+    const midColor = sellSelected ? '#fca5a5' : c.has_position ? '#93c5fd' : 'inherit';
+    const midWeight = (sellSelected || c.has_position) ? '700' : '400';
     return `<td style="padding:4px 7px;text-align:right;${bg}">${fmt2(c.bid)}</td>
       <td style="padding:4px 7px;text-align:right;${bg}">${fmt2(c.ask)}</td>
-      <td style="padding:4px 7px;text-align:right;${bg}font-weight:${c.has_position?'700':'400'};color:${c.has_position?'#93c5fd':'inherit'}">${fmt2(c.mid)}</td>
+      <td style="padding:4px 7px;text-align:right;${bg}font-weight:${midWeight};color:${midColor}">${fmt2(c.mid)}</td>
       <td style="padding:4px 7px;text-align:right;${bg}color:#a5d6ff">${fmt2(c.extrinsic)}</td>
       <td style="padding:4px 7px;text-align:right;${bg}">${fmt2(c.delta)}</td>
       <td style="padding:4px 7px;text-align:right;${bg}">${fmtPct(c.iv)}</td>
@@ -15336,19 +15341,24 @@ function _otFilterChain() {
     const hasAnyPos = r.call?.has_position || r.put?.has_position;
     const legKey    = r.exp + '|' + r.strike;
     const leg       = _otOrderLegs.get(legKey);
-    const strikeBg  = hasAnyPos ? 'background:rgba(96,165,250,.28);color:#93c5fd;' : `background:var(--card-header);`;
-    const strikeSty = `padding:3px 8px;text-align:center;font-weight:700;font-size:12px;${strikeBg}${atmSty}`;
+    const sellSel   = leg?.side === 'sell';
+    const buySel    = leg?.side === 'buy';
+    // Strike cell: red when sell-selected, blue when position, default otherwise
+    const strikeBg  = sellSel   ? 'background:rgba(248,113,113,.22);color:#fca5a5;'
+                    : hasAnyPos ? 'background:rgba(96,165,250,.28);color:#93c5fd;'
+                    :             'background:var(--card-header);';
+    const strikeSty = `padding:3px 8px;text-align:center;font-weight:700;font-size:12px;white-space:nowrap;${strikeBg}${atmSty}`;
     const sideChip  = leg
-      ? `<br><span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;letter-spacing:.04em;
-           color:${leg.side==='buy'?'#4ade80':'#f87171'};
-           background:${leg.side==='buy'?'rgba(74,222,128,.18)':'rgba(248,113,113,.18)'};
-           border:1px solid ${leg.side==='buy'?'rgba(74,222,128,.4)':'rgba(248,113,113,.4)'}"
+      ? ` <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;letter-spacing:.04em;vertical-align:middle;
+           color:${buySel?'#4ade80':'#f87171'};
+           background:${buySel?'rgba(74,222,128,.18)':'rgba(248,113,113,.18)'};
+           border:1px solid ${buySel?'rgba(74,222,128,.4)':'rgba(248,113,113,.4)'}"
          >${leg.side.toUpperCase()}</span>`
       : '';
-    const putsHtml = showPuts ? cellsFor(r.put, false) : '';
+    const putsHtml = showPuts ? cellsFor(r.put, false, leg) : '';
     return expHeader + `<tr data-exp="${r.exp}" data-strike="${r.strike}" data-haspos="${hasAnyPos?'1':'0'}"
       style="border-bottom:1px solid rgba(255,255,255,.03);${atmSty}">
-      ${cellsFor(r.call, true)}
+      ${cellsFor(r.call, true, leg)}
       <td style="${strikeSty}">${r.strike.toFixed(0)}${sideChip}</td>
       ${putsHtml}
     </tr>`;
