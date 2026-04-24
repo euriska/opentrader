@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.96] - 2026-04-24
+
+### Added
+- **Options chain — BUY/SELL chip on strike cell**: when a row is added to the order, a small colored chip appears below the strike price — green BUY or red SELL — updating live as the side cycles.
+
 ## [3.5.95] - 2026-04-24
 
 ### Fixed

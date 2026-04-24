@@ -15334,13 +15334,22 @@ function _otFilterChain() {
       </td></tr>`;
     }
     const hasAnyPos = r.call?.has_position || r.put?.has_position;
+    const legKey    = r.exp + '|' + r.strike;
+    const leg       = _otOrderLegs.get(legKey);
     const strikeBg  = hasAnyPos ? 'background:rgba(96,165,250,.28);color:#93c5fd;' : `background:var(--card-header);`;
-    const strikeSty = `padding:4px 10px;text-align:center;font-weight:700;font-size:12px;${strikeBg}${atmSty}`;
+    const strikeSty = `padding:3px 8px;text-align:center;font-weight:700;font-size:12px;${strikeBg}${atmSty}`;
+    const sideChip  = leg
+      ? `<br><span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;letter-spacing:.04em;
+           color:${leg.side==='buy'?'#4ade80':'#f87171'};
+           background:${leg.side==='buy'?'rgba(74,222,128,.18)':'rgba(248,113,113,.18)'};
+           border:1px solid ${leg.side==='buy'?'rgba(74,222,128,.4)':'rgba(248,113,113,.4)'}"
+         >${leg.side.toUpperCase()}</span>`
+      : '';
     const putsHtml = showPuts ? cellsFor(r.put, false) : '';
     return expHeader + `<tr data-exp="${r.exp}" data-strike="${r.strike}" data-haspos="${hasAnyPos?'1':'0'}"
       style="border-bottom:1px solid rgba(255,255,255,.03);${atmSty}">
       ${cellsFor(r.call, true)}
-      <td style="${strikeSty}">${r.strike.toFixed(0)}</td>
+      <td style="${strikeSty}">${r.strike.toFixed(0)}${sideChip}</td>
       ${putsHtml}
     </tr>`;
   }).join('');
