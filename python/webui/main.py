@@ -8388,9 +8388,16 @@ async def get_trader_risk_data(account: str = "", token: str = ""):
         for acct in pos_data.get("accounts", []):
             if account and acct.get("label", "") != account:
                 continue
-            for bal in acct.get("balances", []):
+            bal = acct.get("balances") or {}
+            if isinstance(bal, list):
+                bal = bal[0] if bal else {}
+            if isinstance(bal, dict):
+                # Tradier uses total_cash; Alpaca/Webull use cash or buying_power
                 c = float(bal.get("cash") or bal.get("buying_power")
-                          or bal.get("net_liquidation") or 0)
+                          or bal.get("total_cash") or bal.get("net_liquidation") or 0)
+                if not c:
+                    margin = bal.get("margin") or {}
+                    c = float(margin.get("option_buying_power") or 0)
                 cash += c
     except Exception:
         pass

@@ -3,6 +3,15 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.95] - 2026-04-24
+
+### Fixed
+- **Options Trader — buying power always $0**: `balances` is a dict per account but the risk endpoint iterated it as a list, looping over dict keys (strings) instead of the dict itself; `bal.get(...)` silently failed. Now reads the dict directly, handling `cash`, `buying_power`, `total_cash` (Tradier), and `margin.option_buying_power` as fallback.
+- **Options Trader — chain selection persistence**: BUY/SELL badge and row highlight now clear when loading a new ticker's chain.
+
+### Changed
+- **Options Trader — multi-leg order builder**: replaced single-row selection with a persistent order legs system. Click a row to add it as BUY (green); click again to switch to SELL (red); click a third time to remove it. Position rows (blue) start as SELL. Selected legs appear as chips in an Order bar above the chain table with individual remove buttons and a Clear All control. Side badge in the Risk panel reflects the last-touched leg.
+
 ## [3.5.94] - 2026-04-24
 
 ### Added

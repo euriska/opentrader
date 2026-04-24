@@ -2324,6 +2324,12 @@ select option{background:var(--surface2)}
                 </label>
               </div>
             </div>
+            <!-- Order legs bar (shown when legs are selected) -->
+            <div id="ot-order-bar" style="display:none;padding:7px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;flex-wrap:wrap;gap:6px">
+              <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);white-space:nowrap">Order:</span>
+              <div id="ot-order-legs-chips" style="display:flex;flex-wrap:wrap;gap:5px;flex:1"></div>
+              <button onclick="_otClearOrderLegs()" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">Clear</button>
+            </div>
             <!-- Chain loading state -->
             <div id="ot-chain-loading" style="display:none;text-align:center;padding:20px;color:var(--muted);font-size:12px">Loading options chain…</div>
             <!-- Chain table wrapper -->
@@ -14919,7 +14925,7 @@ let _otActiveTicker = '';    // currently selected ticker
 let _otChainData   = null;   // raw chain data {calls, puts, price, expirations, open_expiries}
 let _otRiskData    = null;   // risk API response
 let _otPositions   = [];     // open option positions
-let _otChainSelected = null; // {exp, strike, side:'buy'|'sell'}
+let _otOrderLegs = new Map(); // key:"exp|strike" → {exp,strike,side,mid}
 
 async function loadOptionsTraderPage() {
   await _ensureLwc(() => {});  // pre-load charting lib
@@ -15193,6 +15199,11 @@ async function _otLoadChain(ticker) {
   const expSel   = document.getElementById('ot-chain-expiry');
 
   if (tickerEl) tickerEl.textContent = ticker;
+  // Clear order state when loading a new ticker
+  _otOrderLegs.clear();
+  _otUpdateOrderBar();
+  const sideEl = document.getElementById('ot-risk-side');
+  if (sideEl) sideEl.style.display = 'none';
   loading.style.display = '';
   wrap.innerHTML = '';
 
@@ -15345,64 +15356,52 @@ function _otFilterChain() {
     <tbody>${bodyRows}</tbody>
   </table>`;
 
-  // Click on chain row — buy on first click, sell on second; position rows go straight to sell
+  // Click on chain row — cycles: not-selected→BUY→SELL→removed; position rows start at SELL
   wrap.querySelectorAll('tbody tr[data-strike]').forEach(tr => {
     tr.style.cursor = 'pointer';
-    tr.addEventListener('mouseenter', () => { if (!tr.dataset.selected) tr.style.background = 'rgba(255,255,255,.03)'; });
-    tr.addEventListener('mouseleave', () => { if (!tr.dataset.selected) tr.style.background = ''; });
+    const key = tr.dataset.exp + '|' + tr.dataset.strike;
+    // Apply stored order leg highlight
+    const leg = _otOrderLegs.get(key);
+    if (leg) {
+      tr.style.background = leg.side === 'buy' ? 'rgba(74,222,128,.10)' : 'rgba(248,113,113,.10)';
+      tr.style.boxShadow  = leg.side === 'buy' ? 'inset 0 0 0 1px rgba(74,222,128,.4)' : 'inset 0 0 0 1px rgba(248,113,113,.4)';
+    }
+    tr.addEventListener('mouseenter', () => { if (!_otOrderLegs.has(key)) tr.style.background = 'rgba(255,255,255,.03)'; });
+    tr.addEventListener('mouseleave', () => { if (!_otOrderLegs.has(key)) tr.style.background = ''; });
     tr.addEventListener('click', () => {
-      const exp     = tr.dataset.exp;
-      const strike  = parseFloat(tr.dataset.strike);
-      const hasPos  = tr.dataset.haspos === '1';
+      const exp    = tr.dataset.exp;
+      const strike = parseFloat(tr.dataset.strike);
+      const hasPos = tr.dataset.haspos === '1';
+      const cur    = _otOrderLegs.get(key);
 
-      // Determine side: positions = sell only; others toggle buy→sell on repeat click
-      let side;
-      if (hasPos) {
-        side = 'sell';
-      } else if (_otChainSelected?.exp === exp && _otChainSelected?.strike === strike) {
-        side = _otChainSelected.side === 'buy' ? 'sell' : 'buy';
+      // Cycle: none→BUY (or SELL if has position)→SELL→removed
+      if (!cur) {
+        const midCell = tr.querySelectorAll('td')[2];
+        const mid = midCell ? (parseFloat(midCell.textContent) || 0) : 0;
+        _otOrderLegs.set(key, {exp, strike, side: hasPos ? 'sell' : 'buy', mid});
+      } else if (cur.side === 'buy') {
+        _otOrderLegs.set(key, {...cur, side: 'sell'});
       } else {
-        side = 'buy';
-      }
-      _otChainSelected = {exp, strike, side};
-
-      // Clear previous selection highlight
-      wrap.querySelectorAll('tbody tr[data-strike]').forEach(row => {
-        delete row.dataset.selected;
-        row.style.background = '';
-        row.style.outline = '';
-      });
-
-      // Apply selection highlight to this row
-      tr.dataset.selected = '1';
-      const selColor = side === 'buy' ? 'rgba(74,222,128,.10)' : 'rgba(248,113,113,.10)';
-      const selBorder = side === 'buy' ? 'inset 0 0 0 1px rgba(74,222,128,.4)' : 'inset 0 0 0 1px rgba(248,113,113,.4)';
-      tr.style.background = selColor;
-      tr.style.boxShadow = selBorder;
-
-      // Update side badge in risk panel
-      const sideEl = document.getElementById('ot-risk-side');
-      if (sideEl) {
-        sideEl.textContent = side.toUpperCase();
-        sideEl.style.display = '';
-        if (side === 'buy') {
-          sideEl.style.color = '#4ade80';
-          sideEl.style.background = 'rgba(74,222,128,.15)';
-          sideEl.style.border = '1px solid rgba(74,222,128,.3)';
-        } else {
-          sideEl.style.color = '#f87171';
-          sideEl.style.background = 'rgba(248,113,113,.15)';
-          sideEl.style.border = '1px solid rgba(248,113,113,.3)';
-        }
+        _otOrderLegs.delete(key);
       }
 
-      // Fill premium from mid cell (index 2 on call side)
-      const midCell = tr.querySelectorAll('td')[2];
-      if (midCell) {
-        const v = parseFloat(midCell.textContent);
-        if (!isNaN(v) && v > 0) {
-          document.getElementById('ot-risk-premium').value = v.toFixed(2);
+      // Re-render chain to reflect updated leg state + update order bar
+      _otFilterChain();
+      _otUpdateOrderBar();
+
+      // Update risk panel: last active leg drives the premium input
+      const lastLeg = [..._otOrderLegs.values()].at(-1);
+      if (lastLeg) {
+        const sideEl = document.getElementById('ot-risk-side');
+        if (sideEl) {
+          sideEl.textContent = lastLeg.side.toUpperCase();
+          sideEl.style.display = '';
+          sideEl.style.color      = lastLeg.side === 'buy' ? '#4ade80' : '#f87171';
+          sideEl.style.background = lastLeg.side === 'buy' ? 'rgba(74,222,128,.15)' : 'rgba(248,113,113,.15)';
+          sideEl.style.border     = lastLeg.side === 'buy' ? '1px solid rgba(74,222,128,.3)' : '1px solid rgba(248,113,113,.3)';
         }
+        if (lastLeg.mid > 0)
+          document.getElementById('ot-risk-premium').value = lastLeg.mid.toFixed(2);
       }
       document.getElementById('ot-risk-panel').style.display = '';
       document.getElementById('ot-risk-ticker').textContent = _otActiveTicker;
@@ -15410,6 +15409,42 @@ function _otFilterChain() {
       _otCalcSizing();
     });
   });
+}
+
+function _otUpdateOrderBar() {
+  const bar   = document.getElementById('ot-order-bar');
+  const chips = document.getElementById('ot-order-legs-chips');
+  if (!bar || !chips) return;
+  if (!_otOrderLegs.size) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  chips.innerHTML = [..._otOrderLegs.entries()].map(([key, leg]) => {
+    const color = leg.side === 'buy' ? '#4ade80' : '#f87171';
+    const bg    = leg.side === 'buy' ? 'rgba(74,222,128,.15)' : 'rgba(248,113,113,.15)';
+    const expShort = leg.exp ? leg.exp.slice(5) : '';
+    return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;color:${color};background:${bg};border:1px solid ${color}40">
+      <span>${leg.side.toUpperCase()}</span>
+      <span style="color:var(--fg);font-weight:400">${_otActiveTicker} $${leg.strike.toFixed(0)} ${expShort}</span>
+      <span onclick="_otRemoveOrderLeg('${key}')" style="cursor:pointer;opacity:.6;margin-left:2px">✕</span>
+    </span>`;
+  }).join('');
+}
+
+function _otRemoveOrderLeg(key) {
+  _otOrderLegs.delete(key);
+  _otFilterChain();
+  _otUpdateOrderBar();
+  if (!_otOrderLegs.size) {
+    const sideEl = document.getElementById('ot-risk-side');
+    if (sideEl) sideEl.style.display = 'none';
+  }
+}
+
+function _otClearOrderLegs() {
+  _otOrderLegs.clear();
+  _otFilterChain();
+  _otUpdateOrderBar();
+  const sideEl = document.getElementById('ot-risk-side');
+  if (sideEl) sideEl.style.display = 'none';
 }
 
 function _otRenderRiskPanel() {
