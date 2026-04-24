@@ -11443,8 +11443,23 @@ async function _loadNavOrder() {
   try {
     const token = getToken();
     const prefs = await apiFetch(`/api/user/preferences?token=${encodeURIComponent(token)}`);
-    const order = prefs.nav_order;
+    let order = prefs.nav_order;
     if (!order) return;
+
+    // Migration: enforce canonical equities order (Equity Trades before Equity Dashboard)
+    const eq = order.equities || [];
+    const ti = eq.indexOf('page-trading-trades');
+    const ui = eq.indexOf('page-trading-unified');
+    if (ti > -1 && ui > -1 && ui < ti) {
+      eq.splice(ui, 1);
+      eq.splice(eq.indexOf('page-trading-trades'), 0, 'page-trading-unified');
+      order = { ...order, equities: eq };
+      apiFetch(`/api/user/preferences?token=${encodeURIComponent(token)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'nav_order', value: order }),
+      }).catch(() => {});
+    }
+
     Object.entries(order).forEach(([gKey, pages]) => {
       const group = document.querySelector(`#main-nav .nav-group[data-group="${gKey}"]`);
       if (!group) return;

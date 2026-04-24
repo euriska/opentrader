@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.16] - 2026-04-24
+
+### Fixed
+- **Equity Dashboard nav position** — `_loadNavOrder` now detects when the server-persisted nav order has Equity Dashboard (`page-trading-unified`) above Equity Trades (`page-trading-trades`) and swaps them before applying, then saves the correction. First page load after deploy automatically fixes any users with the wrong order.
+
 ## [3.6.15] - 2026-04-24
 
 ### Changed
