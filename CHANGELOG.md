@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.97] - 2026-04-24
+
+### Changed
+- **Options chain — Puts hidden by default**: puts column is now unchecked on load, showing calls-only view by default.
+
 ## [3.5.96] - 2026-04-24
 
 ### Added
