@@ -14265,32 +14265,32 @@ function _showChipPopup(chip, ticker) {
 
   const pnlColor = total >= 0 ? '#22c55e' : '#ef4444';
   pop.innerHTML = `
-    <div style="font-size:13px;font-weight:700;color:var(--fg);margin-bottom:8px">${ticker} — Trade Analysis</div>
+    <div style="font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:8px">${ticker} — Trade Analysis</div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">
-      <div style="background:var(--surface2);border-radius:6px;padding:6px 8px;text-align:center">
-        <div style="font-size:9px;color:var(--muted);text-transform:uppercase">P&L</div>
+      <div style="background:#252a3a;border-radius:6px;padding:6px 8px;text-align:center">
+        <div style="font-size:9px;color:#8892a8;text-transform:uppercase">P&L</div>
         <div style="font-size:13px;font-weight:700;color:${pnlColor}">${_optFmtPnl(total)}</div>
       </div>
-      <div style="background:var(--surface2);border-radius:6px;padding:6px 8px;text-align:center">
-        <div style="font-size:9px;color:var(--muted);text-transform:uppercase">Win Rate</div>
+      <div style="background:#252a3a;border-radius:6px;padding:6px 8px;text-align:center">
+        <div style="font-size:9px;color:#8892a8;text-transform:uppercase">Win Rate</div>
         <div style="font-size:13px;font-weight:700;color:${winRate>=50?'#22c55e':'#ef4444'}">${winRate}%</div>
       </div>
-      <div style="background:var(--surface2);border-radius:6px;padding:6px 8px;text-align:center">
-        <div style="font-size:9px;color:var(--muted);text-transform:uppercase">Avg DIT</div>
-        <div style="font-size:13px;font-weight:700;color:var(--fg)">${avgDIT}d</div>
+      <div style="background:#252a3a;border-radius:6px;padding:6px 8px;text-align:center">
+        <div style="font-size:9px;color:#8892a8;text-transform:uppercase">Avg DIT</div>
+        <div style="font-size:13px;font-weight:700;color:#e2e8f0">${avgDIT}d</div>
       </div>
     </div>
-    <div style="margin-bottom:8px;font-size:11px;color:var(--muted)">
+    <div style="margin-bottom:8px;font-size:11px;color:#8892a8">
       Best: <span style="color:#22c55e;font-weight:600">${_optFmtPnl(best.realized_pnl)}</span>
       &nbsp;·&nbsp; Worst: <span style="color:#ef4444;font-weight:600">${_optFmtPnl(worst.realized_pnl)}</span>
       &nbsp;·&nbsp; ${trades.length} closed trades
     </div>
     ${insights.length ? `<div style="margin-bottom:6px">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">What happened</div>
-      ${insights.map(i => `<div style="font-size:11px;color:var(--fg);padding:2px 0">• ${i}</div>`).join('')}
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#8892a8;margin-bottom:4px">What happened</div>
+      ${insights.map(i => `<div style="font-size:11px;color:#cbd5e1;padding:2px 0">• ${i}</div>`).join('')}
     </div>` : ''}
     <div>
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Suggestions</div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#8892a8;margin-bottom:4px">Suggestions</div>
       ${suggestions.map(s => `<div style="font-size:11px;color:#f59e0b;padding:2px 0">→ ${s}</div>`).join('')}
     </div>`;
 
@@ -15871,9 +15871,9 @@ function _otCalcSizing() {
 
 <!-- Ticker chip hover popup -->
 <div id="optlog-chip-popup" style="display:none;position:absolute;z-index:8000;
-  background:var(--card);border:1px solid var(--border);border-radius:10px;
+  background:#1a1e2b;border:1px solid #3b4263;border-radius:10px;
   padding:14px 16px;min-width:280px;max-width:340px;
-  box-shadow:0 8px 32px rgba(0,0,0,.35);pointer-events:none"></div>
+  box-shadow:0 12px 40px rgba(0,0,0,.75);pointer-events:none"></div>
 
 </body>
 </html>

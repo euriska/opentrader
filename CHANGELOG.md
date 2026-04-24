@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.5] - 2026-04-24
+
+### Fixed
+- **Ticker chip hover popup — transparent background**: `var(--card)` is undefined in the theme, causing the popup to render with no background. Replaced with hardcoded solid `#1a1e2b` background, `#3b4263` border, and a stronger `box-shadow:0 12px 40px rgba(0,0,0,.75)`. All inner text colors hardened to explicit hex values (`#e2e8f0`, `#8892a8`, `#cbd5e1`) so they're legible regardless of theme variable state.
+
 ## [3.6.4] - 2026-04-24
 
 ### Added
