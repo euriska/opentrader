@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.102] - 2026-04-24
+
+### Fixed
+- **YTD Performance — Proven Edge chip showing "—"**: `pnl_pct` is never stored in `option_trade_log`, so the pct-based formula always returned null. Backend now falls back to a USD-per-trade calculation `(win_rate × avg_win_usd) + ((1−win_rate) × avg_loss_usd)` and returns `proven_edge_usd` + `proven_edge_unit`. Frontend displays the USD value with a `/trade` label when pct data is unavailable.
+
 ## [3.5.101] - 2026-04-24
 
 ### Fixed

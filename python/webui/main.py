@@ -7803,6 +7803,14 @@ async def get_options_performance(mode: str = "live"):
     avg_win_usd  = sum(win_pnls)  / len(win_pnls)  if win_pnls  else 0.0
     avg_loss_usd = sum(loss_pnls) / len(loss_pnls) if loss_pnls else 0.0
     proven_edge = (win_rate * avg_win) + ((1 - win_rate) * avg_loss) if avg_win is not None and avg_loss is not None else None
+    # Fall back to USD-based edge when pct values are unavailable
+    proven_edge_usd = None
+    proven_edge_unit = "pct"
+    if proven_edge is not None:
+        proven_edge_unit = "pct"
+    elif win_pnls or loss_pnls:
+        proven_edge_usd = (win_rate * avg_win_usd) + ((1 - win_rate) * avg_loss_usd)
+        proven_edge_unit = "usd"
     total_pnl  = sum(float(r["realized_pnl"]) for r in rows)
 
     # Portfolio NAV for YTD return
@@ -7887,6 +7895,8 @@ async def get_options_performance(mode: str = "live"):
         "avg_loss_usd":      round(avg_loss_usd, 2),
         "win_rate":          round(win_rate * 100, 1),
         "proven_edge":       round(proven_edge, 2) if proven_edge is not None else None,
+        "proven_edge_usd":   round(proven_edge_usd, 2) if proven_edge_usd is not None else None,
+        "proven_edge_unit":  proven_edge_unit,
         "spy_ytd_pct":       round(spy_ytd, 2) if spy_ytd is not None else None,
         "spy_ann_pct":       round(spy_ann, 2) if spy_ann is not None else None,
         "current_alpha":     round(current_alpha, 2) if current_alpha is not None else None,

@@ -14723,7 +14723,14 @@ function _renderOptionsPerf(d) {
   // Show pct if available, else fall back to USD per trade
   const avgWinVal   = na(d.avg_win_pct)  ? pct(d.avg_win_pct, 2)  : usd(d.avg_win_usd);
   const avgLossVal  = na(d.avg_loss_pct) ? pct(d.avg_loss_pct, 2) : usd(d.avg_loss_usd);
-  const provenVal   = na(d.proven_edge)  ? pct(d.proven_edge, 2)  : '—';
+  const provenVal   = na(d.proven_edge)
+    ? pct(d.proven_edge, 2)
+    : na(d.proven_edge_usd)
+      ? `${usd(d.proven_edge_usd)}<span style="font-size:9px;font-weight:400;opacity:.7;margin-left:2px">/trade</span>`
+      : '—';
+  const provenColor = na(d.proven_edge) ? clr(d.proven_edge)
+                    : na(d.proven_edge_usd) ? clr(d.proven_edge_usd)
+                    : 'var(--muted)';
 
   const block1 = [
     { label: 'Total Trades YTD', val: num(d.total_trades_ytd), color: 'var(--fg)', tip: 'Closed option trades year-to-date' },
@@ -14731,7 +14738,7 @@ function _renderOptionsPerf(d) {
     { label: 'Win Rate', val: na(d.win_rate) ? `${d.win_rate}%` : '—', color: na(d.win_rate) ? clr(d.win_rate - 50) : 'var(--muted)', tip: 'Percentage of trades closed for a profit' },
     { label: 'Avg Win', val: avgWinVal, color: '#22c55e', tip: 'Average P&L on winning trades (% if available, else USD)' },
     { label: 'Avg Loss', val: avgLossVal, color: '#ef4444', tip: 'Average P&L on losing trades (% if available, else USD)' },
-    { label: 'Proven Edge', val: provenVal, color: na(d.proven_edge) ? clr(d.proven_edge) : 'var(--muted)', tip: 'Expected value = (WinRate × AvgWin%) + ((1−WinRate) × AvgLoss%)' },
+    { label: 'Proven Edge', val: provenVal, color: provenColor, tip: 'Expected value per trade = (WinRate × AvgWin) + ((1−WinRate) × AvgLoss)' },
   ];
 
   const block2 = [
