@@ -284,15 +284,15 @@ select option{background:var(--surface2)}
       <div class="nav-label">Equities</div>
       <div class="nav-item" draggable="true" onclick="navigate('page-trading-trades')" data-page="page-trading-trades">
         <span class="nav-dot" style="background:var(--amber)"></span>
-        Trades
+        Equity Trades
       </div>
       <div class="nav-item" draggable="true" onclick="navigate('page-trading-unified')" data-page="page-trading-unified">
         <span class="nav-dot" style="background:var(--coral)"></span>
-        Active Positions
+        Equity Dashboard
       </div>
       <div class="nav-item" draggable="true" onclick="navigate('page-trading-dividends')" data-page="page-trading-dividends">
         <span class="nav-dot" style="background:var(--green)"></span>
-        Dividend Income
+        Equity Dividend Income
       </div>
     </div>
     <div class="nav-group" data-group="options">
@@ -1441,7 +1441,7 @@ select option{background:var(--surface2)}
 
       <!-- Combined Positions Table -->
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)">Active Positions</span>
+        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)">Equity Dashboard</span>
         <div style="flex:1;height:1px;background:var(--border)"></div>
         <span id="positions-cache-badge" style="font-size:10px;color:var(--dim);display:none"></span>
         <button class="btn btn-ghost btn-xs" id="positions-refresh-btn" onclick="loadUnifiedPositions(true)" title="Force refresh from broker">&#8635; Refresh</button>
@@ -1545,7 +1545,7 @@ select option{background:var(--surface2)}
 
       <!-- Page header row with filter -->
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);white-space:nowrap">Dividend Tracker</span>
+        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);white-space:nowrap">Equity Dividend Income</span>
         <div style="flex:1;height:1px;background:var(--border)"></div>
         <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;user-select:none">
           <input type="checkbox" id="div-exclude-paper" onchange="_divApplyFilter()" style="cursor:pointer;accent-color:var(--blue)">
@@ -3336,11 +3336,11 @@ const PAGE_TITLES = {
   'page-platform-profile':   'User Configuration',
   'page-platform-config':    'Configuration',
   'page-trading-dashboard':  'Trading Dashboard',
-  'page-trading-unified':    'Active Positions',
+  'page-trading-unified':    'Equity Dashboard',
 
-  'page-trading-trades':     'Trades',
+  'page-trading-trades':     'Equity Trades',
   'page-trading-broker':     'Broker',
-  'page-trading-dividends':  'Dividend Tracker',
+  'page-trading-dividends':  'Equity Dividend Income',
   'page-trading-alerts':     'Price Alerts',
   'page-trading-options':    'Options Dashboard',
   'page-options-log':        'Options Trading Log',
@@ -13768,7 +13768,8 @@ function _optRenderTable(rows) {
   if (thead) {
     thead.innerHTML = `<tr style="background:var(--card-header);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em">${
       visible.map(c => {
-        const colStyle = `padding:8px 10px;text-align:${c.align};white-space:nowrap;cursor:${c.fixed?'default':'grab'};user-select:none;${c.color?'color:'+c.color+';':''}`;
+        const hPad    = (c.align === 'left' || c.id === 'alerts') ? '10px' : '6px';
+        const colStyle = `padding:8px ${hPad};text-align:${c.align};white-space:nowrap;cursor:${c.fixed?'default':'grab'};user-select:none;${c.color?'color:'+c.color+';':''}`;
         const hideBtn  = !c.fixed
           ? `<span onclick="event.stopPropagation();_optHideCol('${c.id}')" title="Hide column"
                style="cursor:pointer;color:var(--muted);font-size:9px;margin-left:3px;opacity:.6;vertical-align:middle">✕</span>`

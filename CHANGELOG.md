@@ -3,6 +3,14 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.15] - 2026-04-24
+
+### Changed
+- **Nav rename: "Trades" → "Equity Trades"**
+- **Nav rename: "Active Positions" → "Equity Dashboard"** (nav, page heading, title map)
+- **Nav rename: "Dividend Income" → "Equity Dividend Income"** (nav, page heading, title map)
+- **Options positions column alignment** — header padding now matches cell padding per column: left-aligned columns (Ticker, Contract, Account, Alerts) use `10px` horizontal padding; all right/center columns use `6px`, eliminating the visible header/data gap.
+
 ## [3.6.14] - 2026-04-24
 
 ### Added
