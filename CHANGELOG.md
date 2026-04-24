@@ -3,17 +3,17 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
-## [3.5.102] - 2026-04-24
+## [3.6.2] - 2026-04-24
 
 ### Fixed
 - **YTD Performance — Proven Edge chip showing "—"**: `pnl_pct` is never stored in `option_trade_log`, so the pct-based formula always returned null. Backend now falls back to a USD-per-trade calculation `(win_rate × avg_win_usd) + ((1−win_rate) × avg_loss_usd)` and returns `proven_edge_usd` + `proven_edge_unit`. Frontend displays the USD value with a `/trade` label when pct data is unavailable.
 
-## [3.5.101] - 2026-04-24
+## [3.6.1] - 2026-04-24
 
 ### Fixed
 - **Expiry calendar — wrong expiration date for Webull non-OCC positions**: chain lookup was using `entry_price` as a fallback when `current_price` is 0, causing a decayed/OTM option (e.g. NVDA $255 call near expiry) to match a later-dated contract whose current price happened to be close to the original cost basis. Fix: only use live `current_price` for matching; when 0, fall back to strike-based (ATM) matching. Also raised the expiry-displacement threshold from 10% to 25%, so a later expiry must beat the earliest qualifying expiry by 25% to win. After chain enrichment writes an expiry, it is now auto-locked (`expiry_locked=TRUE`) to prevent future re-runs from drifting. NVDA active position corrected in DB to 2026-05-15.
 
-## [3.5.100] - 2026-04-24
+## [3.6.0] - 2026-04-24
 
 ### Fixed
 - **Daily option report — OVTLYR as authoritative signal**: report now overrides the predictor signal with OVTLYR for every position before sending. When predictor and OVTLYR disagree (e.g. predictor BUY vs OVTLYR SELL), the report shows the OVTLYR signal with a yellow ⚠ badge noting the predictor's opposing view and a conflict banner listing affected tickers at the top of the email.
