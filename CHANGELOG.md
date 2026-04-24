@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.91] - 2026-04-24
+
+### Fixed
+- **Options Trader — chain empty for Webull/Alpaca accounts**: gateway returned `status:ok` with 0 expirations/calls when those broker APIs return no data; the non-None result blocked the Tradier fallback so users saw a blank chain. Empty gateway results now count as a miss and fall through to Tradier → Yahoo Finance.
+
 ## [3.5.90] - 2026-04-24
 
 ### Fixed

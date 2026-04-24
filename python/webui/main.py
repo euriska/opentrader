@@ -8152,6 +8152,11 @@ async def get_options_chain_data(ticker: str, account_label: str = "", token: st
             for r in results_list:
                 if r.get("status") == "ok":
                     d = r.get("data", {})
+                    # Treat empty chain as a miss so Tradier fallback can run
+                    if not d.get("expirations") and not d.get("calls"):
+                        log.warning("options_trader.chain.gateway_empty",
+                                    ticker=sym, broker=r.get("broker"))
+                        continue
                     d["source"] = r.get("broker", "broker")
                     return d
             errs = [r.get("error", "") for r in results_list]
