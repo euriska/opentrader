@@ -93,6 +93,100 @@ class WebullConnector(BrokerConnector):
 
     # ── Market data ───────────────────────────────────────────────────────────
 
+    async def get_option_chain(self, symbol: str) -> dict:
+        import asyncio as _asyncio
+        sym = symbol.upper()
+
+        # ── Expiration dates ──────────────────────────────────────────────────
+        expirations: list[str] = []
+        try:
+            raw = await self._client.get(
+                "/quotes/option/queryExpireDates",
+                params={"symbol": sym},
+            )
+            dates = raw if isinstance(raw, list) else raw.get("expireDateList", raw.get("data", []))
+            expirations = [str(d) for d in dates if d][:8]
+        except Exception as e:
+            log.warning(f"[webull] option expirations for {sym}: {e}")
+
+        # ── Current quote ─────────────────────────────────────────────────────
+        price = 0.0
+        try:
+            q = await self._client.get(
+                "/quotes/ticker/getTickerRealTime",
+                params={"symbol": sym},
+            )
+            price = float(q.get("close") or q.get("pPrice") or 0)
+        except Exception:
+            pass
+
+        if not expirations:
+            return {"ticker": sym, "price": round(price, 2),
+                    "expirations": [], "calls": [], "puts": []}
+
+        # ── Chain per expiry ──────────────────────────────────────────────────
+        async def _fetch_exp(exp: str):
+            try:
+                raw = await self._client.get(
+                    "/quotes/option/queryOptionByExpireDate",
+                    params={"symbol": sym, "expireDate": exp},
+                )
+                contracts = (raw if isinstance(raw, list)
+                             else raw.get("data", raw.get("optionList", [])))
+                return contracts if isinstance(contracts, list) else []
+            except Exception:
+                return []
+
+        all_chains = await _asyncio.gather(*[_fetch_exp(e) for e in expirations])
+
+        all_calls, all_puts = [], []
+        for contracts in all_chains:
+            for c in contracts:
+                if not isinstance(c, dict):
+                    continue
+                raw_type = str(
+                    c.get("direction") or c.get("right") or
+                    c.get("option_type") or c.get("optionType") or ""
+                ).upper()
+                otype = "call" if raw_type in ("CALL", "C") else ("put" if raw_type in ("PUT", "P") else "")
+                if not otype:
+                    continue
+
+                strike = float(c.get("strikePrice") or c.get("strike_price") or c.get("strike") or 0)
+                bid    = float(c.get("bidPrice") or c.get("bid") or 0)
+                ask    = float(c.get("askPrice") or c.get("ask") or 0)
+                last   = float(c.get("lastPrice") or c.get("close") or c.get("last") or 0)
+                mid    = round((bid + ask) / 2, 2) if bid and ask else last
+                intrinsic = round(max(0.0, price - strike) if otype == "call"
+                                  else max(0.0, strike - price), 2)
+                exp_date = (c.get("expireDate") or c.get("expiration_date") or c.get("expiryDate") or "")
+
+                def _fg(k): return round(float(c[k]), 6) if c.get(k) is not None else None
+                iv = c.get("impVol") or c.get("impliedVolatility") or c.get("iv")
+
+                rec = {
+                    "contract":   c.get("symbol") or c.get("tickerId") or "",
+                    "strike":     strike,
+                    "expiration": str(exp_date)[:10],
+                    "bid": bid, "ask": ask, "mid": mid, "last": last,
+                    "intrinsic":  intrinsic,
+                    "extrinsic":  round(max(0.0, mid - intrinsic), 2),
+                    "iv":    round(float(iv), 4) if iv is not None else None,
+                    "delta": _fg("delta"), "gamma": _fg("gamma"),
+                    "theta": _fg("theta"), "vega":  _fg("vega"),
+                    "volume": int(c.get("volume") or 0),
+                    "oi":     int(c.get("openInterest") or c.get("open_interest") or 0),
+                    "itm":    (otype == "call" and price > strike) or
+                              (otype == "put"  and price < strike),
+                }
+                (all_calls if otype == "call" else all_puts).append(rec)
+
+        return {
+            "ticker": sym, "price": round(price, 2),
+            "expirations": expirations,
+            "calls": all_calls, "puts": all_puts,
+        }
+
     async def get_quote(self, symbol: str) -> dict:
         result = await self._client.get(
             "/quotes/ticker/getTickerRealTime",

@@ -67,14 +67,15 @@ class BrokerRouter:
         """
         command = cmd.get("command", "")
         handler = {
-            "place_order":   self._place_order,
-            "cancel_order":  self._cancel_order,
-            "cancel_all":    self._cancel_all,
-            "get_positions": self._get_positions,
-            "get_balances":  self._get_balances,
-            "get_orders":    self._get_orders,
-            "get_quote":     self._get_quote,
-            "get_quotes":    self._get_quotes,
+            "place_order":      self._place_order,
+            "cancel_order":     self._cancel_order,
+            "cancel_all":       self._cancel_all,
+            "get_positions":    self._get_positions,
+            "get_balances":     self._get_balances,
+            "get_orders":       self._get_orders,
+            "get_quote":        self._get_quote,
+            "get_quotes":       self._get_quotes,
+            "get_option_chain": self._get_option_chain,
         }.get(command)
 
         if not handler:
@@ -206,6 +207,32 @@ class BrokerRouter:
             data = await rec.connector.get_quote(symbol)
             return [self._result(cmd, rec, data)]
         except Exception as e:
+            return [self._error(cmd, str(e), rec.label)]
+
+    async def _get_option_chain(self, cmd: dict) -> list[dict]:
+        """
+        Fetch an options chain from the broker that owns the requested account.
+        Routes to a single connector — the first matching account.
+        Falls back to any available connector if no account_label is specified.
+        """
+        symbol = cmd.get("symbol", "")
+        if not symbol:
+            return [self._error(cmd, "get_option_chain requires symbol")]
+
+        accounts = self._resolve_accounts(cmd)
+        if not accounts:
+            accounts = self.registry.all_records()
+        if not accounts:
+            return [self._error(cmd, "No connectors available for get_option_chain")]
+
+        rec = accounts[0]
+        try:
+            data = await rec.connector.get_option_chain(symbol)
+            return [self._result(cmd, rec, data)]
+        except NotImplementedError as e:
+            return [self._error(cmd, str(e), rec.label)]
+        except Exception as e:
+            log.error(f"[router] get_option_chain failed for {rec.label}: {e}", exc_info=True)
             return [self._error(cmd, str(e), rec.label)]
 
     async def _get_quotes(self, cmd: dict) -> list[dict]:

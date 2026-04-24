@@ -3,6 +3,16 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.88] - 2026-04-24
+
+### Changed
+- **Options Trader — broker-routed chain**: options chain requests now route through the broker gateway so the chain is fetched from the selected account's own broker API (Tradier, Webull, or Alpaca); each broker connector gained a native `get_option_chain` implementation
+- **Broker Gateway**: added `get_option_chain` command to router; routes to first matching connector for the requested account_label
+- **Alpaca connector**: `get_option_chain` uses v1beta1 snapshots API (paginated, up to 20 pages × 250 contracts) with full Greeks and IV
+- **Webull connector**: `get_option_chain` uses Webull Developer API expiration + chain endpoints
+- **Tradier connector**: `get_option_chain` uses Tradier `/markets/options` API (parallel expiry fetch)
+- **Base connector**: added non-abstract `get_option_chain` raising `NotImplementedError` as a clean fallback
+
 ## [3.5.87] - 2026-04-23
 
 ### Changed

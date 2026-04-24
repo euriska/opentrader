@@ -110,3 +110,66 @@ class TradierConnector(BrokerConnector):
 
     async def get_quotes(self, symbols: list[str]) -> list[dict]:
         return await _market.get_quotes(symbols)
+
+    async def get_option_chain(self, symbol: str) -> dict:
+        import asyncio as _asyncio
+        sym = symbol.upper()
+
+        # Quote + expirations in parallel
+        quote_task = _asyncio.ensure_future(_market.get_quote(sym))
+        exp_task   = _asyncio.ensure_future(_market.get_option_expirations(sym))
+        quote, expirations = await _asyncio.gather(quote_task, exp_task)
+
+        price = float(quote.get("last") or quote.get("prevclose") or 0)
+        if not expirations:
+            return {"ticker": sym, "price": round(price, 2),
+                    "expirations": [], "calls": [], "puts": []}
+
+        expirations = expirations[:8]
+
+        # Fetch all expirations in parallel
+        chains = await _asyncio.gather(
+            *[_market.get_option_chain(sym, exp, greeks=True) for exp in expirations],
+            return_exceptions=True,
+        )
+
+        all_calls, all_puts = [], []
+        for contracts in chains:
+            if isinstance(contracts, Exception) or not isinstance(contracts, list):
+                continue
+            for c in contracts:
+                if not isinstance(c, dict):
+                    continue
+                otype  = (c.get("option_type") or "").lower()
+                strike = float(c.get("strike") or 0)
+                bid    = float(c.get("bid") or 0)
+                ask    = float(c.get("ask") or 0)
+                last   = float(c.get("last") or 0)
+                mid    = round((bid + ask) / 2, 2) if bid and ask else last
+                intrinsic = round(max(0.0, price - strike) if otype == "call"
+                                  else max(0.0, strike - price), 2)
+                greeks = c.get("greeks") or {}
+                def _g(k): return round(float(greeks[k]), 6) if greeks.get(k) is not None else None
+                iv = greeks.get("mid_iv") or greeks.get("smv_vol")
+                rec = {
+                    "contract":   c.get("symbol", ""),
+                    "strike":     strike,
+                    "expiration": c.get("expiration_date", ""),
+                    "bid": bid, "ask": ask, "mid": mid, "last": last,
+                    "intrinsic":  intrinsic,
+                    "extrinsic":  round(max(0.0, mid - intrinsic), 2),
+                    "iv":    round(float(iv), 4) if iv is not None else None,
+                    "delta": _g("delta"), "gamma": _g("gamma"),
+                    "theta": _g("theta"), "vega":  _g("vega"),
+                    "volume": int(c.get("volume") or 0),
+                    "oi":     int(c.get("open_interest") or 0),
+                    "itm":    (otype == "call" and price > strike) or
+                              (otype == "put"  and price < strike),
+                }
+                (all_calls if otype == "call" else all_puts).append(rec)
+
+        return {
+            "ticker": sym, "price": round(price, 2),
+            "expirations": expirations,
+            "calls": all_calls, "puts": all_puts,
+        }

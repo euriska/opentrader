@@ -8108,96 +8108,139 @@ def _chain_contract(c: dict, otype: str, price: float) -> dict:
 
 
 @app.get("/api/options/trader/chain")
-async def get_options_chain_data(ticker: str, token: str = ""):
+async def get_options_chain_data(ticker: str, account_label: str = "", token: str = ""):
     """
-    Options chain with extrinsic value; open positions marked.
-    Primary source: Tradier (live or sandbox).
-    Fallback: Yahoo Finance (yfinance) when no Tradier key is configured.
+    Options chain routed through the broker gateway for the selected account.
+    Uses the account's broker (Tradier / Webull / Alpaca) for live data.
+    Falls back to Tradier market API then Yahoo Finance when no account is selected
+    or the gateway call fails.
     """
     check_token(token)
-    import aiohttp as _aiohttp
+    import uuid as _uuid, json as _json
     import asyncio as _asyncio
 
     sym = ticker.upper()
-    api_key, base_url = _tradier_keys()
 
-    async def _tradier_chain() -> dict:
+    # ── Route through broker gateway when an account is selected ─────────────
+    async def _gateway_chain(acct_label: str) -> dict | None:
+        try:
+            import redis.asyncio as _aioredis
+            _REDIS_URL = os.getenv("REDIS_URL", "redis://ot-redis:6379/0")
+            _r = await _aioredis.from_url(
+                _REDIS_URL, encoding="utf-8", decode_responses=True,
+                socket_connect_timeout=5, socket_timeout=30,
+            )
+        except Exception as e:
+            log.warning("options_trader.chain.redis_unavail", error=str(e))
+            return None
+
+        req_id = str(_uuid.uuid4())
+        cmd: dict = {
+            "command":       "get_option_chain",
+            "request_id":    req_id,
+            "symbol":        sym,
+            "issued_by":     "webui",
+        }
+        if acct_label:
+            cmd["account_label"] = acct_label
+
+        await _r.xadd(STREAMS["broker_commands"], cmd)
+        result = await _r.blpop([f"broker:reply:{req_id}"], timeout=30)
+        await _r.aclose()
+
+        if not result:
+            return None
+        raw = _json.loads(result[1])
+        results_list = raw if isinstance(raw, list) else [raw]
+        for r in results_list:
+            if r.get("status") == "ok":
+                d = r.get("data", {})
+                d["source"] = r.get("broker", "broker")
+                return d
+        # All results errored
+        errs = [r.get("error", "") for r in results_list]
+        log.warning("options_trader.chain.gateway_error", ticker=sym, errors=errs)
+        return None
+
+    # ── Tradier direct fallback ───────────────────────────────────────────────
+    async def _tradier_fallback() -> dict | None:
+        api_key, base_url = _tradier_keys()
+        if not api_key:
+            return None
+        import aiohttp as _aiohttp
         hdrs = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
         timeout = _aiohttp.ClientTimeout(total=12)
+        try:
+            async with _aiohttp.ClientSession(headers=hdrs) as s:
+                price = 0.0
+                try:
+                    async with s.get(f"{base_url}/markets/quotes",
+                                     params={"symbols": sym, "greeks": "false"},
+                                     timeout=timeout) as r:
+                        if r.status == 200:
+                            d = await r.json(content_type=None)
+                            q = d.get("quotes", {}).get("quote", {})
+                            if isinstance(q, dict):
+                                price = float(q.get("last") or q.get("prevclose") or 0)
+                except Exception:
+                    pass
 
-        async with _aiohttp.ClientSession(headers=hdrs) as s:
-            # ── Quote ──────────────────────────────────────────────────────────
-            price = 0.0
-            try:
-                async with s.get(f"{base_url}/markets/quotes",
-                                 params={"symbols": sym, "greeks": "false"},
+                expirations: list[str] = []
+                async with s.get(f"{base_url}/markets/options/expirations",
+                                 params={"symbol": sym, "includeAllRoots": "false"},
                                  timeout=timeout) as r:
                     if r.status == 200:
                         d = await r.json(content_type=None)
-                        q = d.get("quotes", {}).get("quote", {})
-                        if isinstance(q, dict):
-                            price = float(q.get("last") or q.get("prevclose") or 0)
-            except Exception:
-                pass
+                        raw = d.get("expirations") or {}
+                        if raw and raw != "null":
+                            dates = raw.get("date", [])
+                            expirations = dates if isinstance(dates, list) else [dates]
 
-            # ── Expirations ────────────────────────────────────────────────────
-            expirations: list[str] = []
-            async with s.get(f"{base_url}/markets/options/expirations",
-                             params={"symbol": sym, "includeAllRoots": "false"},
-                             timeout=timeout) as r:
-                if r.status == 200:
-                    d = await r.json(content_type=None)
-                    raw = (d.get("expirations") or {})
-                    if raw and raw != "null":
-                        dates = raw.get("date", [])
-                        expirations = dates if isinstance(dates, list) else [dates]
+                if not expirations:
+                    return None
 
-            if not expirations:
+                async def _fetch_exp(exp: str):
+                    try:
+                        async with s.get(f"{base_url}/markets/options/chains",
+                                         params={"symbol": sym, "expiration": exp, "greeks": "true"},
+                                         timeout=timeout) as r:
+                            if r.status != 200:
+                                return []
+                            d = await r.json(content_type=None)
+                            opts = d.get("options") or {}
+                            if not opts or opts == "null":
+                                return []
+                            raw = opts.get("option", [])
+                            return raw if isinstance(raw, list) else [raw]
+                    except Exception:
+                        return []
+
+                chains = await _asyncio.gather(*[_fetch_exp(e) for e in expirations[:8]])
+                all_calls, all_puts = [], []
+                for contracts in chains:
+                    for c in contracts:
+                        if not isinstance(c, dict):
+                            continue
+                        otype = (c.get("option_type") or "").lower()
+                        rec = _chain_contract(c, otype, price)
+                        (all_calls if otype == "call" else all_puts).append(rec)
+
                 return {"ticker": sym, "price": round(price, 2),
-                        "expirations": [], "calls": [], "puts": [], "source": "tradier"}
+                        "expirations": expirations[:8],
+                        "calls": all_calls, "puts": all_puts, "source": "tradier"}
+        except Exception as e:
+            log.warning("options_trader.chain.tradier_fallback_error", ticker=sym, error=str(e))
+            return None
 
-            # ── Chain (parallel fetch, up to 8 nearest expirations) ────────────
-            async def _fetch_exp(exp: str):
-                try:
-                    async with s.get(f"{base_url}/markets/options/chains",
-                                     params={"symbol": sym, "expiration": exp, "greeks": "true"},
-                                     timeout=timeout) as r:
-                        if r.status != 200:
-                            return []
-                        d = await r.json(content_type=None)
-                        opts = d.get("options") or {}
-                        if not opts or opts == "null":
-                            return []
-                        raw = opts.get("option", [])
-                        return raw if isinstance(raw, list) else [raw]
-                except Exception:
-                    return []
-
-            results = await _asyncio.gather(*[_fetch_exp(e) for e in expirations[:8]])
-            all_calls, all_puts = [], []
-            for contracts in results:
-                for c in contracts:
-                    if not isinstance(c, dict):
-                        continue
-                    otype = (c.get("option_type") or "").lower()
-                    rec = _chain_contract(c, otype, price)
-                    (all_calls if otype == "call" else all_puts).append(rec)
-
-            return {
-                "ticker": sym, "price": round(price, 2),
-                "expirations": expirations[:8],
-                "calls": all_calls, "puts": all_puts,
-                "source": "tradier",
-            }
-
-    async def _yfinance_chain() -> dict:
-        def _fetch_yf(s: str) -> dict:
+    # ── Yahoo Finance last-resort fallback ────────────────────────────────────
+    async def _yf_fallback() -> dict:
+        def _fetch(s: str) -> dict:
             import yfinance as _yf
             t = _yf.Ticker(s)
             info  = t.info or {}
             price = float(info.get("currentPrice") or info.get("regularMarketPrice")
                           or info.get("previousClose") or 0)
-            exps  = t.options
+            exps = t.options
             if not exps:
                 return {"ticker": s, "price": price, "expirations": [], "calls": [], "puts": []}
             all_calls, all_puts = [], []
@@ -8211,24 +8254,20 @@ async def get_options_chain_data(ticker: str, token: str = ""):
                             ask    = float(row.get("ask") or 0)
                             last   = float(row.get("lastPrice") or 0)
                             mid    = round((bid + ask) / 2, 2) if bid and ask else last
-                            intrinsic = round(max(0, price - strike) if otype == "call" else max(0, strike - price), 2)
-                            iv    = row.get("impliedVolatility")
-                            delta = row.get("delta")
-                            gamma = row.get("gamma")
-                            theta = row.get("theta")
-                            vega  = row.get("vega")
+                            intrinsic = round(max(0, price - strike) if otype == "call"
+                                              else max(0, strike - price), 2)
+                            def _f(v): return round(float(v), 6) if v is not None else None
                             rec = {
                                 "contract":   row.get("contractSymbol", ""),
-                                "strike":     strike,
-                                "expiration": exp,
-                                "bid":        bid, "ask": ask, "mid": mid, "last": last,
+                                "strike":     strike, "expiration": exp,
+                                "bid": bid, "ask": ask, "mid": mid, "last": last,
                                 "intrinsic":  intrinsic,
                                 "extrinsic":  round(max(0, mid - intrinsic), 2),
-                                "iv":    round(float(iv), 4)    if iv    is not None else None,
-                                "delta": round(float(delta), 4) if delta is not None else None,
-                                "gamma": round(float(gamma), 6) if gamma is not None else None,
-                                "theta": round(float(theta), 4) if theta is not None else None,
-                                "vega":  round(float(vega), 4)  if vega  is not None else None,
+                                "iv":    _f(row.get("impliedVolatility")),
+                                "delta": _f(row.get("delta")),
+                                "gamma": _f(row.get("gamma")),
+                                "theta": _f(row.get("theta")),
+                                "vega":  _f(row.get("vega")),
                                 "volume": int(row.get("volume") or 0),
                                 "oi":     int(row.get("openInterest") or 0),
                                 "itm":    bool(row.get("inTheMoney", False)),
@@ -8239,19 +8278,22 @@ async def get_options_chain_data(ticker: str, token: str = ""):
                     pass
             return {"ticker": s, "price": round(price, 2), "expirations": list(exps[:8]),
                     "calls": all_calls, "puts": all_puts, "source": "yahoo"}
-        return await _asyncio.get_event_loop().run_in_executor(None, _fetch_yf, sym)
+        return await _asyncio.get_event_loop().run_in_executor(None, _fetch, sym)
 
-    # Choose source
-    if api_key:
-        try:
-            data = await _tradier_chain()
-        except Exception as e:
-            log.warning("options_trader.chain.tradier_error", ticker=sym, error=str(e))
-            data = await _yfinance_chain()
-    else:
-        data = await _yfinance_chain()
+    # ── Select source ─────────────────────────────────────────────────────────
+    data: dict | None = None
 
-    # Mark open positions
+    if account_label:
+        data = await _gateway_chain(account_label)
+
+    if data is None:
+        # No account selected or gateway failed: try Tradier market API first
+        data = await _tradier_fallback()
+
+    if data is None:
+        data = await _yf_fallback()
+
+    # ── Mark open positions ───────────────────────────────────────────────────
     data["open_expiries"] = []
     if DB_URL:
         try:
@@ -8263,8 +8305,8 @@ async def get_options_chain_data(ticker: str, token: str = ""):
             )
             open_contracts = {r["contract_symbol"] for r in rows}
             data["open_expiries"] = list({r["expiration_date"].isoformat() for r in rows})
-            for c in data["calls"] + data["puts"]:
-                c["has_position"] = c["contract"] in open_contracts
+            for c in data.get("calls", []) + data.get("puts", []):
+                c["has_position"] = c.get("contract", "") in open_contracts
         except Exception:
             pass
 

@@ -80,6 +80,19 @@ class BrokerConnector(ABC):
     async def get_quotes(self, symbols: list[str]) -> list[dict]:
         """Return latest quotes for multiple symbols."""
 
+    # ── Options market data ───────────────────────────────────────────────────
+
+    async def get_option_chain(self, symbol: str) -> dict:
+        """
+        Return options chain for the underlying symbol.
+        Shape: {ticker, price, expirations, calls, puts}
+        Each contract: {contract, strike, expiration, bid, ask, mid, last,
+                        intrinsic, extrinsic, iv, delta, gamma, theta, vega,
+                        volume, oi, itm}
+        Raise NotImplementedError if the broker does not support chain data.
+        """
+        raise NotImplementedError(f"{self.broker_name} does not support get_option_chain")
+
     # ── Status ───────────────────────────────────────────────────────────────
 
     def status(self) -> dict:

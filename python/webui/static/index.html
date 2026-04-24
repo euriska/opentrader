@@ -15190,12 +15190,19 @@ async function _otLoadChain(ticker) {
   loading.style.display = '';
   wrap.innerHTML = '';
 
+  const acctLabel = document.getElementById('ot-account-select')?.value || '';
+  const chainUrl = `/api/options/trader/chain?ticker=${encodeURIComponent(ticker)}`
+    + (acctLabel ? `&account_label=${encodeURIComponent(acctLabel)}` : '');
+
   try {
-    const data = await apiFetch(`/api/options/trader/chain?ticker=${encodeURIComponent(ticker)}`);
+    const data = await apiFetch(chainUrl);
     _otChainData = data;
     loading.style.display = 'none';
 
-    if (priceEl) priceEl.textContent = data.price ? `$${data.price.toFixed(2)}` : '';
+    if (priceEl) {
+      const src = data.source ? ` · via ${data.source}` : '';
+      priceEl.textContent = (data.price ? `$${data.price.toFixed(2)}` : '') + src;
+    }
 
     // Populate expiry selector
     while (expSel.options.length > 1) expSel.remove(1);
