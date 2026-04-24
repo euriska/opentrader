@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.3] - 2026-04-24
+
+### Added
+- **Trading Log / By Account — Capital Eff. + Avg Risk/Trade columns**: renamed "ROC %" to "Capital Eff." for clarity; added "Avg Risk/Trade" column showing the average premium committed per closed trade (entry price × qty × 100 ÷ closed count), giving a per-account view of position sizing discipline.
+
 ## [3.6.2] - 2026-04-24
 
 ### Fixed

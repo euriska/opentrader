@@ -7255,6 +7255,7 @@ async def get_options_log_by_account():
         total_cost_basis = round(float(r["total_cost_basis"]), 2) if r["total_cost_basis"] else 0.0
         capital_eff      = round(total_pnl / total_cost_basis * 100, 1) if total_cost_basis else None
         closed           = int(r["closed_count"])
+        avg_risk         = round(total_cost_basis / closed, 2) if closed > 0 else None
         result.append({
             "account_label":      r["account_label"],
             "account_name":       r["account_name"] or r["account_label"],
@@ -7264,6 +7265,7 @@ async def get_options_log_by_account():
             "total_pnl":          total_pnl,
             "total_cost_basis":   total_cost_basis,
             "capital_efficiency": capital_eff,
+            "avg_risk_per_trade": avg_risk,
             "avg_days_in_trade":  float(r["avg_days_in_trade"]) if r["avg_days_in_trade"] else None,
             "winning":            int(r["winning"]),
             "losing":             int(r["losing"]),
