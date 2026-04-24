@@ -6021,9 +6021,15 @@ def _div_project_payments(positions_flat: list[dict], months: list[str],
             ex = _date.today() - _td(days=interval)
 
         today = _date.today()
-        # Advance ex until the corresponding pay_date is NOT yet in the past,
-        # so we capture payments whose pay_date is still pending (even if ex already passed).
-        while ex + _td(days=pay_lag) < today:
+        current_month_start = today.replace(day=1)
+
+        # Step backward from the anchor until we are before the current-month window,
+        # then advance forward to the first payment on or after the 1st of the current month.
+        # This ensures the projection covers ALL payments in the current month — including
+        # weeks that already paid earlier this month but may not be in local history yet.
+        while ex + _td(days=pay_lag) >= current_month_start:
+            ex -= _td(days=interval)
+        while ex + _td(days=pay_lag) < current_month_start:
             ex += _td(days=interval)
 
         # Project payments across the window (freq + a few extra to cover the full window)

@@ -3,6 +3,17 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.10] - 2026-04-24
+
+### Fixed
+- **April HOOW weeks still missing**: history DB only had April 6 because the backfill was last run April 9 (before April 13 and April 20 payments settled in yfinance). Triggered a fresh 18-month backfill; April 13 ($464.75) and April 20 ($389.13) are now captured.
+- **Projection only covered future payments**: advance condition `while pay_date < today` skipped any payment whose pay_date had already passed this month. Changed to a step-back-then-advance algorithm that always starts from the **first payment on or after the 1st of the current month**, so the full-month projection is stable even when history is temporarily stale.
+- **Bar chart robustness**: current-month bar now uses `MAX(actual_confirmed, full_month_projection)` as its height. Green portion = history-confirmed income; blue portion = projected but not yet confirmed (unconfirmed remaining weeks). Even with a stale backfill, the bar shows the full expected monthly total.
+
+### Changed
+- **"This Month" stat card**: label changed to "April Confirmed"; sub-line now reads "$X,XXX expected · +$Y unconfirmed" so the distinction between received and projected is explicit.
+- **April projected income**: updated from $389 (April 27 only) to $1,575 (all 4 HOOW weeks + SGOV + BHE).
+
 ## [3.6.9] - 2026-04-24
 
 ### Fixed

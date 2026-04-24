@@ -12813,9 +12813,13 @@ function _divBlendMonthly(forecastMonthly, historyRecords, filteredLabels) {
       // Past month: show actual only
       return { ...m, projected_income: actual, actual_received: actual, projected_remaining: 0, is_past: true };
     } else if (ym === currentYM) {
-      // Current month: actual received + remaining projected income
-      const remaining = m.projected_income || 0;
-      return { ...m, projected_income: actual + remaining, actual_received: actual, projected_remaining: remaining, is_current: true };
+      // Current month: backend projects the FULL month (from the 1st), so use it as the
+      // bar height.  The confirmed portion (green) comes from history; the unconfirmed
+      // remainder (blue) is expected income not yet captured in history.
+      const fullMonth = m.projected_income || 0;
+      const barTotal  = Math.max(actual, fullMonth);
+      const unconfirmed = Math.max(0, barTotal - actual);
+      return { ...m, projected_income: barTotal, actual_received: actual, projected_remaining: unconfirmed, is_current: true };
     } else {
       // Future month: forecast as-is
       return { ...m, actual_received: 0, projected_remaining: m.projected_income, is_future: true };
@@ -12845,11 +12849,14 @@ function _divApplyFilter() {
   const lbl = document.getElementById('div-stat-month-label');
   const paid = document.getElementById('div-stat-month-paid');
   const proj = document.getElementById('div-stat-month-proj');
-  if (lbl) lbl.textContent = monthName + ' Paid';
+  if (lbl) lbl.textContent = monthName + ' Confirmed';
   if (paid) paid.textContent = _divFmt$(curBar ? curBar.actual_received : 0);
   if (proj && curBar) {
-    const rem = curBar.projected_remaining || 0;
-    proj.textContent = rem > 0 ? '+' + _divFmt$(rem) + ' projected' : 'No further projected';
+    const total  = (curBar.actual_received || 0) + (curBar.projected_remaining || 0);
+    const rem    = curBar.projected_remaining || 0;
+    proj.textContent = rem > 0
+      ? _divFmt$(total) + ' expected · +' + _divFmt$(rem) + ' unconfirmed'
+      : _divFmt$(total) + ' total · fully confirmed';
   }
 
   // Update stats from filtered data
