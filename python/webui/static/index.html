@@ -11452,7 +11452,7 @@ async function _loadNavOrder() {
     const ui = eq.indexOf('page-trading-unified');
     if (ti > -1 && ui > -1 && ui < ti) {
       eq.splice(ui, 1);
-      eq.splice(eq.indexOf('page-trading-trades'), 0, 'page-trading-unified');
+      eq.splice(eq.indexOf('page-trading-trades') + 1, 0, 'page-trading-unified');
       order = { ...order, equities: eq };
       apiFetch(`/api/user/preferences?token=${encodeURIComponent(token)}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },

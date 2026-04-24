@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.17] - 2026-04-24
+
+### Fixed
+- **Equity Dashboard nav position (for real)** — v3.6.16 migration had an off-by-one: it re-inserted `page-trading-unified` at the trades index (before trades) instead of after it. Changed splice offset to `+ 1` so the corrected saved order is `[trades, unified, dividends]`.
+
 ## [3.6.16] - 2026-04-24
 
 ### Fixed
