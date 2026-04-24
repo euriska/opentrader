@@ -6778,6 +6778,7 @@ def _build_options_report_html(positions: list[dict]) -> str:
         sig = p.get("signal") or {}
         direction  = (sig.get("direction") or "").lower()
         confidence = sig.get("confidence")
+        conflict   = sig.get("conflict", False)
         if direction == "long":
             conf_pct = f" {round(confidence * 100)}%" if confidence else ""
             sig_html = f'<span style="color:#1a7a3a;font-weight:bold">▲ BUY{conf_pct}</span>'
@@ -6786,6 +6787,16 @@ def _build_options_report_html(positions: list[dict]) -> str:
             sig_html = f'<span style="color:#c0392b;font-weight:bold">▼ SELL{conf_pct}</span>'
         else:
             sig_html = "—"
+        if conflict:
+            pred_dir = sig.get("predictor_direction", "")
+            pred_src = sig.get("predictor_source", "predictor")
+            pred_label = "BUY" if pred_dir == "long" else "SELL" if pred_dir == "short" else pred_dir.upper()
+            sig_html += (
+                f' <span style="display:inline-block;background:#fff3cd;color:#856404;'
+                f'font-size:10px;padding:1px 5px;border-radius:3px;font-weight:600;'
+                f'border:1px solid #ffc107" title="{pred_src} signal: {pred_label} — OVTLYR overrides">'
+                f'&#9888; {pred_src}: {pred_label}</span>'
+            )
         rows_html += f"""<tr>
           <td>{p.get("underlying","")}</td>
           <td>{p.get("account_name", p.get("account_label",""))}</td>
@@ -6801,6 +6812,17 @@ def _build_options_report_html(positions: list[dict]) -> str:
           <td>{fmt(p.get("level_roll_2"))}</td>
           <td>{fmt(p.get("level_roll_3"))}</td>
         </tr>"""
+
+    conflicts = [p["underlying"] for p in sorted_pos if (p.get("signal") or {}).get("conflict")]
+    conflict_banner = ""
+    if conflicts:
+        tickers_str = ", ".join(conflicts)
+        conflict_banner = (
+            f'<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:4px;'
+            f'padding:10px 14px;margin-bottom:16px;color:#856404;font-size:12px">'
+            f'<strong>&#9888; Signal Conflict</strong> &mdash; OVTLYR overrides predictor for: '
+            f'<strong>{tickers_str}</strong>. Signals verified against OVTLYR before send.</div>'
+        )
 
     return f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>{report_title}</title>
@@ -6818,7 +6840,9 @@ def _build_options_report_html(positions: list[dict]) -> str:
 </style></head><body>
 <h2>{report_title}</h2>
 <div class="meta">Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")} ET &nbsp;&middot;&nbsp;
-  {len(sorted_pos)} position{"s" if len(sorted_pos) != 1 else ""}</div>
+  {len(sorted_pos)} position{"s" if len(sorted_pos) != 1 else ""} &nbsp;&middot;&nbsp;
+  Signals: OVTLYR (authoritative)</div>
+{conflict_banner}
 <table>
   <thead><tr>
     <th>Ticker</th><th>Account</th><th>Strike</th><th>Current Price</th>
@@ -6838,6 +6862,46 @@ async def email_options_report_auto(token: str = ""):
     positions = await get_option_positions(status="active")
     if not positions:
         return {"ok": True, "message": "No active positions — report skipped"}
+
+    # OVTLYR is the authoritative signal source for the report.
+    # Override whatever the predictor says with OVTLYR's signal and flag any conflict.
+    try:
+        _redis = await get_redis()
+        _SIGNAL_MAP = {"buy": ("long", 0.90), "sell": ("short", 0.80)}
+        _nine_to_conf = lambda n: round(0.55 + (int(n) / 9.0) * 0.40, 2) if n is not None else None
+        ovt_intel_raw  = await _redis.hgetall("ovtlyr:position_intel")
+        ovt_screen_raw = await _redis.hgetall("scanner:ovtlyr:latest")
+        for pos in positions:
+            sym = pos["underlying"]
+            raw = ovt_intel_raw.get(sym) or ovt_screen_raw.get(sym)
+            if not raw:
+                continue
+            try:
+                d = json.loads(raw) if isinstance(raw, str) else raw
+                sig_str = (d.get("signal") or d.get("direction") or "").lower()
+                mapped = _SIGNAL_MAP.get(sig_str)
+                if not mapped:
+                    if sig_str in ("long",):    mapped = ("long", 0.80)
+                    elif sig_str in ("short",): mapped = ("short", 0.75)
+                if mapped:
+                    nine = d.get("nine_score")
+                    conf = _nine_to_conf(nine) if nine is not None else mapped[1]
+                    existing = pos.get("signal") or {}
+                    ovtlyr_sig: dict = {
+                        "direction":  mapped[0],
+                        "confidence": conf,
+                        "source":     "ovtlyr",
+                    }
+                    if existing and existing.get("source") != "ovtlyr" and existing.get("direction") and existing.get("direction") != mapped[0]:
+                        ovtlyr_sig["conflict"] = True
+                        ovtlyr_sig["predictor_direction"] = existing.get("direction")
+                        ovtlyr_sig["predictor_source"]    = existing.get("source", "predictor")
+                    pos["signal"] = ovtlyr_sig
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     html = _build_options_report_html(positions)
     body = OptionsReportBody(html=html, count=len(positions))
     return await email_options_report(body, token=token)

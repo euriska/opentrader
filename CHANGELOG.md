@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.100] - 2026-04-24
+
+### Fixed
+- **Daily option report — OVTLYR as authoritative signal**: report now overrides the predictor signal with OVTLYR for every position before sending. When predictor and OVTLYR disagree (e.g. predictor BUY vs OVTLYR SELL), the report shows the OVTLYR signal with a yellow ⚠ badge noting the predictor's opposing view and a conflict banner listing affected tickers at the top of the email.
+
 ## [3.5.99] - 2026-04-24
 
 ### Added
