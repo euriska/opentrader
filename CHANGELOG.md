@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.93] - 2026-04-24
+
+### Fixed
+- **Options chain fragmented display**: rows were sorted by `(strike, expiration)` so each expiration's strikes were scattered across the table, producing a single row per date header. Sort is now `(expiration, strike)` so all strikes for a date are contiguous under their header.
+- **Options chain auto-selects nearest date on load**: instead of showing all expirations at once (overwhelming), the chain now auto-selects the nearest expiration with an open position, or the nearest date if no position. Use "All Expirations" in the dropdown to see all dates.
+
 ## [3.5.92] - 2026-04-24
 
 ### Fixed
