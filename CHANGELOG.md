@@ -3,6 +3,20 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.8] - 2026-04-24
+
+### Fixed
+- **April (current month) dividends incorrectly reported**: the projection algorithm pushes ex-dates forward past today, so April payments already made (SGOV $30.47, HOOW $295.17) were missing from the bar chart. A `_divBlendMonthly()` function now merges actual `dividend_history` records into the monthly view: past months show actual received, current month shows actual received + projected remaining, future months show the forecast unchanged.
+
+### Added
+- **Dividend Income page — "This Month Paid" stat card**: shows the month name (e.g. "April Paid"), actual dividends received so far this month from history, and a sub-line with any projected remaining income for the rest of the month.
+- **Bar chart — three-tone visualisation**: past months render as gray bars (actual received), current month as a green base (received) + blue overlay (projected remaining), future months as solid blue (projected). A legend is drawn below the x-axis.
+- **Bar chart total label**: updated to "X received · Y projected" reflecting both the historical and forward amounts.
+
+### Changed
+- **Nav label**: "Dividends" renamed to "Dividend Income" in the left navigation panel.
+- **Bar chart card title**: "12-Month Projected Income" → "Dividend Income · 12 Months".
+
 ## [3.6.7] - 2026-04-24
 
 ### Fixed

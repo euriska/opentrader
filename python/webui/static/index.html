@@ -292,7 +292,7 @@ select option{background:var(--surface2)}
       </div>
       <div class="nav-item" draggable="true" onclick="navigate('page-trading-dividends')" data-page="page-trading-dividends">
         <span class="nav-dot" style="background:var(--green)"></span>
-        Dividends
+        Dividend Income
       </div>
     </div>
     <div class="nav-group" data-group="options">
@@ -1597,6 +1597,11 @@ select option{background:var(--surface2)}
           <div class="stat-sub" id="div-stat-annual-sub" style="font-size:10px;color:var(--muted);margin-top:3px"></div>
         </div>
         <div class="stat-card">
+          <div class="stat-label" id="div-stat-month-label">This Month Paid</div>
+          <div class="stat-value" id="div-stat-month-paid" style="color:var(--green)">—</div>
+          <div class="stat-sub" id="div-stat-month-proj" style="font-size:10px;color:var(--muted);margin-top:3px"></div>
+        </div>
+        <div class="stat-card">
           <div class="stat-label">Forward Yield on Portfolio</div>
           <div class="stat-value" id="div-stat-yield" style="color:var(--blue)">—</div>
         </div>
@@ -1625,7 +1630,7 @@ select option{background:var(--surface2)}
       <!-- 12-Month Bar Chart -->
       <div class="card" style="margin-bottom:16px">
         <div class="card-header">
-          <span class="card-title">12-Month Projected Income</span>
+          <span class="card-title">Dividend Income · 12 Months</span>
           <span id="div-bar-total" style="font-size:11px;color:var(--muted)"></span>
         </div>
         <div class="card-body" style="padding:16px 16px 8px">
@@ -12785,16 +12790,67 @@ function _divComputeFromAccounts(accounts) {
            totalHoldings: accounts.reduce((s, a) => s + (a.positions||[]).length, 0) };
 }
 
+// Merge actual dividend_history into the forecast monthly array.
+// Past months → replace projection with actual received.
+// Current month → actual received so far + remaining projected income.
+// Future months → forecast unchanged.
+function _divBlendMonthly(forecastMonthly, historyRecords, filteredLabels) {
+  const currentYM = new Date().toISOString().slice(0, 7);
+
+  // Sum history by YYYY-MM, filtered to visible accounts
+  const histByMonth = {};
+  for (const r of (historyRecords || [])) {
+    if (filteredLabels && !filteredLabels.has(r.account_label)) continue;
+    const ym = (r.pay_date || '').slice(0, 7);
+    if (!ym) continue;
+    histByMonth[ym] = (histByMonth[ym] || 0) + parseFloat(r.total_received || 0);
+  }
+
+  return (forecastMonthly || []).map(m => {
+    const ym = m.month;
+    const actual = histByMonth[ym] || 0;
+    if (ym < currentYM) {
+      // Past month: show actual only
+      return { ...m, projected_income: actual, actual_received: actual, projected_remaining: 0, is_past: true };
+    } else if (ym === currentYM) {
+      // Current month: actual received + remaining projected income
+      const remaining = m.projected_income || 0;
+      return { ...m, projected_income: actual + remaining, actual_received: actual, projected_remaining: remaining, is_current: true };
+    } else {
+      // Future month: forecast as-is
+      return { ...m, actual_received: 0, projected_remaining: m.projected_income, is_future: true };
+    }
+  });
+}
+
 function _divApplyFilter() {
   if (!_divData) return;
   const allAccounts = _divData.accounts || [];
   const filtered    = _divFilterAccounts(allAccounts);
   const computed    = _divComputeFromAccounts(filtered);
 
+  // Blend actual history into past/current months before rendering the bar chart
+  const filteredLabels = new Set(filtered.map(a => a.label));
+  const blended = _divBlendMonthly(computed.monthly, _divHistoryRecords, filteredLabels);
+
   _divRenderAccountCards(filtered);
   _divRenderHoldings(filtered);
-  _divRenderBar(computed.monthly);
+  _divRenderBar(blended);
   _divRenderPies(computed);
+
+  // Populate "This Month" stat cards
+  const currentYM = new Date().toISOString().slice(0, 7);
+  const curBar = blended.find(m => m.month === currentYM);
+  const monthName = new Date().toLocaleString('en-US', {month:'long'});
+  const lbl = document.getElementById('div-stat-month-label');
+  const paid = document.getElementById('div-stat-month-paid');
+  const proj = document.getElementById('div-stat-month-proj');
+  if (lbl) lbl.textContent = monthName + ' Paid';
+  if (paid) paid.textContent = _divFmt$(curBar ? curBar.actual_received : 0);
+  if (proj && curBar) {
+    const rem = curBar.projected_remaining || 0;
+    proj.textContent = rem > 0 ? '+' + _divFmt$(rem) + ' projected' : 'No further projected';
+  }
 
   // Update stats from filtered data
   const fwdYield = computed.totalValue > 0 ? computed.annIncome / computed.totalValue * 100 : 0;
@@ -12850,10 +12906,10 @@ function _divRenderBar(months) {
   const svg = document.getElementById('div-bar-svg');
   svg.innerHTML = '';
   if (!months.length) return;
-  const W=900, H=190, pt=24, pr=10, pb=44, pl=56;
+  const W=900, H=190, pt=24, pr=10, pb=50, pl=56;
   const iW = W-pl-pr, iH = H-pt-pb;
   const n  = months.length;
-  const maxVal = Math.max(...months.map(m => m.projected_income), 1);
+  const maxVal = Math.max(...months.map(m => m.projected_income || 0), 1);
   const ns = 'http://www.w3.org/2000/svg';
   const mk = (tag,attrs,text) => {
     const el = document.createElementNS(ns,tag);
@@ -12861,9 +12917,13 @@ function _divRenderBar(months) {
     if (text != null) el.textContent = text;
     return el;
   };
-  const thisMonth = new Date().toISOString().slice(0,7);
-  const totalIncome = months.reduce((s,m) => s+m.projected_income, 0);
-  document.getElementById('div-bar-total').textContent = _divFmt$(totalIncome) + ' projected (12 mo)';
+  const currentYM = new Date().toISOString().slice(0,7);
+
+  // Total label: actual received YTD + projected remainder
+  const actualTotal   = months.reduce((s,m) => s+(m.actual_received||0), 0);
+  const projTotal     = months.reduce((s,m) => s+(m.projected_remaining||m.projected_income||0), 0);
+  const totalEl = document.getElementById('div-bar-total');
+  if (totalEl) totalEl.textContent = _divFmt$(actualTotal) + ' received · ' + _divFmt$(projTotal) + ' projected';
 
   // Y gridlines
   for (let i=0; i<=4; i++) {
@@ -12877,21 +12937,55 @@ function _divRenderBar(months) {
   const barW = (iW/n)*0.6;
   const gap  = (iW/n)*0.4;
   months.forEach((m,i) => {
-    const bH  = Math.max((m.projected_income/maxVal)*iH, m.projected_income > 0 ? 2 : 0);
-    const x   = pl + i*(iW/n) + gap/2;
-    const y   = pt + iH - bH;
-    const cur = m.month === thisMonth;
-    svg.appendChild(mk('rect',{x,y,width:barW,height:bH||1,fill:cur?'#22c55e':'#3b82f6',rx:'3',opacity:'0.85'}));
-    // value label on bar
-    if (m.projected_income > 0) {
-      svg.appendChild(mk('text',{x:x+barW/2,y:y-4,'text-anchor':'middle',fill:'#e4e8f1','font-size':'8','font-family':'system-ui,sans-serif'},
-        '$'+m.projected_income.toFixed(0)));
+    const x       = pl + i*(iW/n) + gap/2;
+    const total   = m.projected_income || 0;
+    const actual  = m.actual_received  || 0;
+    const rem     = m.projected_remaining || 0;
+    const isCur   = m.month === currentYM;
+    const isPast  = m.is_past;
+
+    if (isPast) {
+      // Past month: gray bar showing what was actually received
+      const bH = Math.max((actual/maxVal)*iH, actual > 0 ? 2 : 0);
+      svg.appendChild(mk('rect',{x,y:pt+iH-bH,width:barW,height:bH||1,fill:'#4b5680',rx:'3',opacity:'0.75'}));
+      if (actual > 0)
+        svg.appendChild(mk('text',{x:x+barW/2,y:pt+iH-bH-4,'text-anchor':'middle',fill:'#8892a8','font-size':'8','font-family':'system-ui,sans-serif'},
+          '$'+actual.toFixed(0)));
+    } else if (isCur) {
+      // Current month: green base (actual) + blue top (projected remaining)
+      const aH = Math.max((actual/maxVal)*iH, actual > 0 ? 2 : 0);
+      const pH = Math.max((rem/maxVal)*iH,   rem   > 0 ? 2 : 0);
+      if (pH > 0)
+        svg.appendChild(mk('rect',{x,y:pt+iH-aH-pH,width:barW,height:pH,fill:'#3b82f6',rx:'3',opacity:'0.55'}));
+      if (aH > 0)
+        svg.appendChild(mk('rect',{x,y:pt+iH-aH,  width:barW,height:aH,fill:'#22c55e',rx:'3',opacity:'0.92'}));
+      const topY = pt+iH-aH-pH;
+      if (total > 0)
+        svg.appendChild(mk('text',{x:x+barW/2,y:topY-4,'text-anchor':'middle',fill:'#e4e8f1','font-size':'8','font-family':'system-ui,sans-serif'},
+          '$'+actual.toFixed(0)+(rem>0?'+':'') ));
+    } else {
+      // Future: blue projected bar
+      const bH = Math.max((total/maxVal)*iH, total > 0 ? 2 : 0);
+      svg.appendChild(mk('rect',{x,y:pt+iH-bH,width:barW,height:bH||1,fill:'#3b82f6',rx:'3',opacity:'0.85'}));
+      if (total > 0)
+        svg.appendChild(mk('text',{x:x+barW/2,y:pt+iH-bH-4,'text-anchor':'middle',fill:'#e4e8f1','font-size':'8','font-family':'system-ui,sans-serif'},
+          '$'+total.toFixed(0)));
     }
-    // month label
-    svg.appendChild(mk('text',{x:x+barW/2,y:H-pb+13,'text-anchor':'middle',fill:cur?'#22c55e':'#6b7394','font-size':'9','font-family':'system-ui,sans-serif','font-weight':cur?'700':'400'},
+
+    // Month label
+    svg.appendChild(mk('text',{x:x+barW/2,y:H-pb+13,'text-anchor':'middle',
+      fill:isCur?'#22c55e':isPast?'#4b5680':'#6b7394','font-size':'9','font-family':'system-ui,sans-serif','font-weight':isCur?'700':'400'},
       m.label.slice(0,3)));
     svg.appendChild(mk('text',{x:x+barW/2,y:H-pb+23,'text-anchor':'middle',fill:'#3d4566','font-size':'8','font-family':'system-ui,sans-serif'},
       m.month.slice(0,4)));
+  });
+
+  // Legend
+  const lx = pl, ly = H-pb+36;
+  [['#4b5680','Received (past)'],['#22c55e','Received (current mo.)'],['#3b82f6','Projected']].forEach(([c,t],i) => {
+    const ox = lx + i*180;
+    svg.appendChild(mk('rect',{x:ox,y:ly,width:8,height:8,fill:c,rx:'1',opacity:'0.85'}));
+    svg.appendChild(mk('text',{x:ox+11,y:ly+7,fill:'#6b7394','font-size':'8','font-family':'system-ui,sans-serif'},t));
   });
 }
 
