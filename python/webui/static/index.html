@@ -2404,9 +2404,12 @@ select option{background:var(--surface2)}
               <div style="display:flex;flex-direction:column;gap:8px">
                 <div>
                   <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Risk per trade (%)</div>
-                  <input id="ot-risk-pct" type="number" value="2" min="0.1" max="10" step="0.1"
-                    onchange="_otCalcSizing()"
+                  <input id="ot-risk-pct" type="number" value="2" min="0.1" max="20" step="0.1"
+                    onchange="_otRiskPctChanged()"
                     style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:5px 9px;font-size:12px;width:100%">
+                  <div id="ot-risk-deviation-warn" style="display:none;margin-top:5px;font-size:10px;color:#fbbf24;padding:5px 8px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:5px;line-height:1.4">
+                    ⚠ Deviating from your configured default (<span id="ot-risk-default-val">2</span>%). Is this in your trading plan?
+                  </div>
                 </div>
                 <div>
                   <div style="font-size:10px;color:var(--muted);margin-bottom:3px">Option Premium ($)</div>
@@ -8242,10 +8245,19 @@ function _renderBrokerCard(broker, info, assignedAccounts = {}) {
         const dotHtml = strategies.length
           ? `<span class="bk-strategy-dot" data-tip="${strategies.map(s => `Strategy: ${s}`).join(' · ')}"></span>`
           : '';
+        const riskPct = localStorage.getItem(`ot_risk_pct_${a.label}`) || '2';
         return `<div class="bk-acct-row">
           ${dotHtml}<span class="bk-acct-label" title="${a.display_name || a.label}">${a.display_name || a.label}</span>
           <span class="chip ${mc}" style="font-size:10px;padding:2px 7px">${a.mode}</span>
           <span class="chip ${ec}" style="font-size:10px;padding:2px 7px">${etxt}</span>
+          <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--muted);white-space:nowrap" title="Default risk % per trade for this account">
+            Risk
+            <input type="number" class="bk-risk-pct" data-label="${a.label}"
+              value="${riskPct}" min="0.1" max="20" step="0.1"
+              onchange="localStorage.setItem('ot_risk_pct_'+this.dataset.label,this.value);this.style.color='#4ade80';setTimeout(()=>this.style.color='',1200)"
+              style="width:46px;background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:2px 5px;font-size:10px;text-align:center">
+            <span>%</span>
+          </label>
           <select class="bk-ai-select ${aiCls}" data-ai-label="${a.label}" title="AI Access">${aiOptions}</select>
         </div>`;
       }).join('');
@@ -15028,6 +15040,15 @@ async function _otLoadRisk(account) {
 function _otSelectAccount(acct) {
   _otLoadPositions();
   _otLoadRisk(acct);
+  // Load the configured default risk % for this account
+  const stored = localStorage.getItem(`ot_risk_pct_${acct}`);
+  const pctEl  = document.getElementById('ot-risk-pct');
+  if (pctEl && stored) {
+    pctEl.value = stored;
+    document.getElementById('ot-risk-default-val').textContent = stored;
+    document.getElementById('ot-risk-deviation-warn').style.display = 'none';
+    _otCalcSizing();
+  }
 }
 
 function _otRefreshAll() {
@@ -15428,6 +15449,22 @@ function _otFilterChain() {
       _otCalcSizing();
     });
   });
+}
+
+function _otRiskPctChanged() {
+  _otCalcSizing();
+  const acct     = document.getElementById('ot-account-select')?.value || '';
+  const stored   = parseFloat(localStorage.getItem(`ot_risk_pct_${acct}`) || '2');
+  const current  = parseFloat(document.getElementById('ot-risk-pct')?.value || '2');
+  const warnEl   = document.getElementById('ot-risk-deviation-warn');
+  const defEl    = document.getElementById('ot-risk-default-val');
+  if (!warnEl) return;
+  if (acct && Math.abs(current - stored) > 0.001) {
+    if (defEl) defEl.textContent = stored;
+    warnEl.style.display = '';
+  } else {
+    warnEl.style.display = 'none';
+  }
 }
 
 function _otUpdateOrderBar() {

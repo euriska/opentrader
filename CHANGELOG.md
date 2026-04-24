@@ -3,6 +3,19 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.99] - 2026-04-24
+
+### Added
+- **Broker dashboard — per-account risk %**: each account row now has a small Risk % input saved to localStorage; flash-confirms green on save.
+- **Options Trader — risk % defaults from broker config**: selecting an account auto-loads that account's configured default risk % into the sizing calculator.
+- **Options Trader — deviation warning**: editing the risk % away from the configured default shows an amber warning: *"Deviating from your configured default (X%). Is this in your trading plan?"* Hides automatically when the value is restored.
+
+## [3.5.98] - 2026-04-24
+
+### Changed
+- **Options chain — BUY/SELL chip inline**: pill now appears to the right of the strike number on the same line.
+- **Options chain — position sell highlight**: when a blue (open position) row is selected for SELL, the blue highlight is replaced with red across all data cells and the strike cell.
+
 ## [3.5.97] - 2026-04-24
 
 ### Changed
