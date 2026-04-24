@@ -11443,32 +11443,34 @@ async function _loadNavOrder() {
   try {
     const token = getToken();
     const prefs = await apiFetch(`/api/user/preferences?token=${encodeURIComponent(token)}`);
-    let order = prefs.nav_order;
-    if (!order) return;
-
-    // Migration: enforce canonical equities order (Equity Trades before Equity Dashboard)
-    const eq = order.equities || [];
-    const ti = eq.indexOf('page-trading-trades');
-    const ui = eq.indexOf('page-trading-unified');
-    if (ti > -1 && ui > -1 && ui < ti) {
-      eq.splice(ui, 1);
-      eq.splice(eq.indexOf('page-trading-trades') + 1, 0, 'page-trading-unified');
-      order = { ...order, equities: eq };
-      apiFetch(`/api/user/preferences?token=${encodeURIComponent(token)}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'nav_order', value: order }),
-      }).catch(() => {});
-    }
-
-    Object.entries(order).forEach(([gKey, pages]) => {
-      const group = document.querySelector(`#main-nav .nav-group[data-group="${gKey}"]`);
-      if (!group) return;
-      pages.forEach(page => {
-        const item = group.querySelector(`.nav-item[data-page="${page}"]`);
-        if (item) group.appendChild(item);
+    const order = prefs.nav_order;
+    if (order) {
+      Object.entries(order).forEach(([gKey, pages]) => {
+        const group = document.querySelector(`#main-nav .nav-group[data-group="${gKey}"]`);
+        if (!group) return;
+        pages.forEach(page => {
+          const item = document.querySelector(`#main-nav .nav-item[data-page="${page}"]`);
+          if (item) group.appendChild(item);
+        });
       });
-    });
+    }
   } catch(_) {}
+
+  // Guaranteed DOM enforcement: Equity Trades must always appear immediately before
+  // Equity Dashboard regardless of what was saved or which group they ended up in.
+  const tradesEl  = document.querySelector('#main-nav .nav-item[data-page="page-trading-trades"]');
+  const unifiedEl = document.querySelector('#main-nav .nav-item[data-page="page-trading-unified"]');
+  if (tradesEl && unifiedEl) {
+    const tradesGroup  = tradesEl.closest('.nav-group');
+    const unifiedGroup = unifiedEl.closest('.nav-group');
+    const items = [...tradesGroup.querySelectorAll('.nav-item')];
+    const ti = items.indexOf(tradesEl);
+    const ui = unifiedGroup === tradesGroup ? items.indexOf(unifiedEl) : -1;
+    if (unifiedGroup !== tradesGroup || ui !== ti + 1) {
+      tradesGroup.insertBefore(unifiedEl, tradesEl.nextSibling);
+      _saveNavOrder();
+    }
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

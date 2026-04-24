@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.18] - 2026-04-24
+
+### Fixed
+- **Equity Dashboard nav position (definitive fix)** — replaced the migration-based approach with a guaranteed two-phase DOM enforcement: saved order is applied first, then a post-load pass finds `page-trading-trades` and `page-trading-unified` anywhere in the nav (handles cross-group drag) and unconditionally moves Equity Dashboard to the slot immediately after Equity Trades, then saves the corrected order. Previous approaches only patched the saved array before applying it, so cross-group or already-applied bad orders were never corrected.
+
 ## [3.6.17] - 2026-04-24
 
 ### Fixed
