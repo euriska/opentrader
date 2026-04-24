@@ -3,6 +3,26 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.13] - 2026-04-24
+
+### Changed
+- **Nav: "Trading Log" → "Options Trading Log"** — label updated in the Options nav group for clarity.
+- **Expiry Calendar merged into Options Dashboard** — the Expiry Calendar is no longer a separate page; it appears as a card at the bottom of the Options Dashboard and loads automatically alongside positions, Greeks, and performance when the dashboard opens. The standalone nav item is removed. Any deep-link to `page-options-expiry` redirects to the Options Dashboard.
+
+## [3.6.12] - 2026-04-24
+
+### Fixed
+- **HOOW (weekly payer) missing from Upcoming Ex-Dividend panel**: massive.com does not carry weekly ETF ex-dates that haven't been formally declared yet. Added dividendchannel.com as a Tier-2 fallback: fetches recent ex-dividend history from `tickertech.net` (the backend for dividendchannel.com), calculates average interval from the last 4 gaps, projects the next ex-date forward, and includes it if it falls within the 7-day window. For HOOW: last ex `2026-04-20`, 7-day interval → projected `2026-04-27`, avg payout `$0.278/share`.
+
+### Changed
+- **`GET /api/dividends/upcoming`** — upgraded to three-tier lookup: (1) massive.com declared dates, (2) dividendchannel.com projected dates for tickers with no massive.com results, (3) `dividend_meta` DB yfinance cache as last-resort guard. Each tier deduplicates via a `(ticker, ex_date)` set so no event appears twice.
+
+## [3.6.11] - 2026-04-24
+
+### Added
+- **Upcoming Ex-Dividend Dates panel** — new card on the Dividend Income page showing all ex-dividend events for held tickers in the next 7 days. Columns: Ticker, Ex-Date, Pay Date, $/Share, Shares, Est. Total, Days Until. Data sourced from massive.com REST API (`/stocks/v1/dividends`). Panel shows total estimated income across all upcoming events.
+- **`GET /api/dividends/upcoming`** — new backend endpoint that queries massive.com for each held ticker, filters to `ex_dividend_date` within the next 7 days, and returns sorted results with estimated payout per position.
+
 ## [3.6.10] - 2026-04-24
 
 ### Fixed

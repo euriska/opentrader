@@ -303,11 +303,7 @@ select option{background:var(--surface2)}
       </div>
       <div class="nav-item" draggable="true" onclick="navigate('page-options-log')" data-page="page-options-log">
         <span class="nav-dot" style="background:#c084fc"></span>
-        Trading Log
-      </div>
-      <div class="nav-item" draggable="true" onclick="navigate('page-options-expiry')" data-page="page-options-expiry">
-        <span class="nav-dot" style="background:#e879f9"></span>
-        Expiry Calendar
+        Options Trading Log
       </div>
       <div class="nav-item" draggable="true" onclick="navigate('page-options-trader')" data-page="page-options-trader">
         <span class="nav-dot" style="background:#06b6d4"></span>
@@ -1627,6 +1623,26 @@ select option{background:var(--surface2)}
       <!-- Account Cards -->
       <div id="div-account-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:16px"></div>
 
+      <!-- Upcoming Ex-Dividend Dates (7 Days) -->
+      <div class="card" style="margin-bottom:16px" id="div-upcoming-card">
+        <div class="card-header">
+          <span class="card-title">Upcoming Ex-Dividend Dates</span>
+          <span id="div-upcoming-subtitle" style="font-size:11px;color:var(--muted)">next 7 days</span>
+        </div>
+        <div class="card-body table-wrap" style="padding:0">
+          <table>
+            <thead><tr>
+              <th>Ticker</th><th>Ex-Date</th><th>Pay Date</th>
+              <th style="text-align:right">$/Share</th><th style="text-align:right">Shares</th>
+              <th style="text-align:right">Est. Total</th><th style="text-align:center">In</th>
+            </tr></thead>
+            <tbody id="div-upcoming-body">
+              <tr><td colspan="7" class="empty-state">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- 12-Month Bar Chart -->
       <div class="card" style="margin-bottom:16px">
         <div class="card-header">
@@ -1849,6 +1865,26 @@ select option{background:var(--surface2)}
             <tr><td colspan="19" style="padding:24px;text-align:center;color:var(--muted)">Loading option positions…</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Expiry Calendar (integrated) -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header" style="padding:12px 16px">
+          <span class="card-title">Expiry Calendar</span>
+          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:9px;height:9px;border-radius:2px;background:#ef4444;display:inline-block"></span>Critical (&le;3 DTE)</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:9px;height:9px;border-radius:2px;background:#f97316;display:inline-block"></span>Warning (&le;7 DTE)</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:9px;height:9px;border-radius:2px;background:#eab308;display:inline-block"></span>Caution (&le;14 DTE)</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:9px;height:9px;border-radius:2px;background:#22c55e;display:inline-block"></span>OK</span>
+            <button onclick="loadOptionsExpiryCalendar()"
+              style="padding:4px 10px;font-size:11px;border-radius:6px;background:var(--blue);color:#fff;border:none;cursor:pointer;font-weight:600;margin-left:8px">Refresh</button>
+          </div>
+        </div>
+        <div class="card-body" style="padding:14px 16px">
+          <div id="expiry-calendar-container" style="display:flex;flex-direction:column;gap:10px">
+            <div style="text-align:center;color:var(--muted);padding:30px;font-size:13px">Loading…</div>
+          </div>
+        </div>
       </div>
 
     </div><!-- /page-trading-options -->
@@ -2220,29 +2256,6 @@ select option{background:var(--surface2)}
 
     </div>
 
-    <!-- ════════════════════════════════════════
-         PAGE: Options Expiry Calendar
-    ════════════════════════════════════════ -->
-    <div class="page" id="page-options-expiry">
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-header" style="padding:12px 16px">
-          <span class="card-title">Options Expiry Calendar</span>
-          <button onclick="loadOptionsExpiryCalendar()"
-            style="padding:5px 12px;font-size:11px;border-radius:6px;background:var(--blue);color:#fff;border:none;cursor:pointer;font-weight:600">Refresh</button>
-        </div>
-        <div class="card-body" style="padding:14px 16px">
-          <div style="font-size:11px;color:var(--muted);margin-bottom:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-            <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#ef4444;display:inline-block"></span>Critical (&le;3 DTE)</span>
-            <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#f97316;display:inline-block"></span>Warning (&le;7 DTE)</span>
-            <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#eab308;display:inline-block"></span>Caution (&le;14 DTE)</span>
-            <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#22c55e;display:inline-block"></span>OK</span>
-          </div>
-          <div id="expiry-calendar-container" style="display:flex;flex-direction:column;gap:10px">
-            <div style="text-align:center;color:var(--muted);padding:30px;font-size:13px">Loading…</div>
-          </div>
-        </div>
-      </div>
-    </div><!-- /page-options-expiry -->
 
     <!-- ════════════════════════════════════════
          PAGE: Options Trader
@@ -3354,7 +3367,6 @@ const PAGE_TITLES = {
   'page-trading-alerts':     'Price Alerts',
   'page-trading-options':    'Options Dashboard',
   'page-options-log':        'Options Trading Log',
-  'page-options-expiry':     'Options Expiry Calendar',
   'page-options-trader':     'Options Trader',
   'page-trading-charts':     'Charts',
   'page-trading-directives': 'Trade Directives',
@@ -3484,9 +3496,9 @@ function navigate(pageId) {
     case 'page-trading-broker':     loadBrokerPage();       break;
     case 'page-trading-dividends':  loadDividendPage();     break;
     case 'page-trading-alerts':     loadAlertsPage(); break;
-    case 'page-trading-options':    loadOptionsPositions(); loadOptionsGreeksPanel(); loadOptionsPerformancePanel(); break;
+    case 'page-trading-options':    loadOptionsPositions(); loadOptionsGreeksPanel(); loadOptionsPerformancePanel(); loadOptionsExpiryCalendar(); break;
     case 'page-options-log':        loadOptionsLog(); loadOptionsPerformancePanel(); break;
-    case 'page-options-expiry':     loadOptionsExpiryCalendar(); break;
+    case 'page-options-expiry':     navigate('page-trading-options'); break;
     case 'page-options-trader':     loadOptionsTraderPage(); break;
     case 'page-trading-charts':     loadChartsPage();       break;
     case 'page-trading-directives': loadDirectivesPage();   break;
@@ -12606,16 +12618,18 @@ async function loadDividendPage(forceRefresh = false) {
     if (forceRefresh) {
       await apiFetch(`/api/dividends/refresh?token=${encodeURIComponent(token)}`, { method: 'POST' });
     }
-    const [holdings, forecast, history] = await Promise.all([
+    const [holdings, forecast, history, upcoming] = await Promise.all([
       apiFetch(`/api/dividends/holdings?token=${encodeURIComponent(token)}`),
       apiFetch(`/api/dividends/forecast?token=${encodeURIComponent(token)}`),
       apiFetch(`/api/dividends/history?token=${encodeURIComponent(token)}&limit=500`),
+      apiFetch(`/api/dividends/upcoming?token=${encodeURIComponent(token)}`).catch(() => ({ upcoming: [] })),
     ]);
     _divData = holdings;
     _divForecast = forecast;
     _divActiveAccount = '';
     _divApplyFilter();
     _divRenderHistory(history.records || []);
+    _divRenderUpcoming(upcoming);
     status.textContent = `Updated ${_fmtTime(new Date())}`;
   } catch(e) {
     status.textContent = 'Error: ' + e.message;
@@ -13065,6 +13079,39 @@ function _divRenderPies(forecast) {
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">${_escHtml(d.label)}</span>
       <span style="color:var(--green);font-weight:600;white-space:nowrap">${d.yieldPct.toFixed(2)}%</span>
     </div>`).join('');
+}
+
+function _divRenderUpcoming(data) {
+  const tbody = document.getElementById('div-upcoming-body');
+  if (!tbody) return;
+  const rows = (data && data.upcoming) || [];
+  const sub  = document.getElementById('div-upcoming-subtitle');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No ex-dividend events in the next 7 days for held tickers</td></tr>';
+    if (sub) sub.textContent = 'next 7 days · 0 events';
+    return;
+  }
+  const totalEst = rows.reduce((s, r) => s + (r.est_total || 0), 0);
+  if (sub) sub.textContent = `next 7 days · ${rows.length} event${rows.length !== 1 ? 's' : ''} · est. $${totalEst.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  tbody.innerHTML = rows.map(r => {
+    const daysLabel = r.days_until === 0
+      ? '<span style="color:var(--amber);font-weight:600">Today</span>'
+      : r.days_until === 1
+      ? '<span style="color:var(--amber)">1d</span>'
+      : `<span style="color:var(--muted)">${r.days_until}d</span>`;
+    const distBadge = r.distribution_type && r.distribution_type !== 'recurring'
+      ? ` <span style="font-size:9px;padding:1px 4px;border-radius:3px;background:color-mix(in srgb,var(--amber) 15%,transparent);color:var(--amber)">${r.distribution_type}</span>`
+      : '';
+    return `<tr>
+      <td><span style="font-weight:600">${r.ticker}</span>${distBadge}</td>
+      <td>${r.ex_date || '—'}</td>
+      <td style="color:var(--muted)">${r.pay_date || '—'}</td>
+      <td style="text-align:right">${r.cash_amount > 0 ? '$' + r.cash_amount.toFixed(4) : '—'}</td>
+      <td style="text-align:right;color:var(--muted)">${(r.qty || 0).toLocaleString()}</td>
+      <td style="text-align:right;color:var(--green);font-weight:600">${r.est_total > 0 ? '$' + r.est_total.toFixed(2) : '—'}</td>
+      <td style="text-align:center">${daysLabel}</td>
+    </tr>`;
+  }).join('');
 }
 
 // Stored history records for filtering

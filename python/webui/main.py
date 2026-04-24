@@ -17,7 +17,7 @@ import socket
 import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -6428,6 +6428,221 @@ async def div_backfill(token: str = ""):
 
     log.info("div_backfill.done", tickers=len(ticker_accounts), saved=total_saved)
     return {"ok": True, "saved": total_saved, "tickers": len(ticker_accounts)}
+
+
+def _divchannel_history_sync(ticker: str) -> list[dict]:
+    """
+    Fetch ex-dividend history for a ticker from dividendchannel.com (tickertech.net backend).
+    Returns list of {"date": "YYYY-MM-DD", "amount": float} sorted descending (most recent first).
+    Requires the Referer header to unlock the JS-rendered data.
+    """
+    import re
+    import urllib.request
+    url = (
+        "https://www.tickertech.net/bnkinvest/cgi/"
+        f"?n=2&ticker={ticker}&js=on&head=1&a=historical&w=dividends2&noform=1&footer=off"
+    )
+    try:
+        req = urllib.request.Request(url, headers={"Referer": "https://www.dividendchannel.com/"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        log.warning("divchannel.fetch_failed", ticker=ticker, error=str(exc))
+        return []
+    # Dates are in center-aligned cells, amounts in right-aligned cells
+    dates   = re.findall(r'document\.write\(\'<td align="center"[^\']*>(\d{2}/\d{2}/\d{2})', body)
+    amounts = re.findall(r'document\.write\(\'<td align="right"[^\']*>(\d+\.\d+)', body)
+    out = []
+    for d_str, amt_str in zip(dates, amounts):
+        try:
+            m, dy, y2 = d_str.split("/")
+            out.append({"date": f"{2000 + int(y2)}-{m}-{dy}", "amount": float(amt_str)})
+        except Exception:
+            pass
+    return sorted(out, key=lambda x: x["date"], reverse=True)
+
+
+@app.get("/api/dividends/upcoming")
+async def div_upcoming(token: str = "", days: int = 7):
+    """
+    Ex-dividend events for held tickers within the next N days (default 7).
+    Three-tier lookup:
+      1. massive.com  — declared upcoming dates
+      2. dividendchannel.com — project forward from recent history (for tickers
+         massive.com returned no results for, e.g. weekly payers like HOOW)
+      3. dividend_meta DB — yfinance ex_date cache (last-resort dedup guard)
+    """
+    check_token(token)
+
+    api_key = os.getenv("MASSIVE_API_KEY", "")
+
+    holdings = await div_holdings(token=token)
+    ticker_qty: dict[str, float] = {}
+    for acct in holdings.get("accounts", []):
+        for p in acct.get("positions", []):
+            sym = p.get("symbol", "").upper()
+            qty = float(p.get("qty") or 0)
+            if sym and qty > 0:
+                ticker_qty[sym] = ticker_qty.get(sym, 0) + qty
+
+    if not ticker_qty:
+        return {"upcoming": [], "as_of": date.today().isoformat()}
+
+    today    = date.today()
+    end_date = today + timedelta(days=days)
+
+    import aiohttp as _aiohttp
+
+    # ── Tier 1: massive.com ─────────────────────────────────────────────────
+    results: list     = []
+    seen: set[tuple]  = set()
+    massive_found: set[str] = set()  # tickers that returned ≥1 result
+
+    if api_key:
+        mas_sem = asyncio.Semaphore(5)
+
+        async def _fetch_massive(session, sym):
+            async with mas_sem:
+                try:
+                    params = {
+                        "ticker": sym,
+                        "ex_dividend_date.gte": today.isoformat(),
+                        "ex_dividend_date.lte": end_date.isoformat(),
+                        "limit": 5,
+                        "sort": "ex_dividend_date.asc",
+                    }
+                    async with session.get(
+                        "https://api.massive.com/stocks/v1/dividends",
+                        params=params,
+                        timeout=_aiohttp.ClientTimeout(total=10),
+                    ) as resp:
+                        if resp.status != 200:
+                            return sym, []
+                        data = await resp.json()
+                        out = []
+                        for r in data.get("results", []):
+                            ex_d      = r.get("ex_dividend_date")
+                            cash      = float(r.get("cash_amount") or 0)
+                            days_left = (date.fromisoformat(ex_d) - today).days if ex_d else None
+                            out.append({
+                                "ticker":            sym,
+                                "ex_date":           ex_d,
+                                "pay_date":          r.get("pay_date"),
+                                "cash_amount":       cash,
+                                "qty":               ticker_qty[sym],
+                                "est_total":         round(cash * ticker_qty[sym], 2),
+                                "days_until":        days_left,
+                                "distribution_type": r.get("distribution_type") or "recurring",
+                            })
+                        return sym, out
+                except Exception as exc:
+                    log.warning("div_upcoming.massive_failed", ticker=sym, error=str(exc))
+                    return sym, []
+
+        headers = {"Authorization": f"Bearer {api_key}"}
+        async with _aiohttp.ClientSession(headers=headers) as session:
+            gathered = await asyncio.gather(
+                *[_fetch_massive(session, sym) for sym in ticker_qty],
+                return_exceptions=True,
+            )
+
+        for item in gathered:
+            if isinstance(item, Exception):
+                continue
+            sym, rows = item
+            for r in rows:
+                massive_found.add(sym)
+                key = (sym, r.get("ex_date") or "")
+                if key not in seen:
+                    seen.add(key)
+                    results.append(r)
+
+    # ── Tier 2: dividendchannel.com (project from history) ─────────────────
+    # Only for tickers massive.com returned 0 results for. Handles weekly/monthly
+    # payers (e.g. HOOW) whose upcoming dates haven't been declared on massive.com.
+    no_coverage = [sym for sym in ticker_qty if sym not in massive_found]
+
+    if no_coverage:
+        loop   = asyncio.get_event_loop()
+        dc_sem = asyncio.Semaphore(3)
+
+        async def _project_divchannel(sym: str) -> list:
+            async with dc_sem:
+                history = await loop.run_in_executor(None, _divchannel_history_sync, sym)
+                if len(history) < 2:
+                    return []
+                # Average interval from last 4 consecutive gaps
+                intervals = [
+                    (date.fromisoformat(history[i]["date"]) - date.fromisoformat(history[i + 1]["date"])).days
+                    for i in range(min(4, len(history) - 1))
+                ]
+                avg_interval = round(sum(intervals) / len(intervals))
+                next_ex      = date.fromisoformat(history[0]["date"]) + timedelta(days=avg_interval)
+                if not (today <= next_ex <= end_date):
+                    return []
+                avg_amount = sum(h["amount"] for h in history[:4]) / min(4, len(history))
+                qty        = ticker_qty[sym]
+                return [{
+                    "ticker":            sym,
+                    "ex_date":           next_ex.isoformat(),
+                    "pay_date":          (next_ex + timedelta(days=1)).isoformat(),
+                    "cash_amount":       round(avg_amount, 4),
+                    "qty":               qty,
+                    "est_total":         round(avg_amount * qty, 2),
+                    "days_until":        (next_ex - today).days,
+                    "distribution_type": "recurring",
+                    "source":            "divchannel_projected",
+                }]
+
+        dc_gathered = await asyncio.gather(
+            *[_project_divchannel(sym) for sym in no_coverage],
+            return_exceptions=True,
+        )
+        for item in dc_gathered:
+            if isinstance(item, list):
+                for r in item:
+                    key = (r["ticker"], r.get("ex_date") or "")
+                    if key not in seen:
+                        seen.add(key)
+                        results.append(r)
+
+    # ── Tier 3: dividend_meta DB (yfinance cache, last-resort guard) ────────
+    if DB_URL:
+        try:
+            pool     = await _get_db_pool()
+            db_rows  = await pool.fetch(
+                """SELECT ticker, ex_date, pay_date, amount_per_share
+                   FROM dividend_meta
+                   WHERE ticker = ANY($1)
+                     AND ex_date >= $2 AND ex_date <= $3""",
+                list(ticker_qty.keys()), today, end_date,
+            )
+            for row in db_rows:
+                sym   = row["ticker"]
+                ex_d  = str(row["ex_date"]) if row["ex_date"] else None
+                key   = (sym, ex_d or "")
+                if key in seen:
+                    continue
+                seen.add(key)
+                cash      = float(row["amount_per_share"] or 0)
+                qty       = ticker_qty.get(sym, 0)
+                days_left = (row["ex_date"] - today).days if row["ex_date"] else None
+                results.append({
+                    "ticker":            sym,
+                    "ex_date":           ex_d,
+                    "pay_date":          str(row["pay_date"]) if row["pay_date"] else None,
+                    "cash_amount":       cash,
+                    "qty":               qty,
+                    "est_total":         round(cash * qty, 2),
+                    "days_until":        days_left,
+                    "distribution_type": "recurring",
+                    "source":            "yfinance_meta",
+                })
+        except Exception as exc:
+            log.warning("div_upcoming.db_supplement_failed", error=str(exc))
+
+    results.sort(key=lambda x: x.get("ex_date") or "")
+    return {"upcoming": results, "as_of": today.isoformat()}
 
 
 _db_pool = None
