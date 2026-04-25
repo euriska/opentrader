@@ -9212,12 +9212,30 @@ async def get_trader_fundamentals(ticker: str, token: str = ""):
                     result["ex_dividend_date_yf"] = _dt.fromtimestamp(float(ex_raw)).strftime("%Y-%m-%d")
                 except Exception:
                     pass
-            # Earnings date from calendar
+            # Earnings date + calendar ex-div — yfinance now returns a dict, not a DataFrame
             try:
                 cal = t.calendar
-                if cal is not None and not cal.empty:
+                if isinstance(cal, dict):
+                    # Earnings Date is a list of dates in the dict format
+                    ed_val = cal.get("Earnings Date")
+                    if ed_val:
+                        ed = ed_val[0] if isinstance(ed_val, list) else ed_val
+                        if hasattr(ed, "strftime"):
+                            result["earnings_date"] = ed.strftime("%Y-%m-%d")
+                        elif isinstance(ed, str):
+                            result["earnings_date"] = ed
+                    # Calendar ex-div date (more reliable than info.exDividendDate)
+                    ex_cal = cal.get("Ex-Dividend Date")
+                    if ex_cal and hasattr(ex_cal, "strftime"):
+                        result["ex_dividend_date_yf"] = ex_cal.strftime("%Y-%m-%d")
+                    # Dividend pay date
+                    pay_cal = cal.get("Dividend Date")
+                    if pay_cal and hasattr(pay_cal, "strftime"):
+                        result["pay_date_yf"] = pay_cal.strftime("%Y-%m-%d")
+                elif cal is not None:
+                    # Legacy DataFrame format
                     for col in ("Earnings Date", "earningsDate"):
-                        if col in cal.columns:
+                        if hasattr(cal, "columns") and col in cal.columns:
                             ed = cal[col].iloc[0]
                             if hasattr(ed, "strftime"):
                                 result["earnings_date"] = ed.strftime("%Y-%m-%d")
@@ -9231,10 +9249,13 @@ async def get_trader_fundamentals(ticker: str, token: str = ""):
     loop = _asyncio.get_event_loop()
     earnings = await loop.run_in_executor(None, _fetch_earnings, sym)
 
-    # Merge: prefer massive div dates over yfinance fallback
+    # Merge: prefer massive div dates; fall back to yfinance calendar values
     if not div.get("ex_dividend_date") and earnings.get("ex_dividend_date_yf"):
-        div["ex_dividend_date"] = earnings.pop("ex_dividend_date_yf")
+        div["ex_dividend_date"] = earnings["ex_dividend_date_yf"]
+    if not div.get("pay_date") and earnings.get("pay_date_yf"):
+        div["pay_date"] = earnings["pay_date_yf"]
     earnings.pop("ex_dividend_date_yf", None)
+    earnings.pop("pay_date_yf", None)
 
     return {
         "ticker":   sym,
