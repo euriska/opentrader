@@ -6092,13 +6092,54 @@ async def div_holdings(token: str = ""):
             if not _is_equity_position(p):
                 continue
             if float(p.get("qty") or p.get("quantity") or p.get("shares") or 0) <= 0:
-                continue  # skip short and zero positions
+                continue
             sym = (p.get("symbol") or "").upper().strip()
             if sym and sym not in all_tickers:
                 all_tickers.append(sym)
 
-    # Enrich with dividend metadata (DB cache + yfinance)
+    # Enrich with dividend metadata (DB cache + yfinance) — used for ex/pay dates,
+    # sector, industry, and yield% only. Income projection uses actual DB history below.
     meta = await _div_get_meta(all_tickers)
+
+    # Pull per-(account, ticker) payment stats from dividend_history:
+    #   recent_aps   — amount per share of the most recent recorded payment
+    #   annual_count — number of payments in the last 12 months (actual frequency)
+    # forward_annual_rate = recent_aps × annual_count (pure history, no yfinance rates)
+    hist_stats: dict[tuple, dict] = {}  # (account_label, ticker) → stats
+    if DB_URL:
+        try:
+            from datetime import date as _date, timedelta as _td
+            pool = await _get_db_pool()
+            _today = _date.today()
+            _12mo_ago = _today - _td(days=365)
+            _18mo_ago = _today - _td(days=548)
+            # Most recent payment per (account, ticker)
+            recent_rows = await pool.fetch("""
+                SELECT DISTINCT ON (account_label, ticker)
+                    account_label, ticker, amount_per_share
+                FROM dividend_history
+                WHERE pay_date >= $1
+                ORDER BY account_label, ticker, pay_date DESC
+            """, _18mo_ago)
+            # Annual payment count per (account, ticker)
+            count_rows = await pool.fetch("""
+                SELECT account_label, ticker, COUNT(*)::int AS cnt
+                FROM dividend_history
+                WHERE pay_date >= $1
+                GROUP BY account_label, ticker
+            """, _12mo_ago)
+            _count_map = {(r["account_label"], r["ticker"]): int(r["cnt"]) for r in count_rows}
+            for r in recent_rows:
+                key = (r["account_label"], r["ticker"])
+                cnt = _count_map.get(key, 0)
+                recent_aps = float(r["amount_per_share"] or 0)
+                hist_stats[key] = {
+                    "recent_aps":  recent_aps,
+                    "annual_count": cnt,
+                    "forward_annual_rate": round(recent_aps * cnt, 4) if cnt > 0 else 0.0,
+                }
+        except Exception:
+            pass
 
     total_value = 0.0
     total_annual = 0.0
@@ -6118,16 +6159,24 @@ async def div_holdings(token: str = ""):
                 continue
             qty  = float(p.get("qty") or p.get("quantity") or p.get("shares") or 0)
             if qty <= 0:
-                continue  # skip short and zero positions
+                continue
             cost = float(p.get("cost_basis") or p.get("cost") or 0)
             price= float(p.get("current_price") or p.get("last_price") or p.get("mark") or 0)
             mval = float(p.get("market_value") or (qty * price))
             total_value += mval
             m = meta.get(sym, {})
-            far  = float(m.get("forward_annual_rate") or 0)
+            # Income projection: prefer actual DB history; fall back to yfinance only
+            # when there are no recorded payments for this account + ticker.
+            hs = hist_stats.get((lbl, sym))
+            if hs and hs["forward_annual_rate"] > 0:
+                far  = hs["forward_annual_rate"]
+                aps  = hs["recent_aps"]
+                freq = hs["annual_count"]
+            else:
+                far  = 0.0   # no history → not a confirmed payer for this account
+                aps  = float(m.get("amount_per_share") or 0)
+                freq = int(m.get("frequency") or 4)
             fyp  = float(m.get("forward_yield_pct") or 0)
-            aps  = float(m.get("amount_per_share") or 0)
-            freq = int(m.get("frequency") or 4)
             is_payer = far > 0
             ann_income = qty * far if is_payer else 0.0
             if is_payer:

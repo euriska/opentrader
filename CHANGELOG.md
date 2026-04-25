@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.29] - 2026-04-25
+
+### Changed
+- **Dividend income projection no longer uses yfinance rates** — `forward_annual_rate` is now computed exclusively from actual `dividend_history` records: `most_recent_payment_per_share × payments_in_last_12_months`. This eliminates yfinance's trailing-average inflation (which was 3× actual after HOOW's dividend cut) and makes the forecast directly reflect what the broker has actually paid. Positions with no payment history show `$0` projected income rather than a speculative yfinance estimate. yfinance is still used for ex/pay dates, sector, industry, and yield% display only.
+
 ## [3.6.28] - 2026-04-25
 
 ### Fixed
