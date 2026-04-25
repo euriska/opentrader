@@ -6305,7 +6305,8 @@ async def div_forecast(token: str = ""):
     }
     history_monthly_total = round(sum(acct_completed_total.values()) / months_elapsed, 2)
 
-    # API-based projection (yfinance forward rate) — used as fallback when no history
+    # Holdings-based projection: recent_aps × annual_payments / 12 × qty (from div_holdings).
+    # div_holdings now uses dividend_history exclusively — yfinance is NOT involved here.
     api_monthly_total = 0.0
     future_breakdown: list[dict] = []
     for p in positions_flat:
