@@ -6158,7 +6158,8 @@ async def div_holdings(token: str = ""):
 async def div_forecast(token: str = ""):
     check_token(token)
     redis = await get_redis()
-    cached = await redis.get("dividend:forecast:cache")
+    _forecast_cache_key = f"dividend:forecast:{APP_VERSION}:cache"
+    cached = await redis.get(_forecast_cache_key)
     if cached:
         return json.loads(cached)
 
@@ -6316,7 +6317,7 @@ async def div_forecast(token: str = ""):
         "captured_months_count": captured_count,
         "total_received_history": round(total_received_all, 2),
     }
-    await redis.set("dividend:forecast:cache", json.dumps(result), ex=3600)
+    await redis.set(_forecast_cache_key, json.dumps(result), ex=3600)
     return result
 
 
@@ -6375,7 +6376,7 @@ async def div_history_add(body: _DivHistoryCreate, token: str = ""):
 async def div_refresh(token: str = ""):
     check_token(token)
     redis = await get_redis()
-    await redis.delete("dividend:forecast:cache", "dividend:holdings:cache")
+    await redis.delete(f"dividend:forecast:{APP_VERSION}:cache", "dividend:holdings:cache")
     if DB_URL:
         try:
             pool = await _get_db_pool()

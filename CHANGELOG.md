@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.24] - 2026-04-25
+
+### Fixed
+- **Dividend forecast — per-account projection now computed directly from holdings** — for current and future months, `projected_income` is now derived straight from each account's `projected_monthly_income` positions (qty × forward_annual_rate / 12), bypassing forecast breakdown filtering entirely. This eliminates all sensitivity to Redis cache format, account_label matching, and stale cached data. Past months continue to use per-(account,ticker) breakdown from the server.
+- **Forecast cache key is now version-scoped** — changed from `dividend:forecast:cache` to `dividend:forecast:{APP_VERSION}:cache` so every new deployment automatically gets a fresh cache with no manual Refresh required.
+
 ## [3.6.23] - 2026-04-24
 
 ### Fixed

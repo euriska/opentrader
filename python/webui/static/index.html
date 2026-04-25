@@ -12784,17 +12784,25 @@ function _divComputeFromAccounts(accounts) {
     .sort((a, b) => b.forward_yield_pct - a.forward_yield_pct)
     .slice(0, 12);
 
-  // monthly — filter existing server monthly data to only symbols/accounts in scope.
-  // Projected months carry per-(account, ticker) breakdown entries so the filter
-  // only sums shares actually held in each broker, not the whole portfolio.
+  // monthly — for projected months use live holdings data directly so the per-account
+  // income is always correct regardless of what the cached forecast breakdown contains.
+  // For actual past months use the per-(account,ticker) breakdown from the server.
   const symbols = new Set(positions.map(p => p.symbol));
   const acctLabels = new Set(accounts.map(a => a.label));
+  // Monthly income from current filtered holdings: qty × forward_annual_rate / 12
+  const holdingsMonthly = positions.reduce((s, p) => s + (p.projected_monthly_income || 0), 0);
   const monthly = (_divForecast?.monthly || []).map(m => {
-    const bd = (m.breakdown || []).filter(b =>
-      symbols.has(b.symbol) &&
-      (!b.account_label || acctLabels.has(b.account_label))
-    );
-    return { ...m, projected_income: bd.reduce((s, b) => s + b.income, 0), breakdown: bd };
+    if (m.data_source === 'actual') {
+      // Past months: filter per-(account,ticker) breakdown from server
+      const bd = (m.breakdown || []).filter(b =>
+        symbols.has(b.symbol) &&
+        (!b.account_label || acctLabels.has(b.account_label))
+      );
+      return { ...m, projected_income: Math.round(bd.reduce((s, b) => s + b.income, 0) * 100) / 100, breakdown: bd };
+    }
+    // Current/future months: compute directly from filtered positions — immune to
+    // cache format and account_label matching issues in the forecast breakdown.
+    return { ...m, projected_income: Math.round(holdingsMonthly * 100) / 100, breakdown: [] };
   });
 
   // summary stats
