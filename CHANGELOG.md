@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.34] - 2026-04-25
+
+### Changed
+- **Options Trading Log: "By Account" moved above most/least profitable tickers** — account breakdown now appears directly after the YTD Performance panel, before the ticker profitability strip.
+- **Options Trader: unified ticker input in top bar** — removed the symbol input from inside the chart card header; a single "Ticker / Go" input now lives in the top bar to the left of the account selector and drives the chart, options chain, and risk calculator together.
+
 ## [3.6.33] - 2026-04-25
 
 ### Fixed

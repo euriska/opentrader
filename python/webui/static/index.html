@@ -1926,6 +1926,14 @@ select option{background:var(--surface2)}
         </div>
       </div>
 
+      <!-- ── Tier 2: Account breakdown ── -->
+      <div class="card" style="margin-bottom:16px">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">By Account</div>
+        <div id="optlog-accounts-body" style="padding:4px 0">
+          <div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">Loading…</div>
+        </div>
+      </div>
+
       <!-- Most / Least Profitable Tickers strip -->
       <div class="card" style="margin-bottom:16px;padding:14px 16px">
         <div style="display:flex;gap:24px;flex-wrap:wrap">
@@ -1942,14 +1950,6 @@ select option{background:var(--surface2)}
               <span style="color:var(--muted);font-size:12px">Loading…</span>
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- ── Tier 2: Account breakdown ── -->
-      <div class="card" style="margin-bottom:16px">
-        <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">By Account</div>
-        <div id="optlog-accounts-body" style="padding:4px 0">
-          <div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">Loading…</div>
         </div>
       </div>
 
@@ -2253,6 +2253,13 @@ select option{background:var(--surface2)}
       <!-- Top bar -->
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
         <div style="font-size:16px;font-weight:700;color:var(--fg);flex:1">Options Trader</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <input id="ot-ticker-input" type="text" placeholder="Ticker…"
+            style="background:var(--input-bg,#0d1117);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;width:90px;text-transform:uppercase;font-weight:600"
+            onkeydown="if(event.key==='Enter'){const t=this.value.trim().toUpperCase();if(t)_otSelectTicker(t);}">
+          <button onclick="(function(){const t=document.getElementById('ot-ticker-input').value.trim().toUpperCase();if(t)_otSelectTicker(t);})()"
+            style="background:var(--blue);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">Go</button>
+        </div>
         <label style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em">Account:</label>
         <select id="ot-account-select" onchange="_otSelectAccount(this.value)"
           style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:12px;min-width:170px">
@@ -2299,11 +2306,6 @@ select option{background:var(--surface2)}
             <div class="card-header" style="padding:8px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
               <span id="ot-chart-title" class="card-title" style="font-size:12px">Chart</span>
               <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
-                <input id="ot-chart-symbol" type="text" placeholder="AAPL"
-                  style="background:var(--input-bg,#0d1117);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:4px 9px;font-size:12px;width:80px;text-transform:uppercase"
-                  onkeydown="if(event.key==='Enter')_otLoadChart(this.value.trim().toUpperCase())">
-                <button onclick="_otLoadChart(document.getElementById('ot-chart-symbol').value.trim().toUpperCase())"
-                  style="background:rgba(59,130,246,.2);color:#60a5fa;border:1px solid rgba(59,130,246,.3);padding:4px 12px;border-radius:5px;font-size:11px;cursor:pointer">Load</button>
                 <select id="ot-chart-tf" onchange="_otLoadChart(_otActiveTicker)"
                   style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:11px">
                   <option value="1d" selected>1D</option>
@@ -15889,7 +15891,8 @@ function _otRefreshAll() {
 function _otSelectTicker(ticker) {
   if (!ticker) return;
   _otActiveTicker = ticker;
-  document.getElementById('ot-chart-symbol').value = ticker;
+  const inp = document.getElementById('ot-ticker-input');
+  if (inp) inp.value = ticker;
   _otLoadChart(ticker);
   _otLoadChain(ticker);
   // Show risk panel with current ticker
