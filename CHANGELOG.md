@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.26] - 2026-04-25
+
+### Added
+- **Dividend forecast diagnostics panel** — expandable "Forecast Diagnostics" card on the Dividend page shows per-account breakdown: record count, 18-month total received, history-based monthly avg (÷ months elapsed), and yfinance estimate side-by-side with per-ticker detail. Makes it immediately visible whether history or yfinance is driving the forecast and whether the stored data matches expected share counts.
+
 ## [3.6.25] - 2026-04-24
 
 ### Fixed

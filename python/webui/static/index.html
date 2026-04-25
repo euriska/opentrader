@@ -1643,6 +1643,17 @@ select option{background:var(--surface2)}
         </div>
       </div>
 
+      <!-- Forecast Diagnostics -->
+      <div class="card" style="margin-bottom:16px" id="div-diag-card">
+        <div class="card-header" style="cursor:pointer" onclick="document.getElementById('div-diag-body').style.display=document.getElementById('div-diag-body').style.display==='none'?'block':'none'">
+          <span class="card-title">Forecast Diagnostics</span>
+          <span id="div-diag-summary" style="font-size:11px;color:var(--muted)">click to expand</span>
+        </div>
+        <div id="div-diag-body" style="display:none;padding:12px 16px">
+          <div id="div-diag-content" style="font-size:12px;color:var(--fg)">Loading…</div>
+        </div>
+      </div>
+
       <!-- 12-Month Bar Chart -->
       <div class="card" style="margin-bottom:16px">
         <div class="card-header">
@@ -12612,11 +12623,12 @@ async function loadDividendPage(forceRefresh = false) {
     if (forceRefresh) {
       await apiFetch(`/api/dividends/refresh?token=${encodeURIComponent(token)}`, { method: 'POST' });
     }
-    const [holdings, forecast, history, upcoming] = await Promise.all([
+    const [holdings, forecast, history, upcoming, acctStats] = await Promise.all([
       apiFetch(`/api/dividends/holdings?token=${encodeURIComponent(token)}`),
       apiFetch(`/api/dividends/forecast?token=${encodeURIComponent(token)}`),
       apiFetch(`/api/dividends/history?token=${encodeURIComponent(token)}&limit=500`),
       apiFetch(`/api/dividends/upcoming?token=${encodeURIComponent(token)}`).catch(() => ({ upcoming: [] })),
+      apiFetch(`/api/dividends/account-stats?token=${encodeURIComponent(token)}`).catch(() => null),
     ]);
     _divData = holdings;
     _divForecast = forecast;
@@ -12624,6 +12636,7 @@ async function loadDividendPage(forceRefresh = false) {
     _divRenderHistory(history.records || []);   // must set _divHistoryRecords before filter
     _divApplyFilter();
     _divRenderUpcoming(upcoming);
+    _divRenderDiagnostics(acctStats, forecast);
     status.textContent = `Updated ${_fmtTime(new Date())}`;
   } catch(e) {
     status.textContent = 'Error: ' + e.message;
@@ -12656,6 +12669,50 @@ async function _divBackfill() {
   } finally {
     btn.disabled = false;
   }
+}
+
+function _divRenderDiagnostics(acctStats, forecast) {
+  const el = document.getElementById('div-diag-content');
+  const sumEl = document.getElementById('div-diag-summary');
+  if (!el) return;
+  if (!acctStats) { el.innerHTML = '<span style="color:var(--red)">Failed to load account stats</span>'; return; }
+  const mo = acctStats.months_elapsed || 18;
+  const perAcctAvg = forecast?.per_account_monthly_avg || {};
+  const apiMonthly = forecast?.avg_monthly_income || 0;
+  const historyTotal = forecast?.history_monthly_avg || 0;
+  if (sumEl) sumEl.textContent = `history $${historyTotal.toFixed(0)}/mo · yfinance $${apiMonthly.toFixed(0)}/mo · ${mo} months window`;
+  const rows = (acctStats.accounts || []).map(a => {
+    const yf = Object.entries(perAcctAvg).find(([k]) => k === a.label)?.[1] || 0;
+    // per-ticker breakdown
+    const tickerRows = (a.tickers || []).map(t =>
+      `<tr style="font-size:11px;color:var(--muted)">
+        <td style="padding-left:20px">${_escHtml(t.ticker)}</td>
+        <td>${t.payment_count} payments</td>
+        <td>$${t.total_received.toFixed(2)} total</td>
+        <td>~${t.avg_qty.toFixed(0)} avg shares</td>
+        <td>$${t.monthly_avg.toFixed(2)}/mo avg</td>
+        <td>${t.first_pay||'—'} → ${t.last_pay||'—'}</td>
+      </tr>`
+    ).join('');
+    return `<tr style="border-top:1px solid var(--border)">
+      <td style="font-weight:700;padding:6px 0">${_escHtml(a.label)}</td>
+      <td>${a.payment_count} records</td>
+      <td>$${a.total_received.toFixed(2)} received</td>
+      <td>$${a.monthly_avg.toFixed(2)}/mo (÷${mo}mo)</td>
+      <td style="color:var(--muted)">yfinance: $${(perAcctAvg[a.label]||0).toFixed(2)}/mo</td>
+      <td></td>
+    </tr>${tickerRows}`;
+  }).join('');
+  el.innerHTML = `<table style="width:100%;border-collapse:collapse">
+    <thead><tr style="font-size:11px;color:var(--muted)">
+      <th style="text-align:left">Account</th><th>Records</th><th>18-Mo Total</th>
+      <th>Monthly Avg</th><th>yfinance Est</th><th>Date Range</th>
+    </tr></thead>
+    <tbody>${rows || '<tr><td colspan="6" class="empty-state">No dividend history in DB — run Backfill</td></tr>'}</tbody>
+  </table>
+  <div style="margin-top:8px;font-size:11px;color:var(--muted)">
+    Window: ${acctStats.cutoff} → today · ${mo} calendar months · forecast uses history avg when available, yfinance rate as fallback
+  </div>`;
 }
 
 function _divRenderStats(s) {

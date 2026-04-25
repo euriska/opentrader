@@ -6389,6 +6389,60 @@ async def div_history_add(body: _DivHistoryCreate, token: str = ""):
     return {"ok": True}
 
 
+@app.get("/api/dividends/account-stats")
+async def div_account_stats(token: str = ""):
+    """Return per-account totals from dividend_history for the 18-month window."""
+    check_token(token)
+    await _div_ensure_tables()
+    if not DB_URL:
+        return {"accounts": [], "months_elapsed": 0}
+    from datetime import date as _date, timedelta as _td
+    today = _date.today()
+    cutoff = today - _td(days=548)
+    cutoff_month_start = _date(cutoff.year, cutoff.month, 1)
+    current_month_start = _date(today.year, today.month, 1)
+    months_elapsed = max(1, (current_month_start.year - cutoff_month_start.year) * 12 +
+                            (current_month_start.month - cutoff_month_start.month))
+    current_month_key = today.strftime("%Y-%m")
+    pool = await _get_db_pool()
+    rows = await pool.fetch("""
+        SELECT account_label,
+               ticker,
+               COUNT(*)::int                           AS payment_count,
+               SUM(total_received)::float              AS total_received,
+               SUM(qty)::float / NULLIF(COUNT(*),0)    AS avg_qty,
+               MAX(total_received/NULLIF(qty,0))::float AS last_aps,
+               MIN(pay_date)::text                     AS first_pay,
+               MAX(pay_date)::text                     AS last_pay
+        FROM dividend_history
+        WHERE pay_date >= $1
+          AND to_char(pay_date, 'YYYY-MM') < $2
+        GROUP BY account_label, ticker
+        ORDER BY account_label, total_received DESC
+    """, cutoff, current_month_key)
+    accounts: dict[str, dict] = {}
+    for r in rows:
+        lbl = r["account_label"]
+        if lbl not in accounts:
+            accounts[lbl] = {"label": lbl, "total_received": 0, "payment_count": 0,
+                             "monthly_avg": 0, "tickers": []}
+        total = float(r["total_received"] or 0)
+        accounts[lbl]["total_received"] = round(accounts[lbl]["total_received"] + total, 2)
+        accounts[lbl]["payment_count"] += int(r["payment_count"] or 0)
+        accounts[lbl]["tickers"].append({
+            "ticker": r["ticker"],
+            "payment_count": int(r["payment_count"] or 0),
+            "total_received": round(total, 2),
+            "avg_qty": round(float(r["avg_qty"] or 0), 2),
+            "monthly_avg": round(total / months_elapsed, 2),
+            "first_pay": r["first_pay"],
+            "last_pay": r["last_pay"],
+        })
+    for a in accounts.values():
+        a["monthly_avg"] = round(a["total_received"] / months_elapsed, 2)
+    return {"accounts": list(accounts.values()), "months_elapsed": months_elapsed, "cutoff": str(cutoff)}
+
+
 @app.post("/api/dividends/refresh")
 async def div_refresh(token: str = ""):
     check_token(token)
