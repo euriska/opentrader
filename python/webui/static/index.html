@@ -12841,18 +12841,28 @@ function _divComputeFromAccounts(accounts) {
     .sort((a, b) => b.forward_yield_pct - a.forward_yield_pct)
     .slice(0, 12);
 
-  // monthly — for projected months use history-based per-account avg (from dividend_history)
-  // when available; fall back to yfinance holdings rate. This correctly handles per-account
-  // filtering since each account has its own avg from actual received payments.
+  // monthly — for projected months take the lower of history-based avg and yfinance estimate
+  // per account. Using the minimum handles dividend cuts: when a payout is reduced, yfinance
+  // reflects the new rate immediately while history still shows the old higher payments.
+  // When no history exists, yfinance is used as sole estimate.
   const symbols = new Set(positions.map(p => p.symbol));
   const acctLabels = new Set(accounts.map(a => a.label));
-  // History-based monthly avg: sum per-account history avgs for filtered accounts
   const acctHistAvg = _divForecast?.per_account_monthly_avg || {};
-  const historyMonthly = accounts.reduce((s, a) => s + (acctHistAvg[a.label] || 0), 0);
-  // yfinance-based fallback: qty × forward_annual_rate / 12 for filtered accounts
+  // Per-account projected monthly: min(history avg, yfinance monthly) or whichever is available
+  const projectedMonthly = accounts.reduce((total, a) => {
+    const hist = acctHistAvg[a.label] || 0;
+    const yf = (a.positions || []).filter(p => p.is_dividend_payer)
+                                   .reduce((s, p) => s + (p.projected_monthly_income || 0), 0);
+    let acctMonthly;
+    if (hist > 0 && yf > 0) {
+      acctMonthly = Math.min(hist, yf); // lower of the two: cut dividends → use yfinance
+    } else {
+      acctMonthly = hist || yf;         // use whichever is available
+    }
+    return total + acctMonthly;
+  }, 0);
+  // holdingsMonthly kept for reference (yfinance-only total, used if no history at all)
   const holdingsMonthly = positions.reduce((s, p) => s + (p.projected_monthly_income || 0), 0);
-  // Use history avg when we have it; otherwise fall back to yfinance
-  const projectedMonthly = historyMonthly > 0 ? historyMonthly : holdingsMonthly;
   const monthly = (_divForecast?.monthly || []).map(m => {
     if (m.data_source === 'actual') {
       // Past months: filter per-(account,ticker) breakdown from server

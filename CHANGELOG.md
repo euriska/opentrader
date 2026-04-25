@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.28] - 2026-04-25
+
+### Fixed
+- **Dividend forecast — use minimum of history avg and yfinance per account** — when a dividend is cut, yfinance immediately reflects the new rate while the 18-month history still contains the old higher payments. Taking `min(history, yfinance)` per account ensures the forecast uses the lower (more accurate) value in both directions: cuts are caught by yfinance, stable/growing dividends are smoothed by history.
+
 ## [3.6.27] - 2026-04-25
 
 ### Fixed
