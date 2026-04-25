@@ -2285,10 +2285,10 @@ select option{background:var(--surface2)}
             </div>
           </div>
 
-          <!-- OVTLYR Buy Signals -->
+          <!-- OVTLYR Signals -->
           <div class="card">
             <div class="card-header" style="padding:8px 12px;display:flex;align-items:center;justify-content:space-between">
-              <span class="card-title" style="font-size:12px">OVTLYR Buy Signals</span>
+              <span class="card-title" style="font-size:12px">OVTLYR Signals</span>
               <span id="ot-buys-count" style="font-size:10px;color:var(--muted)">—</span>
             </div>
             <div id="ot-buys-list" style="max-height:340px;overflow-y:auto;padding:6px 0">
@@ -15857,6 +15857,79 @@ async function _otLoadBuys() {
   }
 }
 
+async function _otLoadOvtlyrTicker(ticker) {
+  const el = document.getElementById('ot-buys-list');
+  const countEl = document.getElementById('ot-buys-count');
+  if (!el) return;
+  el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:20px">Loading…</div>';
+  if (countEl) countEl.textContent = ticker;
+  try {
+    const d = await apiFetch(`/api/ovtlyr/ticker/${encodeURIComponent(ticker)}`);
+    const info = d.data;
+    if (!info) {
+      el.innerHTML = `
+        <div style="padding:10px 12px;border-bottom:1px solid var(--border)">
+          <button onclick="_otLoadBuys()" style="background:none;border:none;color:var(--blue);font-size:11px;cursor:pointer;padding:0">← All Signals</button>
+        </div>
+        <div style="text-align:center;color:var(--muted);font-size:12px;padding:20px">No OVTLYR data for ${ticker}</div>`;
+      if (countEl) countEl.textContent = 'no data';
+      return;
+    }
+
+    const signal     = info.signal || info.direction || '—';
+    const isBuy      = /buy|long|bull/i.test(signal);
+    const isSell     = /sell|short|bear/i.test(signal);
+    const sigColor   = isBuy ? '#4ade80' : isSell ? '#f87171' : '#94a3b8';
+    const nine       = info.nine_score != null ? Number(info.nine_score) : null;
+    const nineColor  = nine == null ? '#94a3b8' : nine >= 7 ? '#4ade80' : nine >= 4 ? '#facc15' : '#f87171';
+    const oscillator = info.oscillator || '—';
+    const fg         = info.fear_greed != null ? Number(info.fear_greed).toFixed(1) : '—';
+    const fgColor    = info.fear_greed != null ? (info.fear_greed >= 60 ? '#4ade80' : info.fear_greed <= 30 ? '#f87171' : '#facc15') : '#94a3b8';
+    const active     = info.signal_active;
+    const sigDate    = info.signal_date || info.signal_date_str || '';
+    const lastClose  = info.last_close != null ? '$' + Number(info.last_close).toFixed(2) : '—';
+    const vol30d     = info.avg_vol_30d != null ? (Number(info.avg_vol_30d) >= 1e6
+      ? (Number(info.avg_vol_30d)/1e6).toFixed(1)+'M'
+      : (Number(info.avg_vol_30d)/1e3).toFixed(0)+'K') : '—';
+
+    // Nine-dot row: filled dots up to nine_score
+    const dots = nine != null
+      ? Array.from({length:9}, (_,i) =>
+          `<span style="font-size:14px;color:${i < nine ? nineColor : 'var(--border)'}">●</span>`
+        ).join('')
+      : '<span style="color:var(--muted);font-size:11px">—</span>';
+
+    const row = (label, value, color='var(--fg)') =>
+      `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 12px;border-bottom:1px solid var(--border)">
+        <span style="font-size:11px;color:var(--muted)">${label}</span>
+        <span style="font-size:12px;font-weight:600;color:${color}">${value}</span>
+      </div>`;
+
+    if (countEl) countEl.textContent = nine != null ? `${nine}/9` : 'n/a';
+
+    el.innerHTML = `
+      <div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <button onclick="_otLoadBuys()" style="background:none;border:none;color:var(--blue);font-size:11px;cursor:pointer;padding:0">← All Signals</button>
+        ${active != null ? `<span style="font-size:10px;padding:1px 6px;border-radius:3px;font-weight:700;background:${active?'rgba(74,222,128,.15)':'rgba(148,163,184,.12)'};color:${active?'#4ade80':'#94a3b8'}">${active?'Active':'Inactive'}</span>` : ''}
+      </div>
+      ${row('Signal', signal.charAt(0).toUpperCase()+signal.slice(1).toLowerCase(), sigColor)}
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 12px;border-bottom:1px solid var(--border)">
+        <span style="font-size:11px;color:var(--muted)">Nine Score</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="display:flex;gap:3px">${dots}</span>
+          <span style="font-size:11px;font-weight:700;color:${nineColor}">${nine != null ? nine+'/9' : '—'}</span>
+        </div>
+      </div>
+      ${row('Oscillator', oscillator)}
+      ${row('Fear &amp; Greed', fg, fgColor)}
+      ${row('Last Close', lastClose)}
+      ${row('30d Avg Vol', vol30d)}
+      ${sigDate ? row('Signal Date', sigDate) : ''}`;
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:12px">Error: ${e.message}</div>`;
+  }
+}
+
 async function _otLoadRisk(account) {
   const acct = account || document.getElementById('ot-account-select')?.value || '';
   try {
@@ -15895,6 +15968,7 @@ function _otSelectTicker(ticker) {
   if (inp) inp.value = ticker;
   _otLoadChart(ticker);
   _otLoadChain(ticker);
+  _otLoadOvtlyrTicker(ticker);
   // Show risk panel with current ticker
   document.getElementById('ot-risk-ticker').textContent = ticker;
   document.getElementById('ot-risk-panel').style.display = '';

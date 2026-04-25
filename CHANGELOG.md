@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.35] - 2026-04-25
+
+### Changed
+- **Options Trader: OVTLYR Signals panel shows per-ticker intel on selection** — renamed from "OVTLYR Buy Signals"; when a ticker is selected the panel fetches and displays signal direction, nine-score (X/9 dot indicator), oscillator direction, fear & greed score, last close, and 30d avg volume. A "← All Signals" button returns to the buy-signals list.
+- **New API endpoint `/api/ovtlyr/ticker/{ticker}`** — returns OVTLYR intel for a single ticker (Redis position_intel → screener cache → DB fallback).
+
 ## [3.6.34] - 2026-04-25
 
 ### Changed

@@ -3494,6 +3494,71 @@ async def get_ovtlyr_breadth():
     return {"current": current, "history": history}
 
 
+@app.get("/api/ovtlyr/ticker/{ticker}")
+async def get_ovtlyr_ticker(ticker: str, token: str = ""):
+    """Return OVTLYR intel for a single ticker (Redis → DB fallback)."""
+    check_token(token)
+    import json as _json
+    sym = ticker.upper()
+    _redis = await get_redis()
+
+    # Redis: position_intel hash (per-ticker key)
+    raw = await _redis.hget("ovtlyr:position_intel", sym)
+    if raw:
+        try:
+            data = _json.loads(raw)
+            data["ticker"] = sym
+            data["source"] = "redis"
+            return {"ticker": sym, "data": data}
+        except Exception:
+            pass
+
+    # Redis: screener cache
+    raw2 = await _redis.hget("scanner:ovtlyr:latest", sym)
+    if raw2:
+        try:
+            data = _json.loads(raw2)
+            data["ticker"] = sym
+            data["source"] = "screener"
+            return {"ticker": sym, "data": data}
+        except Exception:
+            pass
+
+    # DB fallback
+    if DB_URL:
+        try:
+            pool = await _get_db_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT ticker, signal, signal_active, signal_date, nine_score,
+                           oscillator, fear_greed, last_close, avg_vol_30d, raw, ts
+                    FROM ovtlyr_intel
+                    WHERE ticker = $1
+                    ORDER BY ts DESC LIMIT 1
+                    """,
+                    sym,
+                )
+            if row:
+                data = dict(row)
+                if data.get("signal_date"):
+                    data["signal_date"] = data["signal_date"].isoformat()
+                if data.get("ts"):
+                    data["ts"] = data["ts"].isoformat()
+                raw_json = data.pop("raw", None)
+                if raw_json and isinstance(raw_json, str):
+                    try:
+                        data.update(_json.loads(raw_json))
+                    except Exception:
+                        pass
+                data["source"] = "db"
+                return {"ticker": sym, "data": data}
+        except Exception as ex:
+            log.warning("ovtlyr_ticker.db_error", ticker=sym, error=str(ex))
+
+    return {"ticker": sym, "data": None}
+
+
 # ── TradingView Charts ────────────────────────────────────────────────────────
 
 # Timeframe label → TradingView scraper format (indicators) + stream format
