@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.32] - 2026-04-25
+
+### Fixed
+- **Upcoming dividends now filters by selected broker account** — selecting a broker card on the Dividend page now re-renders the upcoming ex-dividend table to show only tickers held in that account, with qty and estimated total recomputed from that account's actual share count. Previously the table always showed all-account qty/totals regardless of the active filter.
+
 ## [3.6.31] - 2026-04-25
 
 ### Fixed

@@ -12632,10 +12632,10 @@ async function loadDividendPage(forceRefresh = false) {
     ]);
     _divData = holdings;
     _divForecast = forecast;
+    _divUpcomingRaw = upcoming;
     _divActiveAccount = '';
     _divRenderHistory(history.records || []);   // must set _divHistoryRecords before filter
-    _divApplyFilter();
-    _divRenderUpcoming(upcoming);
+    _divApplyFilter();                           // renders bar, holdings, upcoming, pies
     _divRenderDiagnostics(acctStats, forecast);
     status.textContent = `Updated ${_fmtTime(new Date())}`;
   } catch(e) {
@@ -12731,6 +12731,7 @@ function _divRenderStats(s) {
 }
 
 let _divActiveAccount = '';
+let _divUpcomingRaw = null;
 
 function _divRenderAccountCards(accounts) {
   const container = document.getElementById('div-account-cards');
@@ -12928,6 +12929,7 @@ function _divApplyFilter() {
   _divRenderHoldings(filtered);
   _divRenderBar(blended);
   _divRenderPies(computed);
+  _divFilterAndRenderUpcoming(filtered);
 
   // Populate "This Month" stat cards
   const currentYM = new Date().toISOString().slice(0, 7);
@@ -13153,6 +13155,26 @@ function _divRenderPies(forecast) {
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)">${_escHtml(d.label)}</span>
       <span style="color:var(--green);font-weight:600;white-space:nowrap">${d.yieldPct.toFixed(2)}%</span>
     </div>`).join('');
+}
+
+function _divFilterAndRenderUpcoming(filteredAccounts) {
+  if (!_divUpcomingRaw) return;
+  const filteredQty = {};
+  for (const acct of (filteredAccounts || [])) {
+    for (const p of (acct.positions || [])) {
+      const sym = (p.symbol || '').toUpperCase();
+      const qty = parseFloat(p.qty || 0);
+      if (sym && qty > 0) filteredQty[sym] = (filteredQty[sym] || 0) + qty;
+    }
+  }
+  const raw = _divUpcomingRaw.upcoming || [];
+  const filtered = raw
+    .filter(r => filteredQty[(r.ticker || '').toUpperCase()] !== undefined)
+    .map(r => {
+      const qty = filteredQty[(r.ticker || '').toUpperCase()] || 0;
+      return { ...r, qty, est_total: Math.round(parseFloat(r.cash_amount || 0) * qty * 100) / 100 };
+    });
+  _divRenderUpcoming({ upcoming: filtered });
 }
 
 function _divRenderUpcoming(data) {
