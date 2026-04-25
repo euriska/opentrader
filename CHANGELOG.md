@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.30] - 2026-04-25
+
+### Changed
+- **Dividend metadata now uses three-tier fetch: massive.com → dividend.com → yfinance** — `_div_get_meta` (which supplies ex-dates, pay-dates, yield%, frequency for the Dividend page display) now tries massive.com (`api.massive.com/stocks/v1/dividends`, authenticated with `MASSIVE_API_KEY`) as primary source, dividend.com scrape as secondary, and yfinance only as last resort. Frequency is derived from the count of massive.com payments in the trailing 12 months. dividend.com scrape gracefully falls through if Cloudflare blocks the request.
+
 ## [3.6.29] - 2026-04-25
 
 ### Changed

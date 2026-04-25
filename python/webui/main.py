@@ -5800,8 +5800,121 @@ async def _div_ensure_tables():
         log.warning("dividend_migration_failed", error=str(e))
 
 
+async def _div_fetch_massive_meta(ticker: str) -> dict:
+    """Fetch dividend metadata from massive.com: ex-date, pay-date, amount, frequency."""
+    api_key = os.getenv("MASSIVE_API_KEY", "")
+    if not api_key:
+        return {}
+    import aiohttp as _aiohttp
+    from datetime import date as _date, timedelta as _td
+    try:
+        params = {
+            "ticker": ticker,
+            "ex_dividend_date.lte": _date.today().isoformat(),
+            "limit": 14,
+            "sort": "ex_dividend_date",
+            "order": "desc",
+        }
+        headers = {"Authorization": f"Bearer {api_key}"}
+        async with _aiohttp.ClientSession(headers=headers) as sess:
+            async with sess.get(
+                "https://api.massive.com/stocks/v1/dividends",
+                params=params,
+                timeout=_aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status != 200:
+                    return {}
+                data = await resp.json()
+    except Exception as e:
+        log.warning("div_meta.massive_failed", ticker=ticker, error=str(e))
+        return {}
+
+    results = data.get("results", [])
+    if not results:
+        return {}
+
+    r0 = results[0]
+    cutoff_12m = (_date.today() - _td(days=365)).isoformat()
+    recent_12m = [r for r in results if (r.get("ex_dividend_date") or "") >= cutoff_12m]
+    n = len(recent_12m)
+    if   n >= 40: frequency = 52
+    elif n >= 10: frequency = 12
+    elif n >= 3:  frequency = 4
+    elif n >= 1:  frequency = 2
+    else:         frequency = 1
+
+    aps = float(r0.get("cash_amount") or 0) or None
+    far = aps * frequency if aps else None
+
+    return {
+        "ex_date":               r0.get("ex_dividend_date"),
+        "pay_date":              r0.get("pay_date"),
+        "amount_per_share":      aps,
+        "frequency":             frequency,
+        "forward_annual_rate":   far,
+        "forward_yield_pct":     None,
+        "sector":                None,
+        "industry":              None,
+        "payout_ratio":          None,
+        "five_yr_avg_yield_pct": None,
+    }
+
+
+def _div_fetch_dividendcom_sync(ticker: str) -> dict:
+    """Attempt to scrape dividend metadata from dividend.com. Gracefully handles Cloudflare blocks."""
+    import re
+    import urllib.request
+    url = f"https://www.dividend.com/stocks/{ticker.lower()}/"
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        log.debug("div_meta.dividendcom_failed", ticker=ticker, error=str(exc))
+        return {}
+
+    if "Just a moment" in body or "cf-browser-verification" in body or len(body) < 1000:
+        return {}
+
+    out: dict = {}
+    m = re.search(r'[Ee]x.?[Dd]ividend\s+[Dd]ate[^<]{0,50}<[^>]+>([A-Z][a-z]{2}\s+\d+,?\s+\d{4})', body)
+    if m:
+        try:
+            from datetime import datetime as _dt
+            raw = m.group(1).replace(",", "")
+            out["ex_date"] = _dt.strptime(raw, "%b %d %Y").strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    m = re.search(r'[Yy]ield[^<]{0,30}<[^>]+>([\d.]+)%', body)
+    if m:
+        out["forward_yield_pct"] = float(m.group(1))
+    return out
+
+
+async def _div_fetch_meta_tiered(ticker: str) -> dict:
+    """Fetch dividend metadata: massive.com → dividend.com → yfinance (last resort)."""
+    meta = await _div_fetch_massive_meta(ticker)
+    if meta.get("ex_date") or meta.get("amount_per_share"):
+        return meta
+
+    import asyncio as _asyncio
+    loop = _asyncio.get_event_loop()
+    meta = await loop.run_in_executor(None, _div_fetch_dividendcom_sync, ticker)
+    if meta.get("ex_date") or meta.get("forward_yield_pct"):
+        return meta
+
+    return await _div_fetch_yahoo(ticker)
+
+
 async def _div_fetch_yahoo(ticker: str) -> dict:
-    """Fetch dividend metadata for one ticker using yfinance (runs in thread pool)."""
+    """Fetch dividend metadata for one ticker using yfinance (last-resort fallback)."""
     import asyncio as _asyncio
     loop = _asyncio.get_event_loop()
     return await loop.run_in_executor(None, _div_fetch_yahoo_sync, ticker)
@@ -5950,7 +6063,7 @@ async def _div_get_meta(tickers: list[str]) -> dict[str, dict]:
         sem = _asyncio.Semaphore(5)
         async def _fetch_one(t):
             async with sem:
-                return t, await _div_fetch_yahoo(t)
+                return t, await _div_fetch_meta_tiered(t)
         results = await _asyncio.gather(*[_fetch_one(t) for t in stale], return_exceptions=True)
 
         for res in results:
