@@ -194,6 +194,7 @@ class OvtlyrScraperAgent(BaseAgent):
         Call scrape_ticker() for each watchlist candidate and write nine_score,
         oscillator, fear_greed, and the actual dashboard signal back into
         scanner:ovtlyr:latest so the predictor can use them.
+        Also persists to ovtlyr_intel DB so the data survives Redis expiry.
         """
         log.info("scraper-ovtlyr.enrich_start", tickers=len(ticker_list))
         enriched = 0
@@ -243,6 +244,39 @@ class OvtlyrScraperAgent(BaseAgent):
 
                 pipe.hset("scanner:ovtlyr:latest", ticker, json.dumps(existing))
                 enriched += 1
+
+                # Persist to DB so nine_score survives Redis expiry
+                if self._db and data.get("nine_score") is not None:
+                    try:
+                        signal_date = None
+                        date_str = data.get("signal_date_str", "")
+                        if date_str:
+                            try:
+                                from datetime import datetime as _dt
+                                signal_date = _dt.strptime(date_str, "%b %d, %Y").date()
+                            except ValueError:
+                                pass
+                        await self._db.execute(
+                            """
+                            INSERT INTO ovtlyr_intel
+                                (ticker, signal, signal_active, signal_date, nine_score,
+                                 oscillator, fear_greed, last_close, avg_vol_30d, raw)
+                            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                            """,
+                            ticker,
+                            data.get("signal"),
+                            data.get("signal_active"),
+                            signal_date,
+                            data.get("nine_score"),
+                            data.get("oscillator") or None,
+                            data.get("fear_greed"),
+                            data.get("last_close"),
+                            data.get("avg_vol_30d"),
+                            json.dumps({k: v for k, v in data.items() if k != "signal_date_str"}),
+                        )
+                    except Exception as db_err:
+                        log.warning("scraper-ovtlyr.enrich_db_insert_error",
+                                    ticker=ticker, error=str(db_err))
 
             except Exception as e:
                 log.warning("scraper-ovtlyr.enrich_ticker_error", ticker=ticker, error=str(e))

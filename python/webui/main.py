@@ -3524,64 +3524,57 @@ async def get_ovtlyr_ticker(ticker: str, token: str = ""):
         except Exception:
             pass
 
-    # DB fallback — ovtlyr_intel (has nine_score / oscillator, only for deeply-scraped tickers)
+    # DB — merge both tables: ovtlyr_lists (signal/name/sector) + ovtlyr_intel (nine_score/oscillator/fear_greed)
     if DB_URL:
         try:
             pool = await _get_db_pool()
             async with pool.acquire() as conn:
-                row = await conn.fetchrow(
+                intel_row = await conn.fetchrow(
                     """
                     SELECT ticker, signal, signal_active, signal_date, nine_score,
                            oscillator, fear_greed, last_close, avg_vol_30d, raw, ts
-                    FROM ovtlyr_intel
-                    WHERE ticker = $1
-                    ORDER BY ts DESC LIMIT 1
+                    FROM ovtlyr_intel WHERE ticker = $1 ORDER BY ts DESC LIMIT 1
                     """,
                     sym,
                 )
-            if row:
-                data = dict(row)
-                if data.get("signal_date"):
-                    data["signal_date"] = data["signal_date"].isoformat()
-                if data.get("ts"):
-                    data["ts"] = data["ts"].isoformat()
-                raw_json = data.pop("raw", None)
-                if raw_json and isinstance(raw_json, str):
-                    try:
-                        data.update(_json.loads(raw_json))
-                    except Exception:
-                        pass
-                data["source"] = "db_intel"
-                return {"ticker": sym, "data": data}
-        except Exception as ex:
-            log.warning("ovtlyr_ticker.db_intel_error", ticker=sym, error=str(ex))
-
-        # DB fallback — ovtlyr_lists (bull/bear/market_leaders/alpha_picks lists)
-        try:
-            pool = await _get_db_pool()
-            async with pool.acquire() as conn:
-                row = await conn.fetchrow(
+                lists_row = await conn.fetchrow(
                     """
                     SELECT DISTINCT ON (ticker)
                            ticker, list_type, name, sector, signal, signal_date,
                            last_price, avg_vol_30d, ts
-                    FROM ovtlyr_lists
-                    WHERE ticker = $1
-                    ORDER BY ticker, ts DESC
+                    FROM ovtlyr_lists WHERE ticker = $1 ORDER BY ticker, ts DESC
                     """,
                     sym,
                 )
-            if row:
-                data = dict(row)
-                if data.get("signal_date"):
-                    data["signal_date"] = data["signal_date"].isoformat()
-                if data.get("ts"):
-                    data["ts"] = data["ts"].isoformat()
-                data["last_close"] = data.pop("last_price", None)
-                data["source"] = "db_lists"
+
+            if intel_row or lists_row:
+                # Start from lists data (has name/sector/list_type), overlay intel (has nine_score etc)
+                data: dict = {}
+                if lists_row:
+                    data = {k: v for k, v in dict(lists_row).items()}
+                    data["last_close"] = data.pop("last_price", None)
+                if intel_row:
+                    intel = {k: v for k, v in dict(intel_row).items()}
+                    raw_json = intel.pop("raw", None)
+                    # Overlay intel fields — prefer non-null intel values
+                    for k, v in intel.items():
+                        if v is not None:
+                            data[k] = v
+                    if raw_json and isinstance(raw_json, str):
+                        try:
+                            for k, v in _json.loads(raw_json).items():
+                                if k not in data or data[k] is None:
+                                    data[k] = v
+                        except Exception:
+                            pass
+                # Normalise dates
+                for field in ("signal_date", "ts"):
+                    if data.get(field) and hasattr(data[field], "isoformat"):
+                        data[field] = data[field].isoformat()
+                data["source"] = "db"
                 return {"ticker": sym, "data": data}
         except Exception as ex:
-            log.warning("ovtlyr_ticker.db_lists_error", ticker=sym, error=str(ex))
+            log.warning("ovtlyr_ticker.db_error", ticker=sym, error=str(ex))
 
     return {"ticker": sym, "data": None}
 
