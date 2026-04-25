@@ -12676,11 +12676,11 @@ function _divRenderDiagnostics(acctStats, forecast) {
   const sumEl = document.getElementById('div-diag-summary');
   if (!el) return;
   if (!acctStats) { el.innerHTML = '<span style="color:var(--red)">Failed to load account stats</span>'; return; }
-  const mo = acctStats.months_elapsed || 18;
+  const mo = forecast?.active_months || acctStats.months_elapsed || 18;
   const perAcctAvg = forecast?.per_account_monthly_avg || {};
   const apiMonthly = forecast?.avg_monthly_income || 0;
   const historyTotal = forecast?.history_monthly_avg || 0;
-  if (sumEl) sumEl.textContent = `history $${historyTotal.toFixed(0)}/mo · yfinance $${apiMonthly.toFixed(0)}/mo · ${mo} months window`;
+  if (sumEl) sumEl.textContent = `history $${historyTotal.toFixed(0)}/mo avg · ${mo} months window · forward $${apiMonthly.toFixed(0)}/mo`;
   const rows = (acctStats.accounts || []).map(a => {
     const yf = Object.entries(perAcctAvg).find(([k]) => k === a.label)?.[1] || 0;
     // per-ticker breakdown
@@ -12699,7 +12699,7 @@ function _divRenderDiagnostics(acctStats, forecast) {
       <td>${a.payment_count} records</td>
       <td>$${a.total_received.toFixed(2)} received</td>
       <td>$${a.monthly_avg.toFixed(2)}/mo (÷${mo}mo)</td>
-      <td style="color:var(--muted)">yfinance: $${(perAcctAvg[a.label]||0).toFixed(2)}/mo</td>
+      <td style="color:var(--muted)">history avg: $${(perAcctAvg[a.label]||0).toFixed(2)}/mo</td>
       <td></td>
     </tr>${tickerRows}`;
   }).join('');
@@ -12711,7 +12711,7 @@ function _divRenderDiagnostics(acctStats, forecast) {
     <tbody>${rows || '<tr><td colspan="6" class="empty-state">No dividend history in DB — run Backfill</td></tr>'}</tbody>
   </table>
   <div style="margin-top:8px;font-size:11px;color:var(--muted)">
-    Window: ${acctStats.cutoff} → today · ${mo} calendar months · forecast uses history avg when available, yfinance rate as fallback
+    Window: ${acctStats.cutoff} → today · ${mo} calendar months (from first payment) · forecast uses history avg, falls back to forward-rate estimate when no history exists
   </div>`;
 }
 
@@ -12841,28 +12841,17 @@ function _divComputeFromAccounts(accounts) {
     .sort((a, b) => b.forward_yield_pct - a.forward_yield_pct)
     .slice(0, 12);
 
-  // monthly — for projected months take the lower of history-based avg and yfinance estimate
-  // per account. Using the minimum handles dividend cuts: when a payout is reduced, yfinance
-  // reflects the new rate immediately while history still shows the old higher payments.
-  // When no history exists, yfinance is used as sole estimate.
+  // monthly — future bars use history-based avg per account (total received ÷ months since
+  // first payment). Falls back to forward-rate estimate only when no history exists.
   const symbols = new Set(positions.map(p => p.symbol));
   const acctLabels = new Set(accounts.map(a => a.label));
   const acctHistAvg = _divForecast?.per_account_monthly_avg || {};
-  // Per-account projected monthly: min(history avg, yfinance monthly) or whichever is available
   const projectedMonthly = accounts.reduce((total, a) => {
     const hist = acctHistAvg[a.label] || 0;
-    const yf = (a.positions || []).filter(p => p.is_dividend_payer)
-                                   .reduce((s, p) => s + (p.projected_monthly_income || 0), 0);
-    let acctMonthly;
-    if (hist > 0 && yf > 0) {
-      acctMonthly = Math.min(hist, yf); // lower of the two: cut dividends → use yfinance
-    } else {
-      acctMonthly = hist || yf;         // use whichever is available
-    }
-    return total + acctMonthly;
+    const fwd = (a.positions || []).filter(p => p.is_dividend_payer)
+                                    .reduce((s, p) => s + (p.projected_monthly_income || 0), 0);
+    return total + (hist > 0 ? hist : fwd);
   }, 0);
-  // holdingsMonthly kept for reference (yfinance-only total, used if no history at all)
-  const holdingsMonthly = positions.reduce((s, p) => s + (p.projected_monthly_income || 0), 0);
   const monthly = (_divForecast?.monthly || []).map(m => {
     if (m.data_source === 'actual') {
       // Past months: filter per-(account,ticker) breakdown from server

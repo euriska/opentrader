@@ -6367,6 +6367,7 @@ async def div_forecast(token: str = ""):
     actual_by_month: dict[str, float] = {}         # month_key -> portfolio total
     actual_breakdown: dict[str, list] = {}         # month_key -> [{symbol,account_label,income}]
     acct_ticker_totals: dict[tuple, float] = {}    # (acct, ticker) -> total in completed months
+    acct_first_month_raw: dict[str, str] = {}      # acct -> earliest past month_key with payments
     cutoff_18mo = today - _td(days=548)
     if DB_URL:
         try:
@@ -6385,14 +6386,14 @@ async def div_forecast(token: str = ""):
                 mk, acct, ticker = r["month_key"], r["account_label"], r["ticker"]
                 total = float(r["total"])
                 actual_by_month[mk] = actual_by_month.get(mk, 0) + total
-                # Per-(account, ticker) entry — same shape as future_breakdown so the
-                # frontend account-filter works identically for past and future months.
                 actual_breakdown.setdefault(mk, []).append(
                     {"symbol": ticker, "account_label": acct, "income": round(total, 2)}
                 )
                 if mk < current_month_key:
                     key = (acct, ticker)
                     acct_ticker_totals[key] = acct_ticker_totals.get(key, 0) + total
+                    if acct not in acct_first_month_raw or mk < acct_first_month_raw[acct]:
+                        acct_first_month_raw[acct] = mk
         except Exception:
             pass
 
@@ -6400,23 +6401,30 @@ async def div_forecast(token: str = ""):
     captured_count = sum(1 for mk in actual_by_month if mk < current_month_key)
     total_received_all = sum(acct_ticker_totals.values())
 
-    # Calendar months elapsed in the 18-month window (denominator for monthly avg)
     cutoff_month_start = _date(cutoff_18mo.year, cutoff_18mo.month, 1)
     current_month_start = _date(today.year, today.month, 1)
-    months_elapsed = max(1, (current_month_start.year - cutoff_month_start.year) * 12 +
-                            (current_month_start.month - cutoff_month_start.month))
 
-    # Per-account history-based monthly avg: total received / months_elapsed.
-    # Backfill records use CURRENT share quantities, so these avgs correctly reflect
-    # what you'll receive going forward with your current position sizes.
+    def _mo_elapsed(start_ym: str) -> int:
+        """Calendar months from start_ym ('YYYY-MM') to current month (exclusive)."""
+        y, m = int(start_ym[:4]), int(start_ym[5:7])
+        return max(1, (today.year - y) * 12 + (today.month - m))
+
+    # Per-account history-based monthly avg.
+    # Denominator = calendar months from FIRST actual payment for that account → now.
+    # Using the first payment month avoids the 18-month window diluting the avg when
+    # positions were only recently added (e.g. 3 months of history ÷ 18 = 6× under-estimate).
     acct_completed_total: dict[str, float] = {}
     for (acct, ticker), total in acct_ticker_totals.items():
         acct_completed_total[acct] = acct_completed_total.get(acct, 0) + total
     per_account_monthly_avg = {
-        acct: round(total / months_elapsed, 2)
+        acct: round(total / _mo_elapsed(acct_first_month_raw.get(acct, cutoff_month_start.strftime("%Y-%m"))), 2)
         for acct, total in acct_completed_total.items()
     }
-    history_monthly_total = round(sum(acct_completed_total.values()) / months_elapsed, 2)
+    first_overall = min(acct_first_month_raw.values()) if acct_first_month_raw else None
+    active_months = _mo_elapsed(first_overall) if first_overall else max(1, (
+        current_month_start.year - cutoff_month_start.year) * 12 +
+        (current_month_start.month - cutoff_month_start.month))
+    history_monthly_total = round(sum(acct_completed_total.values()) / active_months, 2)
 
     # Holdings-based projection: recent_aps × annual_payments / 12 × qty (from div_holdings).
     # div_holdings now uses dividend_history exclusively — yfinance is NOT involved here.
@@ -6511,6 +6519,7 @@ async def div_forecast(token: str = ""):
         "history_monthly_avg":    history_monthly_total,
         "per_account_monthly_avg": per_account_monthly_avg,
         "captured_months_count":  captured_count,
+        "active_months":          active_months,
         "total_received_history": round(total_received_all, 2),
     }
     await redis.set(_forecast_cache_key, json.dumps(result), ex=3600)

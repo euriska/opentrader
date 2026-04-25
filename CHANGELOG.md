@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.31] - 2026-04-25
+
+### Fixed
+- **Dividend forecast avg now anchored to first actual payment, not 18-month window** — `per_account_monthly_avg` denominator changed from the fixed 18-month calendar window to the number of months since the account's first recorded payment. Previously, accounts with only 3 months of history were divided by 18, producing a 6× under-estimate of projected monthly income. Now each account's denominator reflects how long it has actually been receiving dividends. The portfolio-level `history_monthly_avg` uses the same logic.
+- **Removed stale `min(hist, yf)` projection logic** — v3.6.29 removed yfinance from income projection, making the `min(history, yfinance)` guard from v3.6.28 incorrect (both values now come from the same history source). Future bar heights now use history avg directly, falling back to forward-rate estimate only when no payment history exists.
+
 ## [3.6.30] - 2026-04-25
 
 ### Changed
