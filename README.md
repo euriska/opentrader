@@ -30,7 +30,13 @@ An AI-driven algorithmic trading platform built on a microservices architecture 
 - **Daily P&L / Loss Limit** — Trading Dashboard widget with color-coded budget bar and circuit breaker banner
 - **Scheduler** — Market-hours-aware job runner with DB-persisted configuration and per-job execution history (last run, status chip, error, run count)
 - **MCP Agents** — Model Context Protocol servers for Yahoo Finance, Alpaca, TradingView, Webull, and Unusual Whales
-- **Dividends** — Dividend tracking with yield, history, and per-account breakdown (equity positions only)
+- **Equity Dividend Income** — Full dividend tracking dashboard with per-broker filtering throughout:
+  - **Income projection** from actual payment history — no synthetic rates; forward rate = recent payment × annual frequency from DB records
+  - **Rolling 12-month bar chart** blending actual received (green) with projected remaining (blue); future bars from history-based monthly avg
+  - **Upcoming ex-dividend panel** (7-day) — three-tier data: Massive.com API → dividendchannel.com projection → DB cache; per-broker qty and estimated total
+  - **Received history** table and chart (month / ticker / account grouping)
+  - **Per-broker filter** — clicking any broker card filters bar chart, holdings, upcoming events, and history simultaneously
+  - **Diagnostics panel** — expandable per-account breakdown showing payment count, total received, monthly avg, and forward rate
 - **Library** — Trading book library with ISBN lookup, cover art, ratings, and reader rank achievement system
 - **Notifications** — Telegram, Discord, and AgentMail alerts
 - **EOD Review** — Automated end-of-day trade analysis and recommendations
@@ -61,7 +67,7 @@ An AI-driven algorithmic trading platform built on a microservices architecture 
 ┌─────▼──────────────┐  ┌────────────────────┐  ┌──────────────────────────────┐
 │  Aggregator        │  │  Directive Agent   │  │  TimescaleDB (pg16)          │
 │  Sentiment + UW    │  │  LLM GTC evaluator │  │  trades, signals, sentiment, │
-│  intel pipeline    │  │  order executor    │  │  scheduler_jobs, breadth     │
+│  intel pipeline    │  │  order executor    │  │  scheduler_jobs, dividends   │
 └────────────────────┘  └────────────────────┘  └──────────────────────────────┘
       │
 ┌─────▼───────────────┐
@@ -70,7 +76,7 @@ An AI-driven algorithmic trading platform built on a microservices architecture 
 │  job + intel cache  │
 └─────────────────────┘
 
-MCP Layer: Yahoo Finance · Alpaca · TradingView · Unusual Whales
+MCP Layer: Yahoo Finance · Alpaca · TradingView · Unusual Whales · Massive.com
 ```
 
 ---
@@ -96,6 +102,7 @@ MCP Layer: Yahoo Finance · Alpaca · TradingView · Unusual Whales
 | `ot-mcp-alpaca` | Alpaca MCP server | — |
 | `ot-mcp-tradingview` | TradingView MCP server | — |
 | `ot-mcp-unusualwhales` | Unusual Whales MCP server | — |
+| `ot-mcp-massive` | Massive.com MCP server | — |
 | `ot-redis` | Redis 7 | — |
 | `ot-timescaledb` | TimescaleDB (PostgreSQL) | — |
 | `ot-vault` | HashiCorp Vault (secrets) | — |
@@ -145,7 +152,7 @@ cp .env.sample .env && nano .env
 cp config/accounts.toml.sample config/accounts.toml
 
 # Pull images (replace X.Y.Z with the release version)
-export OT_VERSION=3.5.99
+export OT_VERSION=3.6.33
 podman pull ghcr.io/euriska/ot-webui:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-python:${OT_VERSION}
 podman pull ghcr.io/euriska/ot-mcp-yahoo:${OT_VERSION}
@@ -159,16 +166,16 @@ podman-compose up -d
 
 ## Releasing
 
-Releases use semantic versioning (`MAJOR.MINOR.PATCH`). The `VERSION` file is the single source of truth.
+Releases use semantic versioning (`MAJOR.MINOR.PATCH`). Patch resets at 99 (e.g. `3.5.99 → 3.6.0`). The `VERSION` file is the single source of truth.
 
 ```bash
-./scripts/release.sh patch    # 3.5.1 → 3.5.2
-./scripts/release.sh minor    # 3.5.1 → 3.6.0
-./scripts/release.sh major    # 3.5.1 → 4.0.0
-./scripts/release.sh 3.7.0    # explicit version
+echo "X.Y.Z" > VERSION
+# Edit CHANGELOG.md with release notes
+git add VERSION CHANGELOG.md <changed-files>
+git commit --no-verify -m "feat/fix: description vX.Y.Z"
+git push
+gh release create vX.Y.Z --title "vX.Y.Z" --notes "Release notes here"
 ```
-
-The script bumps `VERSION`, opens `CHANGELOG.md` for release notes, commits, tags, and pushes. GitHub Actions then creates the GitHub Release and builds all container images to `ghcr.io/euriska/`.
 
 ---
 
@@ -181,6 +188,7 @@ The script bumps `VERSION`, opens `CHANGELOG.md` for release notes, commits, tag
 | `OPENROUTER_API_KEY` | LLM provider — get at openrouter.ai |
 | `WEBUI_TOKEN` | Dashboard auth token (any string) |
 | `DB_PASSWORD` | TimescaleDB password |
+| `MASSIVE_API_KEY` | Massive.com API key (dividend data, market bars, ticker reference) |
 | `TRADIER_SANDBOX_API_KEY` | Tradier paper trading key |
 | `TRADIER_PRODUCTION_API_KEY` | Tradier live trading key |
 | `ALPACA_API_KEY` | Alpaca paper API key |
@@ -210,25 +218,24 @@ The dashboard is organized into six sections:
 ### Trading
 | Page | Description |
 |---|---|
-| Trading Dashboard | Live stat cards (equity/options split), market breadth, recent activity |
+| Trading Dashboard | Live stat cards (equity/options split), market breadth, NAV history, daily P&L |
 | Trade Directives | Natural-language GTC directives with LLM evaluation and order execution |
 | Charts | TradingView charts with indicator overlays, position picker, and sentiment sub-panel |
-| Broker | Broker credential configuration and account management |
+| Broker | Broker credential configuration, account management, per-account risk % defaults |
 
 ### Equities
 | Page | Description |
 |---|---|
-| Trades | Equity fills and open orders grouped by week, with per-account tally and friendly reject reasons |
-| Active Positions | Live equity positions across all broker accounts with heatmaps, P&L, and liquidate action |
-| Dividends | Dividend tracking with yield, history charts, and per-account breakdown |
+| Equity Trades | Equity fills and open orders grouped by week, with per-account tally and friendly reject reasons |
+| Equity Dashboard | Live equity positions across all broker accounts with heatmaps, P&L, and liquidate action |
+| Equity Dividend Income | Dividend tracking with per-broker filtering, actual-vs-projected bar chart, upcoming events, history |
 
 ### Options
 | Page | Description |
 |---|---|
-| Options Dashboard | Live options positions with DTE, strike, delta, ATR levels, Yahoo Finance chain enrichment, Portfolio Greeks, and YTD Performance |
+| Options Dashboard | Live options positions with DTE, strike, delta, ATR levels, Yahoo chain enrichment, Portfolio Greeks, Expiry Calendar, and YTD Performance |
 | Options Trader | Full trading dashboard — account selector, positions panel, OVTLYR signals, EMA chart, live broker chain, multi-leg order builder, risk calculator |
-| Trading Log | Full P&L tree (broker → account → ticker) with milestone chains, AI post-close analysis, and YTD performance |
-| Expiry Calendar | Active positions grouped by expiry date with DTE urgency coding and per-expiry Greeks totals |
+| Options Trading Log | Full P&L tree (broker → account → ticker) with milestone chains, AI post-close analysis, and YTD performance |
 
 ### Trading Plan
 | Page | Description |
@@ -277,10 +284,22 @@ The aggregator enriches each candidate ticker with data from multiple sources be
 | WSB scraper | Mention count, sentiment score, top headlines |
 | SeekingAlpha scraper | Professional analysis sentiment |
 | Yahoo Finance news | Broad market sentiment |
-| yfinance | Analyst ratings, price targets, dividend yield, earnings date |
 | Unusual Whales | Options flow (bullish/bearish counts, net premium), dark pool prints |
+| Massive.com | Dividend history, ex-dates, reference data |
 
 Intelligence is cached in Redis (`aggregator:intel:{ticker}`) and used to adjust predictor confidence by up to ±0.20.
+
+---
+
+## Dividend Data Sources
+
+| Purpose | Source | Notes |
+|---|---|---|
+| Income projection | `dividend_history` DB table | Actual payments backfilled from broker history; `forward_annual_rate = recent_aps × annual_count` |
+| Ex/pay dates, frequency | Massive.com API (primary) | `api.massive.com/stocks/v1/dividends`, MASSIVE_API_KEY |
+| Ex/pay dates fallback | dividend.com scrape | Usually Cloudflare-blocked; falls through gracefully |
+| Last resort metadata | yfinance | Only when both above return nothing |
+| Upcoming events | Massive.com → dividendchannel.com → DB | Three-tier for 7-day forward calendar |
 
 ---
 
