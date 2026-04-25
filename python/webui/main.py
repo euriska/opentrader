@@ -3524,7 +3524,7 @@ async def get_ovtlyr_ticker(ticker: str, token: str = ""):
         except Exception:
             pass
 
-    # DB fallback
+    # DB fallback — ovtlyr_intel (has nine_score / oscillator, only for deeply-scraped tickers)
     if DB_URL:
         try:
             pool = await _get_db_pool()
@@ -3551,10 +3551,37 @@ async def get_ovtlyr_ticker(ticker: str, token: str = ""):
                         data.update(_json.loads(raw_json))
                     except Exception:
                         pass
-                data["source"] = "db"
+                data["source"] = "db_intel"
                 return {"ticker": sym, "data": data}
         except Exception as ex:
-            log.warning("ovtlyr_ticker.db_error", ticker=sym, error=str(ex))
+            log.warning("ovtlyr_ticker.db_intel_error", ticker=sym, error=str(ex))
+
+        # DB fallback — ovtlyr_lists (bull/bear/market_leaders/alpha_picks lists)
+        try:
+            pool = await _get_db_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT DISTINCT ON (ticker)
+                           ticker, list_type, name, sector, signal, signal_date,
+                           last_price, avg_vol_30d, ts
+                    FROM ovtlyr_lists
+                    WHERE ticker = $1
+                    ORDER BY ticker, ts DESC
+                    """,
+                    sym,
+                )
+            if row:
+                data = dict(row)
+                if data.get("signal_date"):
+                    data["signal_date"] = data["signal_date"].isoformat()
+                if data.get("ts"):
+                    data["ts"] = data["ts"].isoformat()
+                data["last_close"] = data.pop("last_price", None)
+                data["source"] = "db_lists"
+                return {"ticker": sym, "data": data}
+        except Exception as ex:
+            log.warning("ovtlyr_ticker.db_lists_error", ticker=sym, error=str(ex))
 
     return {"ticker": sym, "data": None}
 
