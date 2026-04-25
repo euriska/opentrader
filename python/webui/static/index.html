@@ -2296,6 +2296,17 @@ select option{background:var(--surface2)}
             </div>
           </div>
 
+          <!-- Fundamentals -->
+          <div class="card">
+            <div class="card-header" style="padding:8px 12px;display:flex;align-items:center;justify-content:space-between">
+              <span class="card-title" style="font-size:12px">Fundamentals</span>
+              <span id="ot-fund-ticker" style="font-size:10px;color:var(--muted)">—</span>
+            </div>
+            <div id="ot-fund-body" style="padding:6px 0">
+              <div style="text-align:center;color:var(--muted);font-size:12px;padding:20px">Select a ticker</div>
+            </div>
+          </div>
+
         </div><!-- /left column -->
 
         <!-- ── RIGHT COLUMN ── -->
@@ -15930,6 +15941,110 @@ async function _otLoadOvtlyrTicker(ticker) {
   }
 }
 
+async function _otLoadFundamentals(ticker) {
+  const el = document.getElementById('ot-fund-body');
+  const lbl = document.getElementById('ot-fund-ticker');
+  if (!el) return;
+  if (lbl) lbl.textContent = ticker;
+  el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:16px">Loading…</div>';
+  try {
+    const d = await apiFetch(`/api/options/trader/fundamentals/${encodeURIComponent(ticker)}`);
+    const det = d.details  || {};
+    const div = d.dividend || {};
+    const ear = d.earnings || {};
+
+    const row = (label, value, color) => value == null || value === '' ? '' :
+      `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 12px;border-bottom:1px solid var(--border)">
+        <span style="font-size:11px;color:var(--muted);white-space:nowrap">${label}</span>
+        <span style="font-size:11px;font-weight:600;color:${color||'var(--fg)'};text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${value}</span>
+      </div>`;
+
+    const fmtCap = v => {
+      if (!v) return null;
+      if (v >= 1e12) return '$' + (v/1e12).toFixed(2) + 'T';
+      if (v >= 1e9)  return '$' + (v/1e9).toFixed(2) + 'B';
+      if (v >= 1e6)  return '$' + (v/1e6).toFixed(1) + 'M';
+      return '$' + v.toLocaleString();
+    };
+    const fmtPct = v => v != null ? (v*100).toFixed(1)+'%' : null;
+    const fmtNum = (v, dec=2) => v != null ? Number(v).toFixed(dec) : null;
+
+    // Days-to label helpers
+    const daysTo = dateStr => {
+      if (!dateStr) return null;
+      const diff = Math.round((new Date(dateStr) - new Date()) / 86400000);
+      if (diff < 0)  return `${dateStr} (past)`;
+      if (diff === 0) return `${dateStr} (today)`;
+      return `${dateStr} (${diff}d)`;
+    };
+    const earningsColor = ear.earnings_date ? (() => {
+      const diff = Math.round((new Date(ear.earnings_date) - new Date()) / 86400000);
+      return diff >= 0 && diff <= 14 ? '#fbbf24' : 'var(--fg)';
+    })() : 'var(--fg)';
+    const exDivColor = div.ex_dividend_date ? (() => {
+      const diff = Math.round((new Date(div.ex_dividend_date) - new Date()) / 86400000);
+      return diff >= 0 && diff <= 7 ? '#4ade80' : 'var(--fg)';
+    })() : 'var(--fg)';
+
+    const freqMap = {1:'Annual', 2:'Semi-Ann', 4:'Quarterly', 12:'Monthly', 52:'Weekly'};
+
+    const sections = [];
+
+    // Company header
+    if (det.name) {
+      sections.push(`<div style="padding:8px 12px 4px;border-bottom:1px solid var(--border)">
+        <div style="font-size:11px;font-weight:700;color:var(--fg);line-height:1.3">${det.name}</div>
+        ${det.sector ? `<div style="font-size:10px;color:var(--muted);margin-top:2px">${det.sector}${det.exchange ? ' · ' + det.exchange.replace('XNAS','NASDAQ').replace('XNYS','NYSE').replace('XASE','AMEX') : ''}</div>` : ''}
+      </div>`);
+    }
+
+    // Earnings & dividends section
+    const hasDivOrEarnings = ear.earnings_date || div.ex_dividend_date || div.pay_date;
+    if (hasDivOrEarnings) {
+      sections.push(`<div style="padding:5px 12px 1px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)">Dates</div>`);
+    }
+    sections.push(row('Earnings', daysTo(ear.earnings_date), earningsColor));
+    sections.push(row('Ex-Dividend', daysTo(div.ex_dividend_date), exDivColor));
+    sections.push(row('Pay Date', div.pay_date));
+    if (div.amount)    sections.push(row('Div Amount', '$' + Number(div.amount).toFixed(4)));
+    if (div.frequency) sections.push(row('Div Frequency', freqMap[div.frequency] || div.frequency));
+    if (ear.dividend_yield) sections.push(row('Div Yield', fmtPct(ear.dividend_yield)));
+
+    // Valuation
+    const hasVal = ear.pe_ratio || ear.forward_pe || ear.eps || ear.forward_eps;
+    if (hasVal) {
+      sections.push(`<div style="padding:5px 12px 1px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)">Valuation</div>`);
+      sections.push(row('P/E (TTM)',   fmtNum(ear.pe_ratio)));
+      sections.push(row('Forward P/E', fmtNum(ear.forward_pe)));
+      sections.push(row('EPS (TTM)',   ear.eps != null ? '$'+fmtNum(ear.eps) : null));
+      sections.push(row('Fwd EPS',     ear.forward_eps != null ? '$'+fmtNum(ear.forward_eps) : null));
+    }
+
+    // Company stats
+    const hasStats = det.market_cap || det.employees || ear.revenue || ear.profit_margin || ear.beta;
+    if (hasStats) {
+      sections.push(`<div style="padding:5px 12px 1px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)">Company</div>`);
+      sections.push(row('Market Cap',     fmtCap(det.market_cap)));
+      sections.push(row('Revenue',        fmtCap(ear.revenue)));
+      sections.push(row('Profit Margin',  fmtPct(ear.profit_margin)));
+      sections.push(row('Employees',      det.employees ? Number(det.employees).toLocaleString() : null));
+      sections.push(row('Beta',           fmtNum(ear.beta)));
+    }
+
+    // 52-week range
+    if (ear['52w_high'] || ear['52w_low']) {
+      sections.push(`<div style="padding:5px 12px 1px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)">Price Range</div>`);
+      sections.push(row('52w High', ear['52w_high'] != null ? '$'+fmtNum(ear['52w_high']) : null, '#4ade80'));
+      sections.push(row('52w Low',  ear['52w_low']  != null ? '$'+fmtNum(ear['52w_low'])  : null, '#f87171'));
+    }
+
+    const html = sections.filter(Boolean).join('');
+    el.innerHTML = html || '<div style="text-align:center;color:var(--muted);font-size:12px;padding:20px">No data</div>';
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:12px">Error: ${e.message}</div>`;
+  }
+}
+
 async function _otLoadRisk(account) {
   const acct = account || document.getElementById('ot-account-select')?.value || '';
   try {
@@ -15969,6 +16084,7 @@ function _otSelectTicker(ticker) {
   _otLoadChart(ticker);
   _otLoadChain(ticker);
   _otLoadOvtlyrTicker(ticker);
+  _otLoadFundamentals(ticker);
   // Show risk panel with current ticker
   document.getElementById('ot-risk-ticker').textContent = ticker;
   document.getElementById('ot-risk-panel').style.display = '';

@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.36] - 2026-04-25
+
+### Added
+- **Options Trader: Fundamentals panel** — new card in the left column below OVTLYR Signals; loads on ticker selection. Pulls from three sources: Polygon/massive.com (company name, sector, exchange, market cap, employees, description), massive.com dividends API (next ex-dividend date, pay date, amount, frequency), and yfinance (earnings date, P/E, forward P/E, EPS, revenue, profit margin, dividend yield, beta, 52-week range).
+- **New API endpoint `/api/options/trader/fundamentals/{ticker}`** — merges the three data sources above into a single response.
+
 ## [3.6.35] - 2026-04-25
 
 ### Changed

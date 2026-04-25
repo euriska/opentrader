@@ -9112,6 +9112,138 @@ async def get_trader_ticker_meta(ticker: str, token: str = ""):
     return await loop.run_in_executor(None, _fetch, ticker.upper())
 
 
+@app.get("/api/options/trader/fundamentals/{ticker}")
+async def get_trader_fundamentals(ticker: str, token: str = ""):
+    """
+    Company fundamentals for the Options Trader panel.
+    Merges: Polygon/massive (details + market cap) + massive dividends + yfinance (earnings).
+    """
+    check_token(token)
+    import asyncio as _asyncio
+    sym = ticker.upper()
+
+    api_key = os.getenv("MASSIVE_API_KEY", "") or _read_env_file().get("MASSIVE_API_KEY", "")
+
+    # ── 1. Polygon ticker details (name, market cap, description, sector) ──────
+    details: dict = {}
+    if api_key:
+        try:
+            import aiohttp as _aiohttp
+            async with _aiohttp.ClientSession() as session:
+                url = f"https://api.polygon.io/v3/reference/tickers/{sym}?apiKey={api_key}"
+                async with session.get(url, timeout=_aiohttp.ClientTimeout(total=8)) as resp:
+                    if resp.status == 200:
+                        d = (await resp.json()).get("results", {}) or {}
+                        details = {
+                            "name":        d.get("name"),
+                            "description": d.get("description"),
+                            "sector":      _sic_to_sector(d.get("sic_code")),
+                            "sic_desc":    d.get("sic_description"),
+                            "market_cap":  d.get("market_cap"),
+                            "employees":   d.get("total_employees"),
+                            "exchange":    d.get("primary_exchange"),
+                            "homepage":    d.get("homepage_url"),
+                            "list_date":   d.get("list_date"),
+                        }
+        except Exception as ex:
+            log.warning("fundamentals.polygon_error", ticker=sym, error=str(ex))
+
+    # ── 2. Upcoming dividend (massive.com) ─────────────────────────────────────
+    div: dict = {}
+    if api_key:
+        try:
+            from datetime import date as _date
+            import aiohttp as _aiohttp
+            async with _aiohttp.ClientSession(
+                headers={"Authorization": f"Bearer {api_key}"}
+            ) as session:
+                # Next upcoming ex-dividend date
+                params = {
+                    "ticker": sym,
+                    "ex_dividend_date.gte": _date.today().isoformat(),
+                    "limit": 1,
+                    "sort": "ex_dividend_date",
+                    "order": "asc",
+                }
+                async with session.get(
+                    "https://api.massive.com/stocks/v1/dividends",
+                    params=params,
+                    timeout=_aiohttp.ClientTimeout(total=8),
+                ) as resp:
+                    if resp.status == 200:
+                        results = (await resp.json()).get("results", [])
+                        if results:
+                            r = results[0]
+                            div = {
+                                "ex_dividend_date": r.get("ex_dividend_date"),
+                                "pay_date":         r.get("pay_date"),
+                                "amount":           r.get("cash_amount"),
+                                "frequency":        r.get("frequency"),
+                            }
+        except Exception as ex:
+            log.warning("fundamentals.massive_div_error", ticker=sym, error=str(ex))
+
+    # ── 3. Earnings date (yfinance) ────────────────────────────────────────────
+    earnings: dict = {}
+    def _fetch_earnings(s: str) -> dict:
+        try:
+            import yfinance as _yf
+            from datetime import datetime as _dt
+            t = _yf.Ticker(s)
+            info = t.info or {}
+            # pe, eps, forward eps, revenue
+            result = {
+                "pe_ratio":      info.get("trailingPE"),
+                "forward_pe":    info.get("forwardPE"),
+                "eps":           info.get("trailingEps"),
+                "forward_eps":   info.get("forwardEps"),
+                "revenue":       info.get("totalRevenue"),
+                "profit_margin": info.get("profitMargins"),
+                "dividend_yield":info.get("dividendYield"),
+                "beta":          info.get("beta"),
+                "52w_high":      info.get("fiftyTwoWeekHigh"),
+                "52w_low":       info.get("fiftyTwoWeekLow"),
+                "avg_volume":    info.get("averageVolume"),
+            }
+            # ex-div fallback if massive didn't return one
+            ex_raw = info.get("exDividendDate")
+            if ex_raw:
+                try:
+                    result["ex_dividend_date_yf"] = _dt.fromtimestamp(float(ex_raw)).strftime("%Y-%m-%d")
+                except Exception:
+                    pass
+            # Earnings date from calendar
+            try:
+                cal = t.calendar
+                if cal is not None and not cal.empty:
+                    for col in ("Earnings Date", "earningsDate"):
+                        if col in cal.columns:
+                            ed = cal[col].iloc[0]
+                            if hasattr(ed, "strftime"):
+                                result["earnings_date"] = ed.strftime("%Y-%m-%d")
+                            break
+            except Exception:
+                pass
+            return result
+        except Exception as e:
+            return {"error": str(e)}
+
+    loop = _asyncio.get_event_loop()
+    earnings = await loop.run_in_executor(None, _fetch_earnings, sym)
+
+    # Merge: prefer massive div dates over yfinance fallback
+    if not div.get("ex_dividend_date") and earnings.get("ex_dividend_date_yf"):
+        div["ex_dividend_date"] = earnings.pop("ex_dividend_date_yf")
+    earnings.pop("ex_dividend_date_yf", None)
+
+    return {
+        "ticker":   sym,
+        "details":  details,
+        "dividend": div,
+        "earnings": earnings,
+    }
+
+
 @app.get("/api/options/trader/risk")
 async def get_trader_risk_data(account: str = "", token: str = ""):
     """Risk calculator: available cash, open position count, portfolio risk gauge."""
