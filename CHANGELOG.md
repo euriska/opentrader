@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.27] - 2026-04-25
+
+### Fixed
+- **Dividend forecast — forward rate now uses most-recent payment, not trailing 12-month sum** — for high-frequency payers (weekly ETFs like HOOW), the trailing-12-month sum was 3× the actual forward rate after a dividend cut (old payments dominated). Now: when `last_dividend_value × frequency` is more than 20% below the trailing sum, the recalibrated per-payment rate is used. This immediately reflects dividend cuts without historical drag (e.g. HOOW: $0.283/wk × 52 = $14.72/yr instead of trailing $38.04/yr).
+
 ## [3.6.26] - 2026-04-25
 
 ### Added

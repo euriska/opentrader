@@ -5876,6 +5876,22 @@ def _div_fetch_yahoo_sync(ticker: str) -> dict:
         if not aps:
             aps = info.get("lastDividendValue") or (float(far) / frequency if far else None)
 
+        # Recalibrate forward_annual_rate from most recent payment × frequency.
+        # The trailing-12-month sum (used as far above) overstates when the dividend
+        # has been cut, because old high payments dominate the average.
+        # Example: HOOW cut from $0.93/wk to $0.28/wk → trailing sum $38/yr, but
+        # forward rate should be $0.28 × 52 = $14.72/yr. Using aps × freq here
+        # immediately reflects the current payout level without historical drag.
+        if aps and frequency:
+            aps_based_far = float(aps) * frequency
+            if far:
+                # When aps-based rate is more than 20% lower than trailing avg,
+                # use aps × freq (dividend cut detected). Accept increases too.
+                if aps_based_far < float(far) * 0.80:
+                    far = aps_based_far
+            else:
+                far = aps_based_far
+
         # Derive fyp from far if still missing
         if not fyp and far:
             price_now = (info.get("currentPrice") or info.get("regularMarketPrice")
