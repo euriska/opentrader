@@ -12662,8 +12662,8 @@ function _divRenderStats(s) {
   if (!s) return;
   const annual = s.annual_projected_income || 0;
   document.getElementById('div-stat-annual').textContent    = _divFmt$(annual);
-  // API-based monthly projection (current shares × forward rate / 12)
-  const moAvg = _divForecast?.avg_monthly_income ?? (annual / 12);
+  // Use per-account filtered monthly avg (history-based or yfinance fallback)
+  const moAvg = s.monthly_avg > 0 ? s.monthly_avg : (annual / 12);
   const capturedN = _divForecast?.captured_months_count || 0;
   const moSub = _divFmt$(moAvg) + '/mo' + (capturedN > 0 ? ' · ' + capturedN + ' mos history' : '');
   document.getElementById('div-stat-annual-sub').textContent = moSub;
@@ -12784,13 +12784,18 @@ function _divComputeFromAccounts(accounts) {
     .sort((a, b) => b.forward_yield_pct - a.forward_yield_pct)
     .slice(0, 12);
 
-  // monthly — for projected months use live holdings data directly so the per-account
-  // income is always correct regardless of what the cached forecast breakdown contains.
-  // For actual past months use the per-(account,ticker) breakdown from the server.
+  // monthly — for projected months use history-based per-account avg (from dividend_history)
+  // when available; fall back to yfinance holdings rate. This correctly handles per-account
+  // filtering since each account has its own avg from actual received payments.
   const symbols = new Set(positions.map(p => p.symbol));
   const acctLabels = new Set(accounts.map(a => a.label));
-  // Monthly income from current filtered holdings: qty × forward_annual_rate / 12
+  // History-based monthly avg: sum per-account history avgs for filtered accounts
+  const acctHistAvg = _divForecast?.per_account_monthly_avg || {};
+  const historyMonthly = accounts.reduce((s, a) => s + (acctHistAvg[a.label] || 0), 0);
+  // yfinance-based fallback: qty × forward_annual_rate / 12 for filtered accounts
   const holdingsMonthly = positions.reduce((s, p) => s + (p.projected_monthly_income || 0), 0);
+  // Use history avg when we have it; otherwise fall back to yfinance
+  const projectedMonthly = historyMonthly > 0 ? historyMonthly : holdingsMonthly;
   const monthly = (_divForecast?.monthly || []).map(m => {
     if (m.data_source === 'actual') {
       // Past months: filter per-(account,ticker) breakdown from server
@@ -12800,9 +12805,8 @@ function _divComputeFromAccounts(accounts) {
       );
       return { ...m, projected_income: Math.round(bd.reduce((s, b) => s + b.income, 0) * 100) / 100, breakdown: bd };
     }
-    // Current/future months: compute directly from filtered positions — immune to
-    // cache format and account_label matching issues in the forecast breakdown.
-    return { ...m, projected_income: Math.round(holdingsMonthly * 100) / 100, breakdown: [] };
+    // Current/future months: use history-based avg (or yfinance fallback), per-account filtered
+    return { ...m, projected_income: Math.round(projectedMonthly * 100) / 100, breakdown: [] };
   });
 
   // summary stats
@@ -12811,6 +12815,7 @@ function _divComputeFromAccounts(accounts) {
   const annIncome   = Object.values(tickerTotals).reduce((s, v) => s + v, 0);
 
   return { by_ticker, by_sector, by_account, by_yield, monthly, totalValue, totalPayers, annIncome,
+           monthlyAvg: projectedMonthly,
            totalHoldings: accounts.reduce((s, a) => s + (a.positions||[]).length, 0) };
 }
 
@@ -12893,6 +12898,7 @@ function _divApplyFilter() {
     dividend_payers:                computed.totalPayers,
     total_holdings:                 computed.totalHoldings,
     total_portfolio_value:          computed.totalValue,
+    monthly_avg:                    computed.monthlyAvg,
   });
 }
 

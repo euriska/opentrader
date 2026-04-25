@@ -6218,16 +6218,31 @@ async def div_forecast(token: str = ""):
         except Exception:
             pass
 
-    # History metadata only (for stat card display)
+    # History metadata and per-account monthly averages
     captured_count = sum(1 for mk in actual_by_month if mk < current_month_key)
     total_received_all = sum(acct_ticker_totals.values())
 
-    # Future projection: current shares × current forward annual rate / 12.
-    # This is the only correct basis for a forward-looking forecast — the backfill
-    # stores payments at CURRENT quantities, so history-based averages are inflated
-    # whenever the portfolio has grown. API metadata reflects what you hold RIGHT NOW.
-    future_breakdown: list[dict] = []
+    # Calendar months elapsed in the 18-month window (denominator for monthly avg)
+    cutoff_month_start = _date(cutoff_18mo.year, cutoff_18mo.month, 1)
+    current_month_start = _date(today.year, today.month, 1)
+    months_elapsed = max(1, (current_month_start.year - cutoff_month_start.year) * 12 +
+                            (current_month_start.month - cutoff_month_start.month))
+
+    # Per-account history-based monthly avg: total received / months_elapsed.
+    # Backfill records use CURRENT share quantities, so these avgs correctly reflect
+    # what you'll receive going forward with your current position sizes.
+    acct_completed_total: dict[str, float] = {}
+    for (acct, ticker), total in acct_ticker_totals.items():
+        acct_completed_total[acct] = acct_completed_total.get(acct, 0) + total
+    per_account_monthly_avg = {
+        acct: round(total / months_elapsed, 2)
+        for acct, total in acct_completed_total.items()
+    }
+    history_monthly_total = round(sum(acct_completed_total.values()) / months_elapsed, 2)
+
+    # API-based projection (yfinance forward rate) — used as fallback when no history
     api_monthly_total = 0.0
+    future_breakdown: list[dict] = []
     for p in positions_flat:
         ann = float(p.get("projected_annual_income") or 0)
         if ann <= 0:
@@ -6307,14 +6322,16 @@ async def div_forecast(token: str = ""):
          for lbl, v in acct_totals.items()], key=lambda x: -x["annual_income"])
 
     result = {
-        "monthly":               monthly_out,
-        "by_ticker":             by_ticker,
-        "by_sector":             by_sector,
-        "by_account":            by_account,
-        "by_yield":              by_yield,
-        "total_projected_12mo":  round(sum(m["projected_income"] for m in monthly_out), 2),
-        "avg_monthly_income":    round(api_monthly_total, 2),
-        "captured_months_count": captured_count,
+        "monthly":                monthly_out,
+        "by_ticker":              by_ticker,
+        "by_sector":              by_sector,
+        "by_account":             by_account,
+        "by_yield":               by_yield,
+        "total_projected_12mo":   round(sum(m["projected_income"] for m in monthly_out), 2),
+        "avg_monthly_income":     round(api_monthly_total, 2),
+        "history_monthly_avg":    history_monthly_total,
+        "per_account_monthly_avg": per_account_monthly_avg,
+        "captured_months_count":  captured_count,
         "total_received_history": round(total_received_all, 2),
     }
     await redis.set(_forecast_cache_key, json.dumps(result), ex=3600)

@@ -3,6 +3,12 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.25] - 2026-04-24
+
+### Fixed
+- **Dividend forecast — projected months now use history-based per-account monthly avg** — future and current-month bars now project from `total_received / months_elapsed` computed per broker account from actual `dividend_history` records (backfilled at current share quantities). This eliminates yfinance `forward_annual_rate` inflation as a source of error. Each account contributes its own avg so the margin account filter shows only margin-account income, not the full portfolio total. Falls back to yfinance rate only when no history exists.
+- **Stat card monthly sub-line is now account-filter aware** — previously always showed the all-accounts yfinance total from the server cache (`avg_monthly_income`); now shows the per-account filtered monthly avg (history-based or yfinance fallback) that exactly matches the bar chart projection.
+
 ## [3.6.24] - 2026-04-25
 
 ### Fixed
