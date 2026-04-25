@@ -12931,6 +12931,11 @@ function _divApplyFilter() {
   _divRenderPies(computed);
   _divFilterAndRenderUpcoming(filtered);
 
+  // Sync the history account-filter dropdown with the active broker card, then re-filter
+  const histSel = document.getElementById('div-hist-account-filter');
+  if (histSel) histSel.value = _divActiveAccount;
+  _divFilterHistory();
+
   // Populate "This Month" stat cards
   const currentYM = new Date().toISOString().slice(0, 7);
   const curBar = blended.find(m => m.month === currentYM);

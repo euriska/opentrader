@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.33] - 2026-04-25
+
+### Fixed
+- **Dividend history table now filters by selected broker account** — clicking a broker card now syncs the history account-filter dropdown and re-renders the history table/chart to show only records for that account. Previously the history section used its own independent dropdown and was never updated when the broker card filter changed.
+
 ## [3.6.32] - 2026-04-25
 
 ### Fixed
