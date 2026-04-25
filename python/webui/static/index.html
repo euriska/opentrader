@@ -2252,7 +2252,11 @@ select option{background:var(--surface2)}
 
       <!-- Top bar -->
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
-        <div style="font-size:16px;font-weight:700;color:var(--fg);flex:1">Options Trader</div>
+        <label style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em">Account:</label>
+        <select id="ot-account-select" onchange="_otSelectAccount(this.value)"
+          style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:12px;min-width:170px">
+          <option value="">All Accounts</option>
+        </select>
         <div style="display:flex;align-items:center;gap:6px">
           <input id="ot-ticker-input" type="text" placeholder="Ticker…"
             style="background:var(--input-bg,#0d1117);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;width:90px;text-transform:uppercase;font-weight:600"
@@ -2260,11 +2264,7 @@ select option{background:var(--surface2)}
           <button onclick="(function(){const t=document.getElementById('ot-ticker-input').value.trim().toUpperCase();if(t)_otSelectTicker(t);})()"
             style="background:var(--blue);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">Go</button>
         </div>
-        <label style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em">Account:</label>
-        <select id="ot-account-select" onchange="_otSelectAccount(this.value)"
-          style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:12px;min-width:170px">
-          <option value="">All Accounts</option>
-        </select>
+        <div style="font-size:16px;font-weight:700;color:var(--fg);flex:1">Options Trader</div>
         <button onclick="_otRefreshAll()" style="background:var(--blue);color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">↻ Refresh</button>
       </div>
 
