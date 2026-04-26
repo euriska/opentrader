@@ -2338,10 +2338,12 @@ select option{background:var(--surface2)}
             </div>
             <div id="ot-chart-container" style="height:340px;display:none"></div>
             <!-- Earnings / ex-div marker legend -->
-            <div id="ot-chart-markers-legend" style="display:none;padding:4px 14px 6px;font-size:10px;color:var(--muted);display:flex;gap:16px">
+            <div id="ot-chart-markers-legend" style="display:none;padding:4px 14px 2px;font-size:10px;color:var(--muted);display:flex;gap:16px">
               <span><span style="color:#f59e0b">▲</span> Earnings</span>
               <span><span style="color:#22c55e">◆</span> Ex-Dividend</span>
             </div>
+            <!-- ATR levels legend -->
+            <div id="ot-chart-atr-legend" style="display:none;padding:4px 14px 6px;font-size:10px;flex-wrap:wrap;gap:10px"></div>
           </div>
 
           <!-- Options Chain card -->
@@ -15792,6 +15794,29 @@ let _otChainData   = null;   // raw chain data {calls, puts, price, expirations,
 let _otRiskData    = null;   // risk API response
 let _otPositions   = [];     // open option positions
 let _otOrderLegs = new Map(); // key:"exp|strike" → {exp,strike,side,mid}
+let _otChartATR    = null;   // last computed ATR(14) for active ticker
+let _otChartAnchor = null;   // anchor price for ATR levels (entry or last close)
+
+function _calcATR(candles, period = 14) {
+  if (candles.length < period + 1) return null;
+  const trs = [];
+  for (let i = 1; i < candles.length; i++) {
+    const h = candles[i].high, l = candles[i].low, pc = candles[i-1].close;
+    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  let atr = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < trs.length; i++) atr = (atr * (period - 1) + trs[i]) / period;
+  return atr;
+}
+
+async function _otCaptureChart() {
+  if (!_otChartInst) return null;
+  try {
+    const canvas = _otChartInst.takeScreenshot();
+    const dataUrl = canvas.toDataURL('image/png');
+    return dataUrl.split(',')[1]; // base64 only
+  } catch(e) { console.warn('Chart capture failed:', e); return null; }
+}
 
 async function loadOptionsTraderPage() {
   await _ensureLwc(() => {});  // pre-load charting lib
@@ -16133,6 +16158,8 @@ async function _otLoadChart(ticker) {
   placeholder.style.display = 'flex';
   container.style.display = 'none';
   container.innerHTML = '';
+  const atrLegEl = document.getElementById('ot-chart-atr-legend');
+  if (atrLegEl) atrLegEl.style.display = 'none';
 
   if (_otChartInst) { try { _otChartInst.remove(); } catch(_){} _otChartInst = null; }
 
@@ -16220,6 +16247,47 @@ async function _otLoadChart(ticker) {
       entryLine.setData(times.map(t => ({ time: t, value: myPos.underlying_entry })));
     }
     if (markers.length) cSeries.setMarkers(markers.sort((a, b) => a.time - b.time));
+
+    // ATR levels overlay
+    const atr = _calcATR(candles, 14);
+    _otChartATR    = atr;
+    _otChartAnchor = myPos?.underlying_entry || last.close;
+    if (atr && _otChartAnchor) {
+      const anchor = _otChartAnchor;
+      const atrDefs = [
+        { mult: -3,   label: '−3 ATR Emergency Exit', color: '#f85149' },
+        { mult: -2,   label: '−2 ATR Stop Loss',       color: '#d29922' },
+        { mult:  0.5, label: '+½ ATR First Roll',       color: '#38bdf8' },
+        { mult:  1,   label: '+1 ATR Second Roll',      color: '#60a5fa' },
+        { mult:  2,   label: '+2 ATR Roll',             color: '#a5b4fc' },
+        { mult:  3,   label: '+3 ATR Roll',             color: '#c4b5fd' },
+      ];
+      for (const lvl of atrDefs) {
+        const price = anchor + lvl.mult * atr;
+        if (price > 0) {
+          cSeries.createPriceLine({
+            price, color: lvl.color, lineWidth: 1,
+            lineStyle: LC.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: lvl.label,
+          });
+        }
+      }
+      // ATR legend row
+      const atrLegend = document.getElementById('ot-chart-atr-legend');
+      if (atrLegend) {
+        const fmt = v => '$' + Number(v).toFixed(2);
+        const shortLabels = ['Emg Exit','Stop Loss','½ Roll','1× Roll','2× Roll','3× Roll'];
+        atrLegend.innerHTML =
+          `<span style="color:var(--muted);margin-right:4px">ATR(14) ${fmt(atr)} ·</span>` +
+          atrDefs.map((lvl, i) => {
+            const p = anchor + lvl.mult * atr;
+            if (p <= 0) return '';
+            return `<span><span style="color:${lvl.color}">&#9644; ${shortLabels[i]}</span> <span style="color:var(--fg)">${fmt(p)}</span></span>`;
+          }).filter(Boolean).join('');
+        atrLegend.style.display = 'flex';
+      }
+    }
 
     chart.timeScale().fitContent();
 
@@ -16629,13 +16697,11 @@ function _otCalcSizing() {
 
   const riskBudget   = cash * (riskPct / 100);
   const costPerContract = premium * 100;
-  const contracts    = Math.floor(riskBudget / costPerContract);
+  const contracts    = Math.max(1, Math.floor(riskBudget / costPerContract));
   const totalCost    = contracts * costPerContract;
 
-  contractsEl.textContent = contracts > 0 ? contracts : '< 1';
-  if (costEl) costEl.textContent = contracts > 0
-    ? `Total cost: $${totalCost.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`
-    : 'Insufficient cash for 1 contract';
+  contractsEl.textContent = contracts;
+  if (costEl) costEl.textContent = `Total cost: $${totalCost.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`;
 }
 
 async function _otPlaceOrder() {
@@ -16653,7 +16719,7 @@ async function _otPlaceOrder() {
   }
 
   const contractsRaw = document.getElementById('ot-risk-contracts')?.textContent?.trim();
-  const contracts    = (contractsRaw && contractsRaw !== '—' && contractsRaw !== '< 1')
+  const contracts    = (contractsRaw && contractsRaw !== '—')
                        ? parseInt(contractsRaw, 10) : 1;
   const premium      = parseFloat(document.getElementById('ot-risk-premium')?.value) || null;
   const orderType    = document.getElementById('ot-order-type')?.value || 'limit';
@@ -16706,6 +16772,20 @@ async function _otPlaceOrder() {
         statusEl.style.background = 'rgba(74,222,128,.1)';
         statusEl.style.color      = '#4ade80';
         statusEl.textContent      = `Order submitted — ID: ${ids}`;
+        // Capture chart snapshot
+        const today = new Date().toISOString().slice(0, 10);
+        const snap = await _otCaptureChart();
+        if (snap) {
+          try {
+            const sr = await fetch('/api/options/trader/save-chart-snapshot', {
+              method: 'POST',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({ token: getToken(), ticker: _otActiveTicker, date: today, image: snap })
+            });
+            const sd = await sr.json();
+            if (sd.status === 'ok') statusEl.textContent += ` | Chart saved: ${sd.filename}`;
+          } catch(_) {}
+        }
       } else {
         statusEl.style.background = 'rgba(248,113,113,.1)';
         statusEl.style.color      = '#f87171';

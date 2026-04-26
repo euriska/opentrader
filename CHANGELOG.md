@@ -3,6 +3,13 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.38] - 2026-04-26
+
+### Added
+- **Options Trader: ATR levels overlay on chart** — six horizontal dashed price lines rendered on every chart load using ATR(14): −3 ATR Emergency Exit (red), −2 ATR Stop Loss (amber), +½ ATR First Roll, +1 ATR Second Roll, +2 ATR Roll, +3 ATR Roll (blue shades). Anchor is the position's underlying entry price when held, otherwise last close. An ATR legend row below the chart shows each level with its dollar price.
+- **Options Trader: Chart snapshot on order placement** — when an order is successfully submitted, the chart (with ATR overlays) is captured via `chart.takeScreenshot()` and saved server-side as `/static/snapshots/{TICKER}_{YYYY-MM-DD}.png`. Filename shown in the order status bar.
+- **New API endpoint `POST /api/options/trader/save-chart-snapshot`** — accepts base64 PNG and writes to `/app/webui/static/snapshots/`.
+
 ## [3.6.37] - 2026-04-25
 
 ### Added

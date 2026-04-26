@@ -18,6 +18,7 @@ import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -2519,6 +2520,127 @@ async def get_broker_quote(symbol: str, account_label: str = ""):
         "ask":    float(ask)  if ask  is not None else None,
         "last":   float(last) if last is not None else None,
     }
+
+
+class ChartSnapshotBody(BaseModel):
+    token:  str
+    ticker: str
+    date:   str   # YYYY-MM-DD
+    image:  str   # base64-encoded PNG
+
+
+@app.post("/api/options/trader/save-chart-snapshot")
+async def save_chart_snapshot(body: ChartSnapshotBody):
+    """Save a chart screenshot PNG captured at order placement time."""
+    check_token(body.token)
+    import base64 as _b64, re as _re
+    ticker = _re.sub(r"[^A-Z0-9]", "", body.ticker.upper())[:10]
+    date   = _re.sub(r"[^0-9\-]", "", body.date)[:10]
+    if not ticker or not date:
+        raise HTTPException(status_code=400, detail="Invalid ticker or date")
+    snap_dir = Path("/app/webui/static/snapshots")
+    snap_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{ticker}_{date}.png"
+    path = snap_dir / filename
+    try:
+        path.write_bytes(_b64.b64decode(body.image))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Image save failed: {e}")
+    return {"status": "ok", "path": f"/static/snapshots/{filename}", "filename": filename}
+
+
+class OptionOrderLeg(BaseModel):
+    option_symbol: str   # full OCC/broker symbol, e.g. AAPL260530C00200000
+    underlying:    str
+    option_type:   str   # call | put
+    strike:        float
+    expiration:    str   # YYYY-MM-DD
+    side:          str   # buy_to_open | sell_to_open | buy_to_close | sell_to_close
+    quantity:      int
+    price:         Optional[float] = None  # None → market order
+
+
+class OptionOrderBody(BaseModel):
+    token:         str
+    account_label: str
+    legs:          list[OptionOrderLeg]
+    order_type:    str = "limit"   # market | limit
+    duration:      str = "day"     # day | gtc
+
+
+@app.post("/api/options/trader/place-order")
+async def place_option_order(body: OptionOrderBody):
+    """Submit one or more option order legs to the broker gateway."""
+    check_token(body.token)
+    if not body.legs:
+        raise HTTPException(status_code=400, detail="At least one leg required")
+    if body.order_type not in ("market", "limit"):
+        raise HTTPException(status_code=400, detail="order_type must be market or limit")
+    if body.duration not in ("day", "gtc"):
+        raise HTTPException(status_code=400, detail="duration must be day or gtc")
+
+    import uuid as _uuid, json as _json
+    import redis.asyncio as _aioredis
+
+    try:
+        REDIS_URL = os.getenv("REDIS_URL", "redis://ot-redis:6379/0")
+        redis = await _aioredis.from_url(
+            REDIS_URL, encoding="utf-8", decode_responses=True,
+            socket_connect_timeout=5, socket_timeout=15,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Redis unavailable: {e}")
+
+    results = []
+    for leg in body.legs:
+        req_id = str(_uuid.uuid4())
+        cmd = {
+            "command":       "place_order",
+            "request_id":    req_id,
+            "account_label": body.account_label,
+            "asset_class":   "option",
+            "symbol":        leg.underlying.upper(),
+            "option_symbol": leg.option_symbol,
+            "side":          leg.side,
+            "quantity":      str(leg.quantity),
+            "order_type":    body.order_type,
+            "price":         str(leg.price) if leg.price is not None else "",
+            "duration":      body.duration,
+            "tag":           "webui-trader",
+            "issued_by":     "webui",
+        }
+        await redis.xadd(STREAMS["broker_commands"], cmd)
+        result = await redis.blpop([f"broker:reply:{req_id}"], timeout=15)
+        if not result:
+            await redis.aclose()
+            raise HTTPException(status_code=504, detail=f"Order timeout for leg {leg.option_symbol}")
+
+        raw = _json.loads(result[1])
+        r   = raw[0] if isinstance(raw, list) else raw
+        if r.get("status") != "ok":
+            await redis.aclose()
+            raise HTTPException(status_code=502, detail=r.get("error", "Order failed"))
+
+        order_data   = r.get("data", {}) or {}
+        inner_status = str(order_data.get("status", "")).lower()
+        REJECTED     = {"rejected", "error", "canceled", "cancelled", "denied", "failed"}
+        order_id     = str(order_data.get("id", order_data.get("orderId", "")))
+        raw_errors   = order_data.get("errors") or {}
+        if isinstance(raw_errors, dict):
+            raw_errors = raw_errors.get("error") or {}
+        broker_err   = str(
+            raw_errors or order_data.get("error") or order_data.get("message") or ""
+        ).strip()
+        null_id      = not order_id or order_id in ("0", "None", "null")
+
+        if inner_status in REJECTED or broker_err or null_id:
+            await redis.aclose()
+            raise HTTPException(status_code=422, detail=broker_err or f"Order {inner_status or 'rejected'} by broker")
+
+        results.append({"leg": leg.option_symbol, "order_id": order_id, "status": inner_status or "pending"})
+
+    await redis.aclose()
+    return {"status": "ok", "orders": results}
 
 
 class LiquidateBody(BaseModel):
