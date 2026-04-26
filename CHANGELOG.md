@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.41] - 2026-04-26
+
+### Added
+- **Options Trading Log: roll-chain risk reduction** — positions linked by rolls now display a "CHAIN RISK" bar showing gross risk, cumulative credits banked from prior legs, and the resulting net risk on the current leg. A progress bar tracks how much prior credits have offset the current exposure. When cumulative credits fully cover the current leg's cost basis, the position is flagged "HOUSE MONEY" in teal. Debit rolls (negative credits) correctly increase the displayed net risk. DB migration adds `chain_id UUID` to `option_positions` for future explicit roll-chain linking. Chain computation runs at query time in both the summary and ticker endpoints, grouped by broker/account/underlying/option-type with resets on closed/expired legs.
+
 ## [3.6.40] - 2026-04-26
 
 ### Fixed

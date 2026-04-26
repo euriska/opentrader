@@ -8077,6 +8077,30 @@ async def get_options_log_summary():
                 ticker_pnl[sym]["total_pnl"] += pnl
                 ticker_pnl[sym]["count"] += 1
 
+    # Roll-chain risk reduction: credits banked from prior rolled legs reduce net risk on the current leg
+    _chain_groups: dict = {}
+    for t in trades:
+        k = (t["broker"], t["account_label"], t["underlying"], t["option_type"])
+        if k not in _chain_groups:
+            _chain_groups[k] = []
+        _chain_groups[k].append(t)
+    for grp in _chain_groups.values():
+        grp.sort(key=lambda x: x["entry_date"] or "")
+        cum_credits = 0.0
+        for i, pos in enumerate(grp):
+            if i > 0 and grp[i - 1]["status"] != "rolled":
+                cum_credits = 0.0  # prior leg was closed/expired, not rolled — new independent chain
+            cb = pos["cost_basis"]
+            if cb:
+                net_risk = cb - cum_credits
+                pos["gross_risk"]         = cb
+                pos["cumulative_credits"] = round(cum_credits, 2)
+                pos["net_risk"]           = round(net_risk, 2)
+                pos["risk_offset_pct"]    = round(cum_credits / cb * 100, 1)
+                pos["house_money"]        = net_risk <= 0
+            if pos["status"] in ("closed", "rolled", "expired") and pos.get("realized_pnl") is not None:
+                cum_credits += pos["realized_pnl"]
+
     # Top 5 / bottom 5 — only include tickers with strictly positive / negative net P&L
     all_ticker_list = list(ticker_pnl.values())
     top_tickers    = sorted([t for t in all_ticker_list if t["total_pnl"] > 0],  key=lambda x: x["total_pnl"], reverse=True)[:5]
@@ -8294,6 +8318,32 @@ async def get_options_log_ticker(ticker: str):
                     result[-1]["total_realized_pnl"] = round(ev_sum, 2)
                 except Exception:
                     pass
+
+    # Roll-chain risk reduction per account/type group
+    _tk_chain_groups: dict = {}
+    for pos in result:
+        k = (pos["account_label"], pos["option_type"])
+        if k not in _tk_chain_groups:
+            _tk_chain_groups[k] = []
+        _tk_chain_groups[k].append(pos)
+    for grp in _tk_chain_groups.values():
+        grp.sort(key=lambda x: x["entry_date"] or "")
+        cum_credits = 0.0
+        for i, pos in enumerate(grp):
+            if i > 0 and grp[i - 1]["status"] != "rolled":
+                cum_credits = 0.0
+            ep  = pos["entry_price"]
+            qty = pos["qty"]
+            cb  = round(ep * abs(qty) * 100, 2) if ep and qty else None
+            if cb:
+                net_risk = cb - cum_credits
+                pos["gross_risk"]         = cb
+                pos["cumulative_credits"] = round(cum_credits, 2)
+                pos["net_risk"]           = round(net_risk, 2)
+                pos["risk_offset_pct"]    = round(cum_credits / cb * 100, 1)
+                pos["house_money"]        = net_risk <= 0
+            if pos["status"] in ("closed", "rolled", "expired") and pos.get("total_realized_pnl") is not None:
+                cum_credits += pos["total_realized_pnl"]
 
     # Ticker-level summary
     total_pnl = sum(

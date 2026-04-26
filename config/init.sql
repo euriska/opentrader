@@ -82,6 +82,9 @@ ALTER TABLE scheduler_jobs ADD COLUMN IF NOT EXISTS intraday_days         TEXT;
 ALTER TABLE option_positions ADD COLUMN IF NOT EXISTS delta NUMERIC;
 -- option_positions expiry_locked flag (added 2026-04-11)
 ALTER TABLE option_positions ADD COLUMN IF NOT EXISTS expiry_locked BOOLEAN DEFAULT FALSE;
+-- option_positions chain_id (added 2026-04-26) — links rolled legs into a roll chain
+ALTER TABLE option_positions ADD COLUMN IF NOT EXISTS chain_id UUID;
+CREATE INDEX IF NOT EXISTS option_positions_chain_id ON option_positions (chain_id) WHERE chain_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS ovtlyr_intel (
     id           UUID NOT NULL DEFAULT gen_random_uuid(),

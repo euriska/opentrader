@@ -3071,6 +3071,10 @@ select option{background:var(--surface2)}
             class="select-input" style="width:100%;padding:5px 8px 5px 26px;font-size:12px;box-sizing:border-box"
             oninput="_libSearchChange(this.value)">
         </div>
+        <select id="lib-search-field" class="select-input" style="font-size:12px;padding:4px 8px" onchange="_libSearchFieldChange(this.value)">
+          <option value="title">Title / ISBN</option>
+          <option value="author">Author</option>
+        </select>
         <select id="lib-filter-status" class="select-input" style="font-size:12px;padding:4px 8px" onchange="_libLoad()">
           <option value="">All statuses</option>
           <option value="reading">Reading</option>
@@ -10868,7 +10872,8 @@ setInterval(loadOvtlyrMarketSignals, 5 * 60 * 1000); // refresh every 5 min
 // ══════════════════════════════════════════════════════════════════════════════
 
 let _libBooks      = [];
-let _libSearch     = '';
+let _libSearch      = '';
+let _libSearchField = 'title';
 let _libSort1      = 'title';
 let _libSort1Dir   = 'asc';
 let _libSort2      = '';
@@ -11016,6 +11021,12 @@ function _libSearchChange(val) {
   _libSearch = (val || '').trim().toLowerCase();
   _libRender();
 }
+function _libSearchFieldChange(val) {
+  _libSearchField = val;
+  const input = document.getElementById('lib-search-input');
+  input.placeholder = val === 'author' ? 'Author name…' : 'Title or ISBN…';
+  _libRender();
+}
 
 function _libToggleSortDir(btnId) {
   const btn = document.getElementById(btnId);
@@ -11077,13 +11088,16 @@ function _libRender() {
   const s2dir = document.getElementById('lib-sort2-dir');
   if (s2dir) s2dir.style.opacity = _libSort2 ? '1' : '0.35';
 
-  // Search filter (title or ISBN)
+  // Search filter
   let books = _libBooks;
   if (_libSearch) {
-    const q = _libSearch.replace(/-/g, '');
     books = books.filter(b => {
+      if (_libSearchField === 'author') {
+        return (b.author || '').toLowerCase().includes(_libSearch);
+      }
       const title = (b.title || '').toLowerCase();
       const isbn  = (b.isbn  || '').toLowerCase().replace(/-/g, '');
+      const q     = _libSearch.replace(/-/g, '');
       return title.includes(_libSearch) || isbn.includes(q);
     });
   }
@@ -15126,6 +15140,35 @@ function _optlogRenderPositionRow(p) {
   const strikeStr = p.strike ? '$'+p.strike : '—';
   const typeTag  = p.option_type ? `<span style="background:#6b728022;color:var(--muted);border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;text-transform:uppercase">${p.option_type}</span>` : '';
 
+  // Roll-chain net risk bar
+  let netRiskHtml = '';
+  if (p.gross_risk != null && p.cumulative_credits != null && p.cumulative_credits !== 0) {
+    const netRisk    = p.net_risk ?? p.gross_risk;
+    const pct        = Math.max(0, Math.min(100, p.risk_offset_pct ?? 0));
+    const barColor   = pct >= 100 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#ef4444';
+    const nrColor    = p.house_money ? '#10b981' : pct >= 75 ? '#22c55e' : pct >= 25 ? '#f59e0b' : '#ef4444';
+    const houseBadge = p.house_money
+      ? `<span style="background:#10b98122;color:#10b981;border-radius:8px;padding:1px 8px;font-size:9px;font-weight:800;letter-spacing:.04em">HOUSE MONEY</span>`
+      : '';
+    const creditsStr = p.cumulative_credits > 0
+      ? `<span style="font-size:10px;color:#22c55e">−$${p.cumulative_credits.toFixed(2)} credits banked</span>`
+      : `<span style="font-size:10px;color:#ef4444">+$${Math.abs(p.cumulative_credits).toFixed(2)} added risk</span>`;
+    netRiskHtml = `
+      <div style="display:flex;align-items:center;gap:10px;padding:3px 0 3px 4px;flex-wrap:wrap">
+        <span style="font-size:10px;color:var(--muted);font-weight:600">CHAIN RISK</span>
+        <span style="font-size:10px;color:var(--muted)">gross <b style="color:var(--fg)">$${p.gross_risk.toFixed(2)}</b></span>
+        ${creditsStr}
+        <span style="font-size:10px;font-weight:700;color:${nrColor}">net <b>$${Math.max(0, netRisk).toFixed(2)}</b></span>
+        ${houseBadge}
+        <div style="display:flex;align-items:center;gap:4px">
+          <div style="width:80px;height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:${barColor};border-radius:3px"></div>
+          </div>
+          <span style="font-size:9px;color:var(--muted)">${pct}%</span>
+        </div>
+      </div>`;
+  }
+
   // Milestone vertical chain
   const milestones = p.milestones || [];
   let chainHtml = '';
@@ -15171,6 +15214,7 @@ function _optlogRenderPositionRow(p) {
       <button onclick="event.stopPropagation();_optlogOpenDetailModal('${p.id}','${p.underlying}')"
         style="background:var(--card-header);border:1px solid var(--border);border-radius:5px;padding:2px 8px;font-size:10px;cursor:pointer;color:var(--fg)">Detail</button>
     </div>
+    ${netRiskHtml}
     ${chainHtml}
   </div>`;
 }
