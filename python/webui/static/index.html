@@ -2457,6 +2457,22 @@ select option{background:var(--surface2)}
                   <div id="ot-risk-contracts" style="font-size:18px;font-weight:700;color:#818cf8">—</div>
                   <div id="ot-risk-cost" style="font-size:10px;color:var(--muted)">Total cost: —</div>
                 </div>
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                  <select id="ot-order-type" style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:11px;flex:1">
+                    <option value="limit">Limit</option>
+                    <option value="market">Market</option>
+                  </select>
+                  <select id="ot-order-duration" style="background:var(--card-header);color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:11px;flex:1">
+                    <option value="day">Day</option>
+                    <option value="gtc">GTC</option>
+                  </select>
+                </div>
+                <button id="ot-place-order-btn" onclick="_otPlaceOrder()"
+                  style="width:100%;background:rgba(74,222,128,.2);color:#4ade80;border:1px solid rgba(74,222,128,.4);border-radius:6px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.04em;transition:background .15s"
+                  onmouseenter="this.style.background='rgba(74,222,128,.35)'" onmouseleave="this.style.background='rgba(74,222,128,.2)'">
+                  Place Order
+                </button>
+                <div id="ot-order-status" style="display:none;font-size:11px;padding:6px 8px;border-radius:5px;line-height:1.4"></div>
               </div>
             </div>
 
@@ -16378,8 +16394,9 @@ function _otFilterChain() {
       </td></tr>`;
     }
     const hasAnyPos = r.call?.has_position || r.put?.has_position;
-    const legKey    = r.exp + '|' + r.strike;
-    const leg       = _otOrderLegs.get(legKey);
+    const legKeyC   = r.exp + '|' + r.strike + '|call';
+    const legKeyP   = r.exp + '|' + r.strike + '|put';
+    const leg       = _otOrderLegs.get(legKeyC) || _otOrderLegs.get(legKeyP);
     const sellSel   = leg?.side === 'sell';
     const buySel    = leg?.side === 'buy';
     // Strike cell: red when sell-selected, blue when position, default otherwise
@@ -16396,6 +16413,8 @@ function _otFilterChain() {
       : '';
     const putsHtml = showPuts ? cellsFor(r.put, false, leg) : '';
     return expHeader + `<tr data-exp="${r.exp}" data-strike="${r.strike}" data-haspos="${hasAnyPos?'1':'0'}"
+      data-call-contract="${r.call?.contract||''}" data-put-contract="${r.put?.contract||''}"
+      data-call-haspos="${r.call?.has_position?'1':'0'}" data-put-haspos="${r.put?.has_position?'1':'0'}"
       style="border-bottom:1px solid rgba(255,255,255,.03);${atmSty}">
       ${cellsFor(r.call, true, leg)}
       <td style="${strikeSty}">${r.strike.toFixed(0)}${sideChip}</td>
@@ -16426,17 +16445,24 @@ function _otFilterChain() {
     }
     tr.addEventListener('mouseenter', () => { if (!_otOrderLegs.has(key)) tr.style.background = 'rgba(255,255,255,.03)'; });
     tr.addEventListener('mouseleave', () => { if (!_otOrderLegs.has(key)) tr.style.background = ''; });
-    tr.addEventListener('click', () => {
-      const exp    = tr.dataset.exp;
-      const strike = parseFloat(tr.dataset.strike);
-      const hasPos = tr.dataset.haspos === '1';
-      const cur    = _otOrderLegs.get(key);
+    tr.addEventListener('click', (evt) => {
+      const exp      = tr.dataset.exp;
+      const strike   = parseFloat(tr.dataset.strike);
+      // Detect call vs put based on which column was clicked
+      const td       = evt.target.closest('td');
+      const cellIdx  = td ? Array.from(tr.cells).indexOf(td) : 0;
+      const putsShown = document.getElementById('ot-show-puts')?.checked;
+      const optType  = (putsShown && cellIdx > 7) ? 'put' : 'call';
+      const contract = optType === 'put' ? tr.dataset.putContract : tr.dataset.callContract;
+      const hasPos   = (optType === 'put' ? tr.dataset.putHaspos : tr.dataset.callHaspos) === '1';
+      const key      = exp + '|' + strike + '|' + optType;
+      const cur      = _otOrderLegs.get(key);
 
       // Cycle: none→BUY (or SELL if has position)→SELL→removed
       if (!cur) {
         const midCell = tr.querySelectorAll('td')[2];
         const mid = midCell ? (parseFloat(midCell.textContent) || 0) : 0;
-        _otOrderLegs.set(key, {exp, strike, side: hasPos ? 'sell' : 'buy', mid});
+        _otOrderLegs.set(key, {exp, strike, side: hasPos ? 'sell' : 'buy', mid, option_type: optType, contract});
       } else if (cur.side === 'buy') {
         _otOrderLegs.set(key, {...cur, side: 'sell'});
       } else {
@@ -16495,12 +16521,32 @@ function _otUpdateOrderBar() {
     const color = leg.side === 'buy' ? '#4ade80' : '#f87171';
     const bg    = leg.side === 'buy' ? 'rgba(74,222,128,.15)' : 'rgba(248,113,113,.15)';
     const expShort = leg.exp ? leg.exp.slice(5) : '';
+    const ot    = (leg.option_type || 'call').toUpperCase();
+    const safeKey = key.replace(/'/g, "\\'");
     return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;color:${color};background:${bg};border:1px solid ${color}40">
       <span>${leg.side.toUpperCase()}</span>
-      <span style="color:var(--fg);font-weight:400">${_otActiveTicker} $${leg.strike.toFixed(0)} ${expShort}</span>
-      <span onclick="_otRemoveOrderLeg('${key}')" style="cursor:pointer;opacity:.6;margin-left:2px">✕</span>
+      <span style="color:var(--fg);font-weight:400">${_otActiveTicker} $${leg.strike.toFixed(0)} ${expShort} ${ot}</span>
+      <span onclick="_otRemoveOrderLeg('${safeKey}')" style="cursor:pointer;opacity:.6;margin-left:2px">✕</span>
     </span>`;
   }).join('');
+
+  // Sync Place Order button color to dominant side
+  const firstLeg = [..._otOrderLegs.values()][0];
+  const btn = document.getElementById('ot-place-order-btn');
+  if (btn && firstLeg) {
+    const isBuy = firstLeg.side?.startsWith('buy');
+    const c = isBuy ? '#4ade80' : '#f87171';
+    const bg = isBuy ? 'rgba(74,222,128,.2)' : 'rgba(248,113,113,.2)';
+    const hov = isBuy ? 'rgba(74,222,128,.35)' : 'rgba(248,113,113,.35)';
+    const bdr = isBuy ? 'rgba(74,222,128,.4)' : 'rgba(248,113,113,.4)';
+    const lbl = isBuy ? 'Place Order' : 'Place Sell Order';
+    btn.style.background  = bg;
+    btn.style.color       = c;
+    btn.style.borderColor = bdr;
+    btn.textContent       = lbl;
+    btn.onmouseenter = () => btn.style.background = hov;
+    btn.onmouseleave = () => btn.style.background = bg;
+  }
 }
 
 function _otRemoveOrderLeg(key) {
@@ -16590,6 +16636,110 @@ function _otCalcSizing() {
   if (costEl) costEl.textContent = contracts > 0
     ? `Total cost: $${totalCost.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`
     : 'Insufficient cash for 1 contract';
+}
+
+async function _otPlaceOrder() {
+  if (!_otOrderLegs.size) {
+    const s = document.getElementById('ot-order-status');
+    if (s) { s.style.display='block'; s.style.background='rgba(251,191,36,.1)'; s.style.color='#fbbf24'; s.textContent='Select at least one option leg from the chain.'; }
+    return;
+  }
+
+  const account = document.getElementById('ot-account-select')?.value;
+  if (!account) {
+    const s = document.getElementById('ot-order-status');
+    if (s) { s.style.display='block'; s.style.background='rgba(251,191,36,.1)'; s.style.color='#fbbf24'; s.textContent='Select a broker account first.'; }
+    return;
+  }
+
+  const contractsRaw = document.getElementById('ot-risk-contracts')?.textContent?.trim();
+  const contracts    = (contractsRaw && contractsRaw !== '—' && contractsRaw !== '< 1')
+                       ? parseInt(contractsRaw, 10) : 1;
+  const premium      = parseFloat(document.getElementById('ot-risk-premium')?.value) || null;
+  const orderType    = document.getElementById('ot-order-type')?.value || 'limit';
+  const duration     = document.getElementById('ot-order-duration')?.value || 'day';
+
+  // Determine overall side for button color (first leg dominates)
+  const firstLeg  = [..._otOrderLegs.values()][0];
+  const isBuy     = firstLeg?.side?.startsWith('buy');
+
+  // Build legs array
+  const legs = [..._otOrderLegs.values()].map(leg => ({
+    option_symbol: leg.contract || '',
+    underlying:    _otActiveTicker || '',
+    option_type:   leg.option_type,
+    strike:        parseFloat(leg.strike),
+    expiration:    leg.exp,
+    side:          leg.side,
+    quantity:      contracts,
+    price:         (orderType === 'limit' && premium != null) ? premium : null
+  }));
+
+  // Validate all legs have a contract symbol
+  const missing = legs.filter(l => !l.option_symbol);
+  if (missing.length) {
+    const s = document.getElementById('ot-order-status');
+    if (s) { s.style.display='block'; s.style.background='rgba(248,113,113,.1)'; s.style.color='#f87171'; s.textContent=`${missing.length} leg(s) missing OCC symbol — reload the chain.`; }
+    return;
+  }
+
+  const btn = document.getElementById('ot-place-order-btn');
+  const statusEl = document.getElementById('ot-order-status');
+
+  // Loading state
+  if (btn) { btn.disabled=true; btn.textContent='Submitting…'; btn.style.opacity='0.6'; }
+  if (statusEl) { statusEl.style.display='none'; }
+
+  try {
+    const token = getToken();
+    const res = await fetch('/api/options/trader/place-order', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ token, account_label: account, legs, order_type: orderType, duration })
+    });
+    const data = await res.json();
+
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      if (res.ok && data.status === 'ok') {
+        const ids = (data.orders || []).map(o => o.order_id || 'pending').join(', ');
+        statusEl.style.background = 'rgba(74,222,128,.1)';
+        statusEl.style.color      = '#4ade80';
+        statusEl.textContent      = `Order submitted — ID: ${ids}`;
+      } else {
+        statusEl.style.background = 'rgba(248,113,113,.1)';
+        statusEl.style.color      = '#f87171';
+        statusEl.textContent      = data.detail || data.message || 'Order failed';
+      }
+    }
+  } catch(e) {
+    if (statusEl) {
+      statusEl.style.display='block';
+      statusEl.style.background='rgba(248,113,113,.1)';
+      statusEl.style.color='#f87171';
+      statusEl.textContent='Network error — ' + e.message;
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Place Order';
+      btn.style.opacity = '1';
+      // Color based on side
+      if (isBuy) {
+        btn.style.background = 'rgba(74,222,128,.2)';
+        btn.style.color      = '#4ade80';
+        btn.style.borderColor= 'rgba(74,222,128,.4)';
+        btn.onmouseenter = () => btn.style.background='rgba(74,222,128,.35)';
+        btn.onmouseleave = () => btn.style.background='rgba(74,222,128,.2)';
+      } else {
+        btn.style.background = 'rgba(248,113,113,.2)';
+        btn.style.color      = '#f87171';
+        btn.style.borderColor= 'rgba(248,113,113,.4)';
+        btn.onmouseenter = () => btn.style.background='rgba(248,113,113,.35)';
+        btn.onmouseleave = () => btn.style.background='rgba(248,113,113,.2)';
+      }
+    }
+  }
 }
 </script>
 

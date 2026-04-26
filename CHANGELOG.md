@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.37] - 2026-04-25
+
+### Added
+- **Options Trader: Place Order button now functional** — clicking "Place Order" in the Risk Calculator submits all selected legs to the broker gateway via `/api/options/trader/place-order`. Collects account, contracts count, premium, order type, and duration; validates legs have OCC symbols; shows submission status (order ID on success, error message on failure). Button turns red for sell orders, stays green for buys.
+
 ## [3.6.36] - 2026-04-25
 
 ### Added
