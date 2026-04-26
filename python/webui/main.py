@@ -8077,7 +8077,8 @@ async def get_options_log_summary():
                 ticker_pnl[sym]["total_pnl"] += pnl
                 ticker_pnl[sym]["count"] += 1
 
-    # Roll-chain risk reduction: credits banked from prior rolled legs reduce net risk on the current leg
+    # Roll-chain risk reduction: credits banked from all prior closed legs on same underlying/account/type
+    # reduce the net risk on each subsequent position. No status='rolled' required — close+reopen counts.
     _chain_groups: dict = {}
     for t in trades:
         k = (t["broker"], t["account_label"], t["underlying"], t["option_type"])
@@ -8087,9 +8088,7 @@ async def get_options_log_summary():
     for grp in _chain_groups.values():
         grp.sort(key=lambda x: x["entry_date"] or "")
         cum_credits = 0.0
-        for i, pos in enumerate(grp):
-            if i > 0 and grp[i - 1]["status"] != "rolled":
-                cum_credits = 0.0  # prior leg was closed/expired, not rolled — new independent chain
+        for pos in grp:
             cb = pos["cost_basis"]
             if cb:
                 net_risk = cb - cum_credits
@@ -8319,7 +8318,7 @@ async def get_options_log_ticker(ticker: str):
                 except Exception:
                     pass
 
-    # Roll-chain risk reduction per account/type group
+    # Roll-chain risk reduction per account/type group — accumulate credits from all prior closed legs
     _tk_chain_groups: dict = {}
     for pos in result:
         k = (pos["account_label"], pos["option_type"])
@@ -8329,9 +8328,7 @@ async def get_options_log_ticker(ticker: str):
     for grp in _tk_chain_groups.values():
         grp.sort(key=lambda x: x["entry_date"] or "")
         cum_credits = 0.0
-        for i, pos in enumerate(grp):
-            if i > 0 and grp[i - 1]["status"] != "rolled":
-                cum_credits = 0.0
+        for pos in grp:
             ep  = pos["entry_price"]
             qty = pos["qty"]
             cb  = round(ep * abs(qty) * 100, 2) if ep and qty else None

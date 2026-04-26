@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.43] - 2026-04-26
+
+### Fixed
+- **Options Trading Log: CHAIN RISK bar now appears for close-and-reopen roll patterns** — prior implementation required `status='rolled'` on previous legs to detect a chain, but all positions in this dataset are `status='closed'`. Removed the status-based reset; credits now accumulate forward across all prior closed positions on the same underlying/account/option-type, ordered by entry date. LUNR ×14, UBS ×12, NVDA ×11, etc. will now correctly show cumulative credits and net risk reduction.
+
 ## [3.6.42] - 2026-04-26
 
 ### Fixed
