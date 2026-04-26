@@ -16166,9 +16166,10 @@ async function _otLoadChart(ticker) {
   await new Promise(r => _ensureLwc(r));
 
   try {
-    const [d, meta] = await Promise.all([
+    const [d, meta, atrTpl] = await Promise.all([
       apiFetch(`/api/charts/data?symbol=${encodeURIComponent(ticker)}&timeframe=${tf}&bars=200`),
       apiFetch(`/api/options/trader/ticker-meta?ticker=${encodeURIComponent(ticker)}`).catch(() => ({})),
+      apiFetch(`/api/options/trader/atr-template/${encodeURIComponent(ticker)}`).catch(() => ({ templates: [] })),
     ]);
     const candles = (d.ohlcv || []).filter(c => c.open && c.high && c.low && c.close)
                                    .sort((a, b) => a.time - b.time);
@@ -16248,20 +16249,24 @@ async function _otLoadChart(ticker) {
     }
     if (markers.length) cSeries.setMarkers(markers.sort((a, b) => a.time - b.time));
 
-    // ATR levels overlay
+    // Last candle (needed for ATR anchor and legend)
+    const last = candles[candles.length - 1];
+    const prev = candles[candles.length - 2];
+
+    // Live ATR levels overlay (recalculated, dashed — for reference)
     const atr = _calcATR(candles, 14);
     _otChartATR    = atr;
     _otChartAnchor = myPos?.underlying_entry || last.close;
+    const atrDefs = [
+      { mult: -3,   label: '−3 ATR Emergency Exit', color: '#f85149' },
+      { mult: -2,   label: '−2 ATR Stop Loss',       color: '#d29922' },
+      { mult:  0.5, label: '+½ ATR First Roll',       color: '#38bdf8' },
+      { mult:  1,   label: '+1 ATR Second Roll',      color: '#60a5fa' },
+      { mult:  2,   label: '+2 ATR Roll',             color: '#a5b4fc' },
+      { mult:  3,   label: '+3 ATR Roll',             color: '#c4b5fd' },
+    ];
     if (atr && _otChartAnchor) {
       const anchor = _otChartAnchor;
-      const atrDefs = [
-        { mult: -3,   label: '−3 ATR Emergency Exit', color: '#f85149' },
-        { mult: -2,   label: '−2 ATR Stop Loss',       color: '#d29922' },
-        { mult:  0.5, label: '+½ ATR First Roll',       color: '#38bdf8' },
-        { mult:  1,   label: '+1 ATR Second Roll',      color: '#60a5fa' },
-        { mult:  2,   label: '+2 ATR Roll',             color: '#a5b4fc' },
-        { mult:  3,   label: '+3 ATR Roll',             color: '#c4b5fd' },
-      ];
       for (const lvl of atrDefs) {
         const price = anchor + lvl.mult * atr;
         if (price > 0) {
@@ -16273,27 +16278,52 @@ async function _otLoadChart(ticker) {
           });
         }
       }
-      // ATR legend row
-      const atrLegend = document.getElementById('ot-chart-atr-legend');
-      if (atrLegend) {
-        const fmt = v => '$' + Number(v).toFixed(2);
-        const shortLabels = ['Emg Exit','Stop Loss','½ Roll','1× Roll','2× Roll','3× Roll'];
-        atrLegend.innerHTML =
-          `<span style="color:var(--muted);margin-right:4px">ATR(14) ${fmt(atr)} ·</span>` +
-          atrDefs.map((lvl, i) => {
-            const p = anchor + lvl.mult * atr;
-            if (p <= 0) return '';
-            return `<span><span style="color:${lvl.color}">&#9644; ${shortLabels[i]}</span> <span style="color:var(--fg)">${fmt(p)}</span></span>`;
-          }).filter(Boolean).join('');
-        atrLegend.style.display = 'flex';
+    }
+
+    // Saved ATR template overlay (solid lines — actual trade management levels)
+    const templates = atrTpl?.templates || [];
+    const atrLegendParts = [];
+    if (atr && _otChartAnchor) {
+      const fmt = v => '$' + Number(v).toFixed(2);
+      const shortLabels = ['Emg Exit','Stop Loss','½ Roll','1× Roll','2× Roll','3× Roll'];
+      atrLegendParts.push(
+        `<span style="color:var(--muted);margin-right:4px">Live ATR(14) ${fmt(atr)} ·</span>` +
+        atrDefs.map((lvl, i) => {
+          const p = _otChartAnchor + lvl.mult * atr;
+          if (p <= 0) return '';
+          return `<span><span style="color:${lvl.color}">&#9644; ${shortLabels[i]}</span> <span style="color:var(--fg)">${fmt(p)}</span></span>`;
+        }).filter(Boolean).join('')
+      );
+    }
+    for (const tpl of templates) {
+      const tplAtr    = tpl.atr_value;
+      const tplAnchor = tpl.anchor_price;
+      const tplDate   = tpl.trade_date;
+      for (const lvl of atrDefs) {
+        const price = tplAnchor + lvl.mult * tplAtr;
+        if (price > 0) {
+          cSeries.createPriceLine({
+            price, color: lvl.color, lineWidth: 2,
+            lineStyle: LC.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: `[${tplDate}] ${lvl.label}`,
+          });
+        }
       }
+      const fmt = v => '$' + Number(v).toFixed(2);
+      atrLegendParts.push(
+        `<span style="color:var(--muted);margin-top:2px;width:100%">Template ${tplDate} · anchor ${fmt(tplAnchor)} · ATR ${fmt(tplAtr)}</span>`
+      );
+    }
+    const atrLegend = document.getElementById('ot-chart-atr-legend');
+    if (atrLegend && atrLegendParts.length) {
+      atrLegend.innerHTML = atrLegendParts.join('<span style="color:var(--border);margin:0 6px">|</span>');
+      atrLegend.style.display = 'flex';
     }
 
     chart.timeScale().fitContent();
 
     // Update legend
-    const last = candles[candles.length - 1];
-    const prev = candles[candles.length - 2];
     const metaEl = document.getElementById('ot-chart-meta');
     if (last && prev && metaEl) {
       const chg = last.close - prev.close;
@@ -16772,8 +16802,22 @@ async function _otPlaceOrder() {
         statusEl.style.background = 'rgba(74,222,128,.1)';
         statusEl.style.color      = '#4ade80';
         statusEl.textContent      = `Order submitted — ID: ${ids}`;
-        // Capture chart snapshot
+        // Save ATR template + capture chart snapshot
         const today = new Date().toISOString().slice(0, 10);
+        const orderIds = (data.orders || []).map(o => o.order_id).filter(Boolean).join(',');
+        if (_otChartATR && _otChartAnchor) {
+          try {
+            await fetch('/api/options/trader/save-atr-template', {
+              method: 'POST',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({
+                token: getToken(), ticker: _otActiveTicker,
+                anchor_price: _otChartAnchor, atr_value: _otChartATR,
+                trade_date: today, order_ids: orderIds
+              })
+            });
+          } catch(_) {}
+        }
         const snap = await _otCaptureChart();
         if (snap) {
           try {

@@ -3,6 +3,14 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.39] - 2026-04-26
+
+### Added
+- **Options Trader: ATR template persistence** — when an order is placed, the ATR(14) value and anchor price are saved to `option_atr_templates` DB table (ticker, anchor, ATR, trade date, order IDs). On every chart load, saved templates for that ticker are fetched and overlaid as **solid, thicker** price lines distinct from the live dashed lines, labeled `[YYYY-MM-DD] Level Name`. Supports multiple templates per ticker. Legend row shows both live ATR and all saved template anchors.
+- **New DB table `option_atr_templates`** — created at startup; indexed by ticker + trade_date DESC.
+- **New endpoints** `POST /api/options/trader/save-atr-template` and `GET /api/options/trader/atr-template/{ticker}`.
+- **Bug fix**: `last` was referenced before declaration in `_otLoadChart`; moved `last`/`prev` definitions to before the ATR section.
+
 ## [3.6.38] - 2026-04-26
 
 ### Added

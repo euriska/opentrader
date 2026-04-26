@@ -1135,6 +1135,27 @@ async def on_startup():
             pass
     # Dividend tables
     await _div_ensure_tables()
+    # ATR template table
+    if DB_URL:
+        try:
+            pool = await _get_db_pool()
+            await pool.execute("""
+                CREATE TABLE IF NOT EXISTS option_atr_templates (
+                    id           BIGSERIAL PRIMARY KEY,
+                    ticker       TEXT        NOT NULL,
+                    anchor_price DOUBLE PRECISION NOT NULL,
+                    atr_value    DOUBLE PRECISION NOT NULL,
+                    trade_date   DATE        NOT NULL,
+                    order_ids    TEXT,
+                    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            await pool.execute("""
+                CREATE INDEX IF NOT EXISTS idx_opt_atr_tpl_ticker
+                ON option_atr_templates (ticker, trade_date DESC)
+            """)
+        except Exception:
+            pass
     # Start price alert checker background loop
     asyncio.create_task(_price_alert_loop())
     # Pre-warm caches in background so first page load is fast
@@ -2547,6 +2568,58 @@ async def save_chart_snapshot(body: ChartSnapshotBody):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Image save failed: {e}")
     return {"status": "ok", "path": f"/static/snapshots/{filename}", "filename": filename}
+
+
+class AtrTemplateBody(BaseModel):
+    token:        str
+    ticker:       str
+    anchor_price: float
+    atr_value:    float
+    trade_date:   str    # YYYY-MM-DD
+    order_ids:    str = ""
+
+
+@app.post("/api/options/trader/save-atr-template")
+async def save_atr_template(body: AtrTemplateBody):
+    """Persist ATR levels from order placement for ongoing trade monitoring."""
+    check_token(body.token)
+    if not DB_URL:
+        return {"status": "ok", "stored": False}
+    import re as _re
+    ticker = _re.sub(r"[^A-Z0-9]", "", body.ticker.upper())[:10]
+    pool = await _get_db_pool()
+    # Delete any existing template for same ticker+date then insert fresh
+    await pool.execute(
+        "DELETE FROM option_atr_templates WHERE ticker=$1 AND trade_date=$2::date",
+        ticker, body.trade_date,
+    )
+    await pool.execute(
+        """
+        INSERT INTO option_atr_templates (ticker, anchor_price, atr_value, trade_date, order_ids)
+        VALUES ($1, $2, $3, $4::date, $5)
+        """,
+        ticker, body.anchor_price, body.atr_value, body.trade_date, body.order_ids or None,
+    )
+    return {"status": "ok", "stored": True}
+
+
+@app.get("/api/options/trader/atr-template/{ticker}")
+async def get_atr_templates(ticker: str):
+    """Return all saved ATR templates for a ticker (most recent first)."""
+    if not DB_URL:
+        return {"templates": []}
+    pool = await _get_db_pool()
+    rows = await pool.fetch(
+        """
+        SELECT ticker, anchor_price, atr_value, trade_date::text, order_ids, created_at::text
+        FROM option_atr_templates
+        WHERE ticker = $1
+        ORDER BY trade_date DESC
+        LIMIT 10
+        """,
+        ticker.upper(),
+    )
+    return {"templates": [dict(r) for r in rows]}
 
 
 class OptionOrderLeg(BaseModel):
