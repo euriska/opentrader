@@ -3,6 +3,15 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.40] - 2026-04-26
+
+### Fixed
+- **Options Trader: Alpaca "client_order_id must be unique" error** — tag was hardcoded `"webui-trader"` for all orders. Now set to `wt-{req_id}` (unique UUID per leg) so every order gets a distinct `client_order_id`.
+
+### Added
+- **Options Trader: Pending Orders panel** — loads automatically on page open and after each successful order placement. Displays open/pending orders in a table (symbol, side, qty, type, limit price, status, account) with a Cancel button on the far right of each row. Cancel fades and removes the row on success. Includes a Refresh button in the panel header.
+- **New API endpoint `POST /api/broker/cancel-order`** — routes `cancel_order` command to broker gateway and awaits confirmation.
+
 ## [3.6.39] - 2026-04-26
 
 ### Added

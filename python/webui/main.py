@@ -2499,6 +2499,41 @@ async def get_broker_orders(status: str = "open"):
     return {"orders": orders}
 
 
+@app.post("/api/broker/cancel-order")
+async def cancel_broker_order(body: dict):
+    """Cancel a specific open order by ID via the broker gateway."""
+    check_token(body.get("token", ""))
+    order_id = body.get("order_id", "")
+    if not order_id:
+        raise HTTPException(status_code=400, detail="order_id required")
+    import uuid as _uuid, json as _json
+    try:
+        import redis.asyncio as _aioredis
+        REDIS_URL = os.getenv("REDIS_URL", "redis://ot-redis:6379/0")
+        redis = await _aioredis.from_url(
+            REDIS_URL, encoding="utf-8", decode_responses=True,
+            socket_connect_timeout=5, socket_timeout=30,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Redis unavailable: {e}")
+    req_id = str(_uuid.uuid4())
+    await redis.xadd(STREAMS["broker_commands"], {
+        "command": "cancel_order", "request_id": req_id,
+        "order_id": order_id,
+        "account_label": body.get("account_label", ""),
+        "issued_by": "webui",
+    })
+    result = await redis.blpop([f"broker:reply:{req_id}"], timeout=15)
+    await redis.aclose()
+    if not result:
+        raise HTTPException(status_code=504, detail="Cancel order timeout")
+    raw = _json.loads(result[1])
+    r = raw[0] if isinstance(raw, list) else raw
+    if r.get("status") != "ok":
+        raise HTTPException(status_code=502, detail=r.get("error", "Cancel failed"))
+    return {"status": "ok", "order_id": order_id}
+
+
 @app.get("/api/broker/quote")
 async def get_broker_quote(symbol: str, account_label: str = ""):
     """Fetch bid/ask/last for a symbol via the broker gateway."""
@@ -2679,7 +2714,7 @@ async def place_option_order(body: OptionOrderBody):
             "order_type":    body.order_type,
             "price":         str(leg.price) if leg.price is not None else "",
             "duration":      body.duration,
-            "tag":           "webui-trader",
+            "tag":           f"wt-{req_id[:36]}",
             "issued_by":     "webui",
         }
         await redis.xadd(STREAMS["broker_commands"], cmd)

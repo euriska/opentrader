@@ -2493,6 +2493,20 @@ select option{background:var(--surface2)}
         </div><!-- /right column -->
       </div><!-- /main grid -->
 
+      <!-- Pending Orders panel -->
+      <div id="ot-pending-panel" style="display:none;margin-top:16px">
+        <div class="card" style="padding:0">
+          <div class="card-header" style="padding:8px 14px;display:flex;align-items:center;gap:10px">
+            <span class="card-title" style="font-size:12px">Pending Orders</span>
+            <span id="ot-pending-count" style="font-size:10px;color:var(--muted)"></span>
+            <button onclick="_otLoadPendingOrders()" style="margin-left:auto;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer">Refresh</button>
+          </div>
+          <div id="ot-pending-body" style="padding:0">
+            <div style="padding:12px 14px;font-size:11px;color:var(--muted)">Loading…</div>
+          </div>
+        </div>
+      </div>
+
     </div><!-- /page-options-trader -->
 
     <!-- ════════════════════════════════════════
@@ -15824,6 +15838,7 @@ async function loadOptionsTraderPage() {
   _otLoadBuys();
   _otLoadRisk();
   _otPopulateAccounts();
+  _otLoadPendingOrders();
 }
 
 async function _otPopulateAccounts() {
@@ -16734,6 +16749,110 @@ function _otCalcSizing() {
   if (costEl) costEl.textContent = `Total cost: $${totalCost.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`;
 }
 
+async function _otLoadPendingOrders() {
+  const panel = document.getElementById('ot-pending-panel');
+  const body  = document.getElementById('ot-pending-body');
+  const count = document.getElementById('ot-pending-count');
+  if (!panel || !body) return;
+  panel.style.display = 'block';
+  body.innerHTML = '<div style="padding:12px 14px;font-size:11px;color:var(--muted)">Loading…</div>';
+
+  try {
+    const data = await apiFetch('/api/broker/orders?status=open');
+    const orders = (data.orders || []).filter(o => {
+      const st = (o.status || '').toLowerCase();
+      return ['pending_new','new','accepted','partially_filled','pending'].some(s => st.includes(s));
+    });
+    if (count) count.textContent = orders.length ? `${orders.length} open` : 'none';
+    if (!orders.length) {
+      body.innerHTML = '<div style="padding:12px 14px;font-size:11px;color:var(--muted)">No pending orders</div>';
+      return;
+    }
+    body.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead>
+          <tr style="background:var(--card-header)">
+            <th style="padding:6px 14px;text-align:left;color:var(--muted);font-weight:600">Symbol</th>
+            <th style="padding:6px 8px;text-align:left;color:var(--muted);font-weight:600">Side</th>
+            <th style="padding:6px 8px;text-align:right;color:var(--muted);font-weight:600">Qty</th>
+            <th style="padding:6px 8px;text-align:right;color:var(--muted);font-weight:600">Type</th>
+            <th style="padding:6px 8px;text-align:right;color:var(--muted);font-weight:600">Limit</th>
+            <th style="padding:6px 8px;text-align:left;color:var(--muted);font-weight:600">Status</th>
+            <th style="padding:6px 8px;text-align:left;color:var(--muted);font-weight:600">Account</th>
+            <th style="padding:6px 14px;text-align:right;color:var(--muted);font-weight:600"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${orders.map(o => {
+            const id      = o.id || o.orderId || o.client_order_id || '';
+            const sym     = o.symbol || o.option_symbol || '—';
+            const side    = o.side || '—';
+            const qty     = o.qty || o.quantity || o.filled_qty || '—';
+            const otype   = o.type || o.order_type || '—';
+            const lp      = o.limit_price ? '$' + Number(o.limit_price).toFixed(2) : '—';
+            const st      = o.status || '—';
+            const acct    = o._account_label || '—';
+            const sideClr = side.includes('buy') ? '#4ade80' : '#f87171';
+            const safeId  = id.replace(/'/g, "\\'");
+            const safeAcct= acct.replace(/'/g, "\\'");
+            return `<tr style="border-top:1px solid var(--border)">
+              <td style="padding:7px 14px;font-weight:600">${sym}</td>
+              <td style="padding:7px 8px;color:${sideClr}">${side.toUpperCase()}</td>
+              <td style="padding:7px 8px;text-align:right">${qty}</td>
+              <td style="padding:7px 8px;text-align:right;color:var(--muted)">${otype}</td>
+              <td style="padding:7px 8px;text-align:right">${lp}</td>
+              <td style="padding:7px 8px;color:var(--muted)">${st}</td>
+              <td style="padding:7px 8px;color:var(--muted)">${acct}</td>
+              <td style="padding:7px 14px;text-align:right">
+                <button onclick="_otCancelOrder('${safeId}','${safeAcct}',this)"
+                  style="background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.3);border-radius:4px;padding:3px 10px;font-size:10px;font-weight:600;cursor:pointer">
+                  Cancel
+                </button>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  } catch(e) {
+    body.innerHTML = `<div style="padding:12px 14px;font-size:11px;color:#f87171">Error: ${e.message}</div>`;
+  }
+}
+
+async function _otCancelOrder(orderId, accountLabel, btn) {
+  if (!orderId) return;
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const res  = await fetch('/api/broker/cancel-order', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ token: getToken(), order_id: orderId, account_label: accountLabel })
+    });
+    const data = await res.json();
+    if (res.ok && data.status === 'ok') {
+      const row = btn.closest('tr');
+      if (row) {
+        row.style.opacity = '0.4';
+        row.style.transition = 'opacity .3s';
+        setTimeout(() => row.remove(), 400);
+      }
+      const count = document.getElementById('ot-pending-count');
+      if (count) {
+        const n = parseInt(count.textContent) - 1;
+        count.textContent = n > 0 ? `${n} open` : 'none';
+      }
+    } else {
+      btn.textContent = data.detail || 'Failed';
+      btn.style.color = '#f87171';
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2500);
+    }
+  } catch(e) {
+    btn.textContent = 'Error';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2500);
+  }
+}
+
 async function _otPlaceOrder() {
   if (!_otOrderLegs.size) {
     const s = document.getElementById('ot-order-status');
@@ -16830,6 +16949,8 @@ async function _otPlaceOrder() {
             if (sd.status === 'ok') statusEl.textContent += ` | Chart saved: ${sd.filename}`;
           } catch(_) {}
         }
+        // Refresh pending orders panel
+        setTimeout(_otLoadPendingOrders, 1500);
       } else {
         statusEl.style.background = 'rgba(248,113,113,.1)';
         statusEl.style.color      = '#f87171';
