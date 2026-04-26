@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.42] - 2026-04-26
+
+### Fixed
+- **Options Trading Log: completed roll chains now appear in Historical** — prior logic treated any `status='rolled'` position as "active", which permanently kept its ticker in the active section and caused the closed final leg to be invisible in both sections. Active/historical split now uses only `status='active'` to determine live tickers; rolled prior legs and the closed final leg of a completed chain all route to Historical together, making the CHAIN RISK bar visible there.
+
 ## [3.6.41] - 2026-04-26
 
 ### Added

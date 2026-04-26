@@ -14998,11 +14998,13 @@ function _optlogFilter() {
     t.underlying.toLowerCase().includes(search) ||
     (t.contract_symbol||'').toLowerCase().includes(search);
 
-  // Rolled positions are legs of an ongoing chain — keep them in Active
-  const active  = _optlogAllTrades.filter(t => (t.status === 'active' || t.status === 'rolled') && matches(t));
-  // A ticker with ANY active/rolled leg stays entirely in Active — only all-closed tickers go to Historical
-  const activeTickers = new Set(active.map(t => t.underlying));
-  const history = _optlogAllTrades.filter(t => (t.status === 'closed' || t.status === 'expired') && !activeTickers.has(t.underlying) && matches(t));
+  // A ticker is "active" only when it has a truly open leg (status=active).
+  // Rolled legs (prior legs of a chain) belong in whichever section the ticker lands in.
+  const activeTickers = new Set(_optlogAllTrades.filter(t => t.status === 'active').map(t => t.underlying));
+  // Active: ALL positions (including prior rolled legs) for tickers with an open leg
+  const active  = _optlogAllTrades.filter(t => activeTickers.has(t.underlying) && matches(t));
+  // Historical: ALL positions for tickers with NO open legs — entire completed chains appear here
+  const history = _optlogAllTrades.filter(t => !activeTickers.has(t.underlying) && matches(t));
 
   const activeCount = document.getElementById('optlog-active-count');
   const histCount   = document.getElementById('optlog-hist-count');
