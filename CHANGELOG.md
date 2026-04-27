@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.47] - 2026-04-27
+
+### Changed
+- **yahoo-finance-mcp vendored** — removed git submodule (local-only commit blocked cloning on other systems); files now committed directly with `get_avg_volume` tool preserved.
+
 ## [3.6.46] - 2026-04-27
 
 ### Changed
