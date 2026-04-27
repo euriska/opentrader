@@ -16489,15 +16489,6 @@ function _otFilterChain() {
 
   const filterSpread    = document.getElementById('ot-filter-spread')?.checked;
   const filterExtrinsic = document.getElementById('ot-filter-extrinsic')?.checked;
-  const spreadOk = c => !c.mid || c.mid === 0 || (c.ask - c.bid) / c.mid * 100 <= 10;
-  if (filterSpread) {
-    calls = calls.filter(spreadOk);
-    puts  = puts.filter(spreadOk);
-  }
-  if (filterExtrinsic) {
-    calls = calls.filter(c => c.extrinsic == null || c.extrinsic <= 30);
-    puts  = puts.filter(c => c.extrinsic == null || c.extrinsic <= 30);
-  }
 
   // Build table: calls | strike | puts side-by-side, keyed by (strike, expiry)
   const strikeMap = new Map();
@@ -16546,10 +16537,14 @@ function _otFilterChain() {
     const midWeight = (sellSelected || c.has_position) ? '700' : '400';
     const near80      = c.delta != null && Math.abs(c.delta) >= 0.75 && Math.abs(c.delta) <= 0.85;
     const deltaSty    = near80 ? 'color:#fbbf24;font-weight:700;' : '';
-    return `<td style="padding:4px 7px;text-align:right;${bg}">${fmt2(c.bid)}</td>
-      <td style="padding:4px 7px;text-align:right;${bg}">${fmt2(c.ask)}</td>
-      <td style="padding:4px 7px;text-align:right;${bg}font-weight:${midWeight};color:${midColor}">${fmt2(c.mid)}</td>
-      <td style="padding:4px 7px;text-align:right;${bg}color:#a5d6ff">${fmt2(c.extrinsic)}</td>
+    const goodSpread  = filterSpread    && c.mid && (c.ask - c.bid) / c.mid * 100 <= 10;
+    const goodExtrin  = filterExtrinsic && c.extrinsic != null && c.extrinsic <= 30;
+    const spreadBg    = goodSpread ? 'background:rgba(34,197,94,.18);' : bg;
+    const extrinBg    = goodExtrin ? 'background:rgba(34,197,94,.18);' : bg;
+    return `<td style="padding:4px 7px;text-align:right;${spreadBg}">${fmt2(c.bid)}</td>
+      <td style="padding:4px 7px;text-align:right;${spreadBg}">${fmt2(c.ask)}</td>
+      <td style="padding:4px 7px;text-align:right;${spreadBg}font-weight:${midWeight};color:${midColor}">${fmt2(c.mid)}</td>
+      <td style="padding:4px 7px;text-align:right;${extrinBg}color:#a5d6ff">${fmt2(c.extrinsic)}</td>
       <td style="padding:4px 7px;text-align:right;${bg}${deltaSty}">${fmt2(c.delta)}</td>
       <td style="padding:4px 7px;text-align:right;${bg}">${fmtPct(c.iv)}</td>
       <td style="padding:4px 7px;text-align:right;${bg}">${c.oi != null ? c.oi.toLocaleString() : '—'}</td>`;

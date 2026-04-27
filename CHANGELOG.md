@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.45] - 2026-04-27
+
+### Changed
+- **Options chain spread/extrinsic filters now highlight instead of hide** — when ≤10% Spread or ≤$30 Extrinsic checkboxes are enabled, contracts meeting the criteria are highlighted green (bid/ask/mid cells for spread; extrinsic cell for extrinsic value) rather than hiding contracts that don't qualify.
+
 ## [3.6.44] - 2026-04-27
 
 ### Added
