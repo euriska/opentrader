@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.46] - 2026-04-27
+
+### Changed
+- **Options chain filters: highlight color changed from green to blue** — spread and extrinsic qualifying cells now use blue (`rgba(96,165,250,.22)`) to match the position-highlight palette.
+
 ## [3.6.45] - 2026-04-27
 
 ### Changed
