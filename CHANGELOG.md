@@ -3,6 +3,13 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.44] - 2026-04-27
+
+### Added
+- **Options Trader chain: ~80 delta highlight** — strike cell turns yellow and delta value is bolded amber when `|delta|` is in the 0.75–0.85 range (both call and put sides). Selection (red) and position (blue) highlights take priority.
+- **Options Trader chain: ≤10% Spread filter** — checkbox hides contracts where `(ask−bid)/mid × 100 > 10%`. Applied independently to calls and puts so rows with one valid side still appear.
+- **Options Trader chain: ≤$30 Extrinsic filter** — checkbox hides contracts where extrinsic value exceeds $30, filtering out high-premium deep-ITM or high-IV contracts.
+
 ## [3.6.43] - 2026-04-26
 
 ### Fixed

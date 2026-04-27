@@ -2362,6 +2362,12 @@ select option{background:var(--surface2)}
                 <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer">
                   <input type="checkbox" id="ot-near-money" onchange="_otFilterChain()"> Near ATM
                 </label>
+                <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer" title="Hide contracts where (ask−bid)/mid > 10%">
+                  <input type="checkbox" id="ot-filter-spread" onchange="_otFilterChain()"> ≤10% Spread
+                </label>
+                <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer" title="Hide contracts where extrinsic value > $30">
+                  <input type="checkbox" id="ot-filter-extrinsic" onchange="_otFilterChain()"> ≤$30 Extrinsic
+                </label>
               </div>
             </div>
             <!-- Order legs bar (shown when legs are selected) -->
@@ -16481,6 +16487,18 @@ function _otFilterChain() {
     puts  = puts.filter(c => Math.abs(c.strike - price) <= range);
   }
 
+  const filterSpread    = document.getElementById('ot-filter-spread')?.checked;
+  const filterExtrinsic = document.getElementById('ot-filter-extrinsic')?.checked;
+  const spreadOk = c => !c.mid || c.mid === 0 || (c.ask - c.bid) / c.mid * 100 <= 10;
+  if (filterSpread) {
+    calls = calls.filter(spreadOk);
+    puts  = puts.filter(spreadOk);
+  }
+  if (filterExtrinsic) {
+    calls = calls.filter(c => c.extrinsic == null || c.extrinsic <= 30);
+    puts  = puts.filter(c => c.extrinsic == null || c.extrinsic <= 30);
+  }
+
   // Build table: calls | strike | puts side-by-side, keyed by (strike, expiry)
   const strikeMap = new Map();
   calls.forEach(c => {
@@ -16526,11 +16544,13 @@ function _otFilterChain() {
       : (itm ? `background:${itm};` : '');
     const midColor = sellSelected ? '#fca5a5' : c.has_position ? '#93c5fd' : 'inherit';
     const midWeight = (sellSelected || c.has_position) ? '700' : '400';
+    const near80      = c.delta != null && Math.abs(c.delta) >= 0.75 && Math.abs(c.delta) <= 0.85;
+    const deltaSty    = near80 ? 'color:#fbbf24;font-weight:700;' : '';
     return `<td style="padding:4px 7px;text-align:right;${bg}">${fmt2(c.bid)}</td>
       <td style="padding:4px 7px;text-align:right;${bg}">${fmt2(c.ask)}</td>
       <td style="padding:4px 7px;text-align:right;${bg}font-weight:${midWeight};color:${midColor}">${fmt2(c.mid)}</td>
       <td style="padding:4px 7px;text-align:right;${bg}color:#a5d6ff">${fmt2(c.extrinsic)}</td>
-      <td style="padding:4px 7px;text-align:right;${bg}">${fmt2(c.delta)}</td>
+      <td style="padding:4px 7px;text-align:right;${bg}${deltaSty}">${fmt2(c.delta)}</td>
       <td style="padding:4px 7px;text-align:right;${bg}">${fmtPct(c.iv)}</td>
       <td style="padding:4px 7px;text-align:right;${bg}">${c.oi != null ? c.oi.toLocaleString() : '—'}</td>`;
   }
@@ -16558,10 +16578,14 @@ function _otFilterChain() {
     const leg       = _otOrderLegs.get(legKeyC) || _otOrderLegs.get(legKeyP);
     const sellSel   = leg?.side === 'sell';
     const buySel    = leg?.side === 'buy';
-    // Strike cell: red when sell-selected, blue when position, default otherwise
+    // ~80 delta: either call or put (abs) is in the 0.75–0.85 range
+    const isNear80  = (r.call?.delta != null && Math.abs(r.call.delta) >= 0.75 && Math.abs(r.call.delta) <= 0.85) ||
+                      (r.put?.delta  != null && Math.abs(r.put.delta)  >= 0.75 && Math.abs(r.put.delta)  <= 0.85);
+    // Strike cell: red=sell-selected, blue=position, yellow=~80Δ, default otherwise
     const strikeBg  = sellSel   ? 'background:rgba(248,113,113,.22);color:#fca5a5;'
                     : hasAnyPos ? 'background:rgba(96,165,250,.28);color:#93c5fd;'
-                    :             'background:var(--card-header);';
+                    : isNear80  ? 'background:rgba(251,191,36,.25);color:#fbbf24;'
+                    :              'background:var(--card-header);';
     const strikeSty = `padding:3px 8px;text-align:center;font-weight:700;font-size:12px;white-space:nowrap;${strikeBg}${atmSty}`;
     const sideChip  = leg
       ? ` <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;letter-spacing:.04em;vertical-align:middle;
