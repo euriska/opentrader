@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.49] - 2026-04-28
+
+### Added
+- **Strategy assignments: Daily Log button** — small calendar button (📅) to the left of Detail on each assignment row opens a modal showing today's trades, order stream events, and realized P&L summary for that strategy+account
+
 ## [3.6.48] - 2026-04-28
 
 ### Fixed

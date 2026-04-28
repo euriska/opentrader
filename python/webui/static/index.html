@@ -3333,6 +3333,21 @@ select option{background:var(--surface2)}
   <div id="drawer-body" style="font-size:13px;color:var(--fg)"></div>
 </div>
 
+<!-- ── Daily Log Modal ── -->
+<div id="daily-log-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2400" onclick="_closeDailyLog()"></div>
+<div id="daily-log-modal" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(780px,96vw);max-height:82vh;background:var(--surface);border:1px solid var(--border);border-radius:10px;z-index:2401;flex-direction:column;overflow:hidden;display:none">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);flex-shrink:0">
+    <div>
+      <span id="daily-log-title" style="font-size:14px;font-weight:700;color:var(--fg)">Daily Run Log</span>
+      <span id="daily-log-subtitle" style="font-size:11px;color:var(--muted);margin-left:8px"></span>
+    </div>
+    <button onclick="_closeDailyLog()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1">✕</button>
+  </div>
+  <div id="daily-log-body" style="overflow-y:auto;padding:16px 18px;flex:1;font-size:13px;color:var(--fg)">
+    <div style="color:var(--muted);text-align:center;padding:24px">Loading…</div>
+  </div>
+</div>
+
 <!-- ── Log Panel (slide-in) ── -->
 <div class="log-overlay" id="log-overlay" onclick="closeLogPanel()"></div>
 <!-- ══ Mentor Panel ══════════════════════════════════════════════════════ -->
@@ -11683,6 +11698,7 @@ function _renderAssignments() {
       ? `<button class="btn btn-ghost btn-sm" onclick="_assignApplyUpdate('${a.id}',${a.latest_version})" style="font-size:11px;color:#fbbf24">Apply v${a.latest_version}</button>`
       : '';
     const removeBtn  = `<button class="btn btn-ghost btn-sm" onclick="_assignRemove('${a.id}')" style="font-size:11px;color:var(--muted)">Remove</button>`;
+    const dailyLogBtn = `<button class="btn btn-ghost btn-sm" onclick="_openDailyLog('${a.id}')" title="View today\'s run log" style="font-size:11px;padding:2px 6px" >&#128467;</button>`;
     const detailBtn  = `<button class="btn btn-ghost btn-sm" onclick="_openAssignDrawer('${a.id}')" style="font-size:11px">Detail</button>`;
 
     return `<tr>
@@ -11692,7 +11708,7 @@ function _renderAssignments() {
       <td style="white-space:nowrap">${verBadge}</td>
       <td>${statBadge}</td>
       <td style="color:var(--muted);font-size:12px">${assigned}</td>
-      <td style="text-align:right;white-space:nowrap">${detailBtn} ${updateBtn} ${toggleBtn} ${removeBtn}</td>
+      <td style="text-align:right;white-space:nowrap">${dailyLogBtn} ${detailBtn} ${updateBtn} ${toggleBtn} ${removeBtn}</td>
     </tr>`;
   }).join('');
 }
@@ -11928,6 +11944,135 @@ function _openAssignDrawer(id) {
 function _closeAssignDrawer() {
   document.getElementById('assign-drawer-overlay').style.display = 'none';
   document.getElementById('assign-drawer').style.display          = 'none';
+}
+
+// ── Daily Run Log ─────────────────────────────────────────────────────────────
+
+async function _openDailyLog(id) {
+  const a = _assignData.find(x => x.id === id);
+  document.getElementById('daily-log-title').textContent =
+    (a ? (a.strategy_name || 'Strategy') : 'Strategy') + ' — Daily Run Log';
+  document.getElementById('daily-log-subtitle').textContent =
+    a ? `${a.account_label} · ${new Date().toLocaleDateString()}` : '';
+  document.getElementById('daily-log-body').innerHTML =
+    '<div style="color:var(--muted);text-align:center;padding:32px">Loading…</div>';
+  document.getElementById('daily-log-overlay').style.display = 'block';
+  document.getElementById('daily-log-modal').style.display   = 'flex';
+
+  try {
+    const tok  = getToken();
+    const resp = await fetch(`/api/assignments/${id}/daily-log?token=${encodeURIComponent(tok)}`);
+    const data = await resp.json();
+    document.getElementById('daily-log-body').innerHTML = _renderDailyLog(data);
+  } catch(e) {
+    document.getElementById('daily-log-body').innerHTML =
+      `<div style="color:#f87171;text-align:center;padding:32px">Failed to load: ${e.message}</div>`;
+  }
+}
+
+function _closeDailyLog() {
+  document.getElementById('daily-log-overlay').style.display = 'none';
+  document.getElementById('daily-log-modal').style.display   = 'none';
+}
+
+function _renderDailyLog(data) {
+  const s   = data.summary || {};
+  const pnl = s.realized_pnl ?? 0;
+  const pnlColor = pnl > 0 ? '#4ade80' : pnl < 0 ? '#f87171' : 'var(--muted)';
+  const pnlStr   = `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`;
+
+  // Summary bar
+  let html = `
+    <div style="display:flex;gap:20px;align-items:center;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px">
+      <div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Account</div>
+        <div style="font-size:13px;font-weight:600">${s.account || '—'}</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Strategy</div>
+        <div style="font-size:13px;font-weight:600">${s.strategy || '—'}</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Date</div>
+        <div style="font-size:13px;font-weight:600">${s.date || '—'}</div>
+      </div>
+      <div style="margin-left:auto;text-align:right">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Realized P&amp;L</div>
+        <div style="font-size:16px;font-weight:700;color:${pnlColor}">${pnlStr}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Trades</div>
+        <div style="font-size:16px;font-weight:700">${s.trade_count ?? 0}</div>
+      </div>
+    </div>`;
+
+  // DB Trades section
+  const dbt = data.db_trades || [];
+  html += `<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Trades (DB)</div>`;
+  if (dbt.length === 0) {
+    html += `<div style="color:var(--muted);font-size:12px;padding:10px 0;margin-bottom:14px">No trades recorded today.</div>`;
+  } else {
+    html += `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px">
+      <thead><tr style="border-bottom:1px solid var(--border);color:var(--muted)">
+        <th style="text-align:left;padding:5px 8px;font-weight:600">Time</th>
+        <th style="text-align:left;padding:5px 8px;font-weight:600">Ticker</th>
+        <th style="text-align:left;padding:5px 8px;font-weight:600">Dir</th>
+        <th style="text-align:right;padding:5px 8px;font-weight:600">Qty</th>
+        <th style="text-align:right;padding:5px 8px;font-weight:600">Entry</th>
+        <th style="text-align:right;padding:5px 8px;font-weight:600">Exit</th>
+        <th style="text-align:right;padding:5px 8px;font-weight:600">P&amp;L</th>
+        <th style="text-align:left;padding:5px 8px;font-weight:600">Status</th>
+      </tr></thead><tbody>`;
+    for (const t of dbt) {
+      const tp = t.pnl != null ? (t.pnl >= 0 ? `<span style="color:#4ade80">+$${t.pnl.toFixed(2)}</span>` : `<span style="color:#f87171">-$${Math.abs(t.pnl).toFixed(2)}</span>`) : '—';
+      html += `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:5px 8px;color:var(--muted)">${t.ts}</td>
+        <td style="padding:5px 8px;font-weight:600">${t.ticker}</td>
+        <td style="padding:5px 8px">${t.direction || '—'}</td>
+        <td style="padding:5px 8px;text-align:right">${t.qty ?? '—'}</td>
+        <td style="padding:5px 8px;text-align:right">${t.entry_price != null ? '$'+t.entry_price.toFixed(2) : '—'}</td>
+        <td style="padding:5px 8px;text-align:right">${t.exit_price != null ? '$'+t.exit_price.toFixed(2) : '—'}</td>
+        <td style="padding:5px 8px;text-align:right">${tp}</td>
+        <td style="padding:5px 8px;color:var(--muted)">${t.status || '—'}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+  }
+
+  // Order stream events
+  const evts = data.stream_events || [];
+  html += `<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Order Events (Stream)</div>`;
+  if (evts.length === 0) {
+    html += `<div style="color:var(--muted);font-size:12px;padding:10px 0">No order events today.</div>`;
+  } else {
+    html += `<table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:1px solid var(--border);color:var(--muted)">
+        <th style="text-align:left;padding:5px 8px;font-weight:600">Time</th>
+        <th style="text-align:left;padding:5px 8px;font-weight:600">Event</th>
+        <th style="text-align:left;padding:5px 8px;font-weight:600">Ticker</th>
+        <th style="text-align:left;padding:5px 8px;font-weight:600">Dir</th>
+        <th style="text-align:right;padding:5px 8px;font-weight:600">Qty</th>
+        <th style="text-align:right;padding:5px 8px;font-weight:600">Price</th>
+        <th style="text-align:right;padding:5px 8px;font-weight:600">P&amp;L</th>
+        <th style="text-align:left;padding:5px 8px;font-weight:600">Note</th>
+      </tr></thead><tbody>`;
+    for (const e of evts) {
+      const evColor = e.event_type === 'fill' ? '#4ade80' : e.event_type === 'reject' ? '#f87171' : 'var(--muted)';
+      const note = e.reject_reason || '';
+      html += `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:5px 8px;color:var(--muted)">${e.ts}</td>
+        <td style="padding:5px 8px;font-weight:600;color:${evColor}">${e.event_type || '—'}</td>
+        <td style="padding:5px 8px;font-weight:600">${e.ticker || '—'}</td>
+        <td style="padding:5px 8px">${e.direction || '—'}</td>
+        <td style="padding:5px 8px;text-align:right">${e.qty || '—'}</td>
+        <td style="padding:5px 8px;text-align:right">${e.price ? '$'+parseFloat(e.price).toFixed(2) : '—'}</td>
+        <td style="padding:5px 8px;text-align:right">${e.pnl ? '$'+parseFloat(e.pnl).toFixed(2) : '—'}</td>
+        <td style="padding:5px 8px;color:var(--muted);font-size:11px">${note}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+  }
+  return html;
 }
 </script>
 

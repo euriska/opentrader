@@ -4747,6 +4747,101 @@ async def save_exclusions(body: ExclusionsBody, token: str = ""):
     _write_exclusions(excl)
     return excl
 
+@app.get("/api/assignments/{assignment_id}/daily-log")
+async def get_assignment_daily_log(assignment_id: str):
+    """Return today's trade activity for a strategy assignment."""
+    assignments = _read_assignments()
+    a = next((x for x in assignments if x["id"] == assignment_id), None)
+    if a is None:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    account_label   = a["account_label"]
+    strategy_name   = a.get("strategy_name", "")
+    strategy_family = a.get("strategy_family_id", "")
+    today           = date.today()
+
+    pool  = await _get_db_pool()
+    redis = await get_redis()
+
+    # Today's trades from DB — match on account_id and strategy name/family_id
+    db_rows = await pool.fetch(
+        """
+        SELECT ts, ticker, direction, qty, entry_price, exit_price, pnl, status, notes, strategy
+        FROM trades
+        WHERE account_id = $1
+          AND ts::date = $2
+          AND (strategy = $3 OR strategy = $4)
+        ORDER BY ts
+        """,
+        account_label, today, strategy_name, strategy_family,
+    )
+    db_trades = [
+        {
+            "ts":          r["ts"].strftime("%H:%M:%S"),
+            "ticker":      r["ticker"],
+            "direction":   r["direction"],
+            "qty":         float(r["qty"]) if r["qty"] else None,
+            "entry_price": float(r["entry_price"]) if r["entry_price"] else None,
+            "exit_price":  float(r["exit_price"]) if r["exit_price"] else None,
+            "pnl":         float(r["pnl"]) if r["pnl"] else None,
+            "status":      r["status"],
+            "notes":       r["notes"],
+        }
+        for r in db_rows
+    ]
+
+    # Today's order events from Redis stream — last 2 000 entries, filter by account + strategy
+    stream_events = []
+    try:
+        today_ms = int(datetime(today.year, today.month, today.day, tzinfo=timezone.utc).timestamp() * 1000)
+        raw = await redis.xrange(STREAMS["orders"], f"{today_ms}-0", "+", count=2000)
+        for _eid, fields in raw:
+            acct = fields.get("account_id", "")
+            strat = fields.get("strategy", "")
+            if acct != account_label:
+                continue
+            if strat and strat not in (strategy_name, strategy_family, ""):
+                continue
+            ts_raw = fields.get("ts_utc") or fields.get("ts") or ""
+            try:
+                ts_dt = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
+                ts_str = ts_dt.strftime("%H:%M:%S")
+            except Exception:
+                ts_str = str(ts_raw)[:8]
+            stream_events.append({
+                "ts":            ts_str,
+                "event_type":    fields.get("event_type", ""),
+                "ticker":        fields.get("ticker", ""),
+                "direction":     fields.get("direction", ""),
+                "qty":           fields.get("qty", ""),
+                "price":         fields.get("price", ""),
+                "pnl":           fields.get("pnl", ""),
+                "reject_reason": fields.get("reject_reason", ""),
+                "mode":          fields.get("mode", ""),
+            })
+    except Exception:
+        pass
+
+    # Daily loss log (P&L summary for this account today)
+    dll = await pool.fetchrow(
+        "SELECT realized_pnl, trade_count FROM daily_loss_log WHERE log_date=$1 AND account_label=$2",
+        today, account_label,
+    )
+    summary = {
+        "date":          today.isoformat(),
+        "account":       account_label,
+        "strategy":      strategy_name,
+        "realized_pnl":  float(dll["realized_pnl"]) if dll and dll["realized_pnl"] is not None else 0.0,
+        "trade_count":   int(dll["trade_count"]) if dll and dll["trade_count"] is not None else 0,
+    }
+
+    return {
+        "summary":       summary,
+        "db_trades":     db_trades,
+        "stream_events": stream_events,
+    }
+
+
 @app.get("/api/assignments/conflicts")
 async def check_conflicts(account_label: str, family_id: str):
     """Return tickers that would conflict (traded by another active strategy on same account)."""
