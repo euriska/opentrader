@@ -290,12 +290,27 @@ async def _fetch_option_chain_details(
     best: Optional[dict] = None
     best_score = float("inf")
 
-    # Scan up to 16 expiry dates (~4 months of weeklies) to cover LEAPS and
-    # longer-dated positions.  Do NOT break early on a "good enough" score —
-    # deep-ITM calls have similar intrinsic value across expiries, so we must
-    # compare all candidates globally and pick the closest price match.
+    # Cap the expiry search window to 90 days from the entry date.
+    # Without this, a far-OTM long-dated call (e.g. 240C Oct) can beat a
+    # near-term deep-ITM call (e.g. 202.50C May) because both happen to be
+    # priced similarly and the far-dated contract has a tighter bid/ask.
+    # Fall back to all 16 dates when no entry_date is known.
+    MAX_ENTRY_TO_EXPIRY_DAYS = 90
+    if entry_date:
+        qualifying = []
+        for d in exp_dates[:16]:
+            try:
+                ed = date.fromisoformat(str(d)[:10])
+                if (ed - entry_date).days <= MAX_ENTRY_TO_EXPIRY_DAYS:
+                    qualifying.append(d)
+            except Exception:
+                pass
+        exp_dates_search = qualifying if len(qualifying) >= 2 else exp_dates[:16]
+    else:
+        exp_dates_search = exp_dates[:16]
+
     for yahoo_type, opt_type in side_order:
-        for exp_date_str in exp_dates[:16]:
+        for exp_date_str in exp_dates_search:
             try:
                 exp_d = date.fromisoformat(str(exp_date_str)[:10])
             except Exception:
@@ -349,7 +364,7 @@ async def _fetch_option_chain_details(
                     else:
                         continue  # no usable price — skip
                     score = abs(ref - current_option_price) / current_option_price
-                    threshold = 0.40
+                    threshold = 0.25
                 elif current_underlying_price > 0 and contract_strike > 0:
                     score = abs(contract_strike - current_underlying_price) / current_underlying_price
                     threshold = 0.25
@@ -358,10 +373,10 @@ async def _fetch_option_chain_details(
                     score = 1.0 / max(oi, 1)
                     threshold = 1.0
 
-                # A later expiry must beat the current best by 25% to displace it.
+                # A later expiry must beat the current best by 50% to displace it.
                 # This strongly prefers the EARLIEST expiry with a qualifying score,
                 # preventing a marginally better far-dated match from winning.
-                improvement_required = best_score * 0.75
+                improvement_required = best_score * 0.50
                 if score < improvement_required and score < threshold:
                     best_score = score
                     best = {
@@ -808,10 +823,9 @@ class OptionsMonitor(BaseAgent):
                 if last_cp is None and row["expiration_date"] and row["expiration_date"] < date.today():
                     last_cp = 0.0
 
-                # Short option P&L: profit = premium collected − cost to close
                 pnl = None
                 if last_cp is not None and ep is not None and qty is not None:
-                    pnl = round((ep - last_cp) * abs(qty) * 100, 2)
+                    pnl = round((last_cp - ep) * abs(qty) * 100, 2)
 
                 await pool.execute(
                     """UPDATE option_positions
@@ -908,7 +922,6 @@ class OptionsMonitor(BaseAgent):
                 option_type == "unknown"
                 or effective_strike is None
                 or effective_expiry is None
-                or existing is None
                 or db_delta is None
             )
         )

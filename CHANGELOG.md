@@ -3,6 +3,14 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.48] - 2026-04-28
+
+### Fixed
+- **Options monitor: chain lookup now caps expiry search to 90 days from entry date** — prevents deep-ITM near-term calls (e.g. 202.50C May) from being misidentified as far-OTM long-dated calls (e.g. 240C Oct) that happen to share a similar price
+- **Options monitor: tightened price-match tolerance from 40% to 25%** and increased early-expiry bias (later expiry must now beat current best by 50%, up from 25%)
+- **Options monitor: removed redundant `existing is None` from `needs_enrichment`** — prevents unnecessary chain re-enrichment when v2 API data already provided strike/expiry
+- **Options monitor: corrected long-position P&L formula** — was computing `(entry − exit) × qty × 100` (short formula), now correctly `(exit − entry) × qty × 100`; historical NVDA records with inverted P&L manually corrected in DB
+
 ## [3.6.47] - 2026-04-27
 
 ### Changed
