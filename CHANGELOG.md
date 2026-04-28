@@ -3,6 +3,11 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.50] - 2026-04-28
+
+### Changed
+- **Strategy assignments: Daily Log button** — button now labeled "Daily Log" (text); modal shows the full `ot-trader-equity` container execution log from market open (09:30 ET) today, sorted by time in the left column with event+fields in the right column; level-colored (warning=yellow, error=red)
+
 ## [3.6.49] - 2026-04-28
 
 ### Added

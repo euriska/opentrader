@@ -11698,7 +11698,7 @@ function _renderAssignments() {
       ? `<button class="btn btn-ghost btn-sm" onclick="_assignApplyUpdate('${a.id}',${a.latest_version})" style="font-size:11px;color:#fbbf24">Apply v${a.latest_version}</button>`
       : '';
     const removeBtn  = `<button class="btn btn-ghost btn-sm" onclick="_assignRemove('${a.id}')" style="font-size:11px;color:var(--muted)">Remove</button>`;
-    const dailyLogBtn = `<button class="btn btn-ghost btn-sm" onclick="_openDailyLog('${a.id}')" title="View today\'s run log" style="font-size:11px;padding:2px 6px" >&#128467;</button>`;
+    const dailyLogBtn = `<button class="btn btn-ghost btn-sm" onclick="_openDailyLog('${a.id}')" style="font-size:11px">Daily Log</button>`;
     const detailBtn  = `<button class="btn btn-ghost btn-sm" onclick="_openAssignDrawer('${a.id}')" style="font-size:11px">Detail</button>`;
 
     return `<tr>
@@ -11953,7 +11953,7 @@ async function _openDailyLog(id) {
   document.getElementById('daily-log-title').textContent =
     (a ? (a.strategy_name || 'Strategy') : 'Strategy') + ' — Daily Run Log';
   document.getElementById('daily-log-subtitle').textContent =
-    a ? `${a.account_label} · ${new Date().toLocaleDateString()}` : '';
+    a ? `${a.account_label} · ${new Date().toLocaleDateString(undefined, {month:'short',day:'numeric',year:'numeric'})}` : '';
   document.getElementById('daily-log-body').innerHTML =
     '<div style="color:var(--muted);text-align:center;padding:32px">Loading…</div>';
   document.getElementById('daily-log-overlay').style.display = 'block';
@@ -11976,103 +11976,48 @@ function _closeDailyLog() {
 }
 
 function _renderDailyLog(data) {
-  const s   = data.summary || {};
-  const pnl = s.realized_pnl ?? 0;
-  const pnlColor = pnl > 0 ? '#4ade80' : pnl < 0 ? '#f87171' : 'var(--muted)';
-  const pnlStr   = `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`;
+  const entries = data.entries || [];
 
-  // Summary bar
-  let html = `
-    <div style="display:flex;gap:20px;align-items:center;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px">
-      <div>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Account</div>
-        <div style="font-size:13px;font-weight:600">${s.account || '—'}</div>
-      </div>
-      <div>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Strategy</div>
-        <div style="font-size:13px;font-weight:600">${s.strategy || '—'}</div>
-      </div>
-      <div>
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Date</div>
-        <div style="font-size:13px;font-weight:600">${s.date || '—'}</div>
-      </div>
-      <div style="margin-left:auto;text-align:right">
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Realized P&amp;L</div>
-        <div style="font-size:16px;font-weight:700;color:${pnlColor}">${pnlStr}</div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Trades</div>
-        <div style="font-size:16px;font-weight:700">${s.trade_count ?? 0}</div>
-      </div>
+  // Level → color
+  const lvlColor = {
+    debug:   'var(--muted)',
+    info:    'var(--fg)',
+    warning: '#fbbf24',
+    warn:    '#fbbf24',
+    error:   '#f87171',
+    critical:'#f87171',
+  };
+
+  if (entries.length === 0) {
+    return `<div style="color:var(--muted);text-align:center;padding:40px 0;font-size:13px">
+      No log entries since market open (${data.market_open || '09:30 ET'}).
     </div>`;
-
-  // DB Trades section
-  const dbt = data.db_trades || [];
-  html += `<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Trades (DB)</div>`;
-  if (dbt.length === 0) {
-    html += `<div style="color:var(--muted);font-size:12px;padding:10px 0;margin-bottom:14px">No trades recorded today.</div>`;
-  } else {
-    html += `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px">
-      <thead><tr style="border-bottom:1px solid var(--border);color:var(--muted)">
-        <th style="text-align:left;padding:5px 8px;font-weight:600">Time</th>
-        <th style="text-align:left;padding:5px 8px;font-weight:600">Ticker</th>
-        <th style="text-align:left;padding:5px 8px;font-weight:600">Dir</th>
-        <th style="text-align:right;padding:5px 8px;font-weight:600">Qty</th>
-        <th style="text-align:right;padding:5px 8px;font-weight:600">Entry</th>
-        <th style="text-align:right;padding:5px 8px;font-weight:600">Exit</th>
-        <th style="text-align:right;padding:5px 8px;font-weight:600">P&amp;L</th>
-        <th style="text-align:left;padding:5px 8px;font-weight:600">Status</th>
-      </tr></thead><tbody>`;
-    for (const t of dbt) {
-      const tp = t.pnl != null ? (t.pnl >= 0 ? `<span style="color:#4ade80">+$${t.pnl.toFixed(2)}</span>` : `<span style="color:#f87171">-$${Math.abs(t.pnl).toFixed(2)}</span>`) : '—';
-      html += `<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:5px 8px;color:var(--muted)">${t.ts}</td>
-        <td style="padding:5px 8px;font-weight:600">${t.ticker}</td>
-        <td style="padding:5px 8px">${t.direction || '—'}</td>
-        <td style="padding:5px 8px;text-align:right">${t.qty ?? '—'}</td>
-        <td style="padding:5px 8px;text-align:right">${t.entry_price != null ? '$'+t.entry_price.toFixed(2) : '—'}</td>
-        <td style="padding:5px 8px;text-align:right">${t.exit_price != null ? '$'+t.exit_price.toFixed(2) : '—'}</td>
-        <td style="padding:5px 8px;text-align:right">${tp}</td>
-        <td style="padding:5px 8px;color:var(--muted)">${t.status || '—'}</td>
-      </tr>`;
-    }
-    html += '</tbody></table>';
   }
 
-  // Order stream events
-  const evts = data.stream_events || [];
-  html += `<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Order Events (Stream)</div>`;
-  if (evts.length === 0) {
-    html += `<div style="color:var(--muted);font-size:12px;padding:10px 0">No order events today.</div>`;
-  } else {
-    html += `<table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead><tr style="border-bottom:1px solid var(--border);color:var(--muted)">
-        <th style="text-align:left;padding:5px 8px;font-weight:600">Time</th>
-        <th style="text-align:left;padding:5px 8px;font-weight:600">Event</th>
-        <th style="text-align:left;padding:5px 8px;font-weight:600">Ticker</th>
-        <th style="text-align:left;padding:5px 8px;font-weight:600">Dir</th>
-        <th style="text-align:right;padding:5px 8px;font-weight:600">Qty</th>
-        <th style="text-align:right;padding:5px 8px;font-weight:600">Price</th>
-        <th style="text-align:right;padding:5px 8px;font-weight:600">P&amp;L</th>
-        <th style="text-align:left;padding:5px 8px;font-weight:600">Note</th>
-      </tr></thead><tbody>`;
-    for (const e of evts) {
-      const evColor = e.event_type === 'fill' ? '#4ade80' : e.event_type === 'reject' ? '#f87171' : 'var(--muted)';
-      const note = e.reject_reason || '';
-      html += `<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:5px 8px;color:var(--muted)">${e.ts}</td>
-        <td style="padding:5px 8px;font-weight:600;color:${evColor}">${e.event_type || '—'}</td>
-        <td style="padding:5px 8px;font-weight:600">${e.ticker || '—'}</td>
-        <td style="padding:5px 8px">${e.direction || '—'}</td>
-        <td style="padding:5px 8px;text-align:right">${e.qty || '—'}</td>
-        <td style="padding:5px 8px;text-align:right">${e.price ? '$'+parseFloat(e.price).toFixed(2) : '—'}</td>
-        <td style="padding:5px 8px;text-align:right">${e.pnl ? '$'+parseFloat(e.pnl).toFixed(2) : '—'}</td>
-        <td style="padding:5px 8px;color:var(--muted);font-size:11px">${note}</td>
-      </tr>`;
+  let rows = '';
+  for (const e of entries) {
+    const color = lvlColor[e.level] || 'var(--fg)';
+    // Format: event name bold, rest as muted key=value pairs
+    let msg = '';
+    if (e.event) {
+      msg += `<span style="font-weight:600;color:${color}">${e.event}</span>`;
+      if (e.rest) msg += `<span style="color:var(--muted)"> ${e.rest}</span>`;
+    } else {
+      msg = `<span style="color:${color}">${e.rest || e.raw || ''}</span>`;
     }
-    html += '</tbody></table>';
+    rows += `<tr style="border-bottom:1px solid rgba(255,255,255,.04)">
+      <td style="padding:3px 10px 3px 0;white-space:nowrap;font-family:monospace;font-size:11px;color:var(--muted);vertical-align:top;width:72px">${e.ts}</td>
+      <td style="padding:3px 0;font-size:12px;line-height:1.5;word-break:break-word">${msg}</td>
+    </tr>`;
   }
-  return html;
+
+  return `
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">
+      ${data.container || ''} &nbsp;·&nbsp; from ${data.market_open || '09:30 ET'} &nbsp;·&nbsp; ${entries.length} lines
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <tbody>${rows}</tbody>
+    </table>`;
 }
 </script>
 

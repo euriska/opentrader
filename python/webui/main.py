@@ -4747,98 +4747,72 @@ async def save_exclusions(body: ExclusionsBody, token: str = ""):
     _write_exclusions(excl)
     return excl
 
+_LOG_LINE_RE = re.compile(
+    r'^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})'   # timestamp
+    r'\s+\[(\w+)\s*\]'                               # level
+    r'\s+(\S+)'                                       # event
+    r'(.*)?$'                                         # remainder (key=value pairs)
+)
+
 @app.get("/api/assignments/{assignment_id}/daily-log")
 async def get_assignment_daily_log(assignment_id: str):
-    """Return today's trade activity for a strategy assignment."""
+    """Return today's strategy execution log from market open for this assignment."""
     assignments = _read_assignments()
     a = next((x for x in assignments if x["id"] == assignment_id), None)
     if a is None:
         raise HTTPException(status_code=404, detail="Assignment not found")
 
-    account_label   = a["account_label"]
-    strategy_name   = a.get("strategy_name", "")
-    strategy_family = a.get("strategy_family_id", "")
-    today           = date.today()
+    strategy_name = a.get("strategy_name", "")
+    account_label = a.get("account_label", "")
 
-    pool  = await _get_db_pool()
-    redis = await get_redis()
+    # Determine which container runs this strategy
+    container = "ot-trader-equity"
 
-    # Today's trades from DB — match on account_id and strategy name/family_id
-    db_rows = await pool.fetch(
-        """
-        SELECT ts, ticker, direction, qty, entry_price, exit_price, pnl, status, notes, strategy
-        FROM trades
-        WHERE account_id = $1
-          AND ts::date = $2
-          AND (strategy = $3 OR strategy = $4)
-        ORDER BY ts
-        """,
-        account_label, today, strategy_name, strategy_family,
+    # Market open = 09:30 ET today as UTC unix timestamp
+    today = date.today()
+    import zoneinfo
+    et = zoneinfo.ZoneInfo("America/New_York")
+    market_open_et = datetime(today.year, today.month, today.day, 9, 30, 0, tzinfo=et)
+    since_unix = int(market_open_et.timestamp())
+
+    raw = _podman_api(
+        f"/v4.0.0/libpod/containers/{container}/logs"
+        f"?stdout=true&stderr=true&since={since_unix}",
+        timeout=10,
+        raw=True,
     )
-    db_trades = [
-        {
-            "ts":          r["ts"].strftime("%H:%M:%S"),
-            "ticker":      r["ticker"],
-            "direction":   r["direction"],
-            "qty":         float(r["qty"]) if r["qty"] else None,
-            "entry_price": float(r["entry_price"]) if r["entry_price"] else None,
-            "exit_price":  float(r["exit_price"]) if r["exit_price"] else None,
-            "pnl":         float(r["pnl"]) if r["pnl"] else None,
-            "status":      r["status"],
-            "notes":       r["notes"],
-        }
-        for r in db_rows
-    ]
+    raw_lines: list[str] = []
+    if raw:
+        raw_lines = _parse_docker_log_stream(raw)
 
-    # Today's order events from Redis stream — last 2 000 entries, filter by account + strategy
-    stream_events = []
-    try:
-        today_ms = int(datetime(today.year, today.month, today.day, tzinfo=timezone.utc).timestamp() * 1000)
-        raw = await redis.xrange(STREAMS["orders"], f"{today_ms}-0", "+", count=2000)
-        for _eid, fields in raw:
-            acct = fields.get("account_id", "")
-            strat = fields.get("strategy", "")
-            if acct != account_label:
-                continue
-            if strat and strat not in (strategy_name, strategy_family, ""):
-                continue
-            ts_raw = fields.get("ts_utc") or fields.get("ts") or ""
-            try:
-                ts_dt = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
-                ts_str = ts_dt.strftime("%H:%M:%S")
-            except Exception:
-                ts_str = str(ts_raw)[:8]
-            stream_events.append({
-                "ts":            ts_str,
-                "event_type":    fields.get("event_type", ""),
-                "ticker":        fields.get("ticker", ""),
-                "direction":     fields.get("direction", ""),
-                "qty":           fields.get("qty", ""),
-                "price":         fields.get("price", ""),
-                "pnl":           fields.get("pnl", ""),
-                "reject_reason": fields.get("reject_reason", ""),
-                "mode":          fields.get("mode", ""),
+    entries = []
+    for line in raw_lines:
+        line = line.strip()
+        if not line:
+            continue
+        m = _LOG_LINE_RE.match(line)
+        if m:
+            ts_str   = m.group(1)[11:]          # HH:MM:SS portion
+            level    = m.group(2).lower().strip()
+            event    = m.group(3)
+            rest     = (m.group(4) or "").strip()
+            entries.append({
+                "ts":    ts_str,
+                "level": level,
+                "event": event,
+                "rest":  rest,
+                "raw":   line,
             })
-    except Exception:
-        pass
+        else:
+            entries.append({"ts": "", "level": "info", "event": "", "rest": line, "raw": line})
 
-    # Daily loss log (P&L summary for this account today)
-    dll = await pool.fetchrow(
-        "SELECT realized_pnl, trade_count FROM daily_loss_log WHERE log_date=$1 AND account_label=$2",
-        today, account_label,
-    )
-    summary = {
+    return {
         "date":          today.isoformat(),
         "account":       account_label,
         "strategy":      strategy_name,
-        "realized_pnl":  float(dll["realized_pnl"]) if dll and dll["realized_pnl"] is not None else 0.0,
-        "trade_count":   int(dll["trade_count"]) if dll and dll["trade_count"] is not None else 0,
-    }
-
-    return {
-        "summary":       summary,
-        "db_trades":     db_trades,
-        "stream_events": stream_events,
+        "container":     container,
+        "market_open":   market_open_et.strftime("%H:%M ET"),
+        "entries":       entries,
     }
 
 
