@@ -3,6 +3,9 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## v4.0.91
+- fix: broker configuration page fails to render when Redis is unavailable — wrap config:trade_mode Redis read in try/except and fall back to TRADE_MODE env var v4.0.91
+
 ## v4.0.90
 - feat: margin metrics on equity dashboard — Alpaca get_balances() now exposes initial_margin, maintenance_margin, daytrading_buying_power, leverage_ratio, multiplier, pattern_day_trader; main.py computes maintenance_margin_pct, initial_margin_pct, leverage_ratio, day_trade_bp for all brokers (Tradier via current_requirement + pdt.day_trade_buying_power); equity dashboard account cards show a Margin Metrics strip with color-coded maintenance margin %, initial margin %, leverage ratio, day trade BP, multiplier chip (1×/2×/4×), PDT badge v4.0.90
 

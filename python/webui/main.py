@@ -427,6 +427,14 @@ KNOWN_SECRETS = [
     ("ALPACA_SECRET_KEY",          "Alpaca MCP — Secret Key"),
     ("ALPACA_PAPER_TRADE",         "Alpaca MCP — Paper Trading"),
     ("ALPACA_MCP_URL",             "Alpaca MCP — MCP URL"),
+    # ── SnapTrade / Portfolio Sync ────────────────────────────────────────────
+    ("---", "SnapTrade / Portfolio Sync"),
+    ("SNAPTRADE_CLIENT_ID",        "SnapTrade — Client ID"),
+    ("SNAPTRADE_CONSUMER_KEY",     "SnapTrade — Consumer Key"),
+    ("SNAPTRADE_USER_ID",          "SnapTrade — User ID"),
+    ("SNAPTRADE_USER_SECRET",      "SnapTrade — User Secret"),
+    ("P2P_EMAIL",                  "Paycheck2Portfolio — Email"),
+    ("P2P_PASSWORD",               "Paycheck2Portfolio — Password"),
 ]
 
 def _current_user_id(request: Request) -> str | None:
@@ -1049,6 +1057,59 @@ async def get_overview():
             "job_errors_1h":   int(job_err_count),
         },
     }
+
+
+# ── API — Equities: Buy-Borrow (SnapTrade) ────────────────────────────────────
+
+@app.get("/api/equities/buy-borrow")
+async def get_buy_borrow(request: Request, token: str = "",
+                         ltv: float = 0.50, maint_ltv: float = 0.70,
+                         apr: float = 0.065, cap_gains: float = 0.238,
+                         draw: float = 0.0, refresh: int = 0):
+    """Buy-Borrow-Die dashboard: collateral, borrowing capacity, LTV cushion,
+    and tax-deferral estimates computed from SnapTrade-sourced holdings."""
+    check_token(token) if token else None
+    user_id = await _resolve_user_id(request, token)
+    if not user_id and not token:
+        raise HTTPException(status_code=401)
+    if user_id:
+        await _load_user_secrets_to_env(user_id)
+
+    from shared import snaptrade_source as sts
+    if not sts.configured_source():
+        raise HTTPException(
+            status_code=400,
+            detail="No SnapTrade source configured. Add SnapTrade API keys or "
+                   "Paycheck2Portfolio credentials under Config → Secrets.",
+        )
+
+    redis = await get_redis()
+    cache_key = f"equities:buyborrow:portfolio:{user_id or 'token'}"
+    portfolio, used_cache = None, False
+    if not refresh:
+        cached = await redis.get(cache_key)
+        if cached:
+            try:
+                portfolio = json.loads(cached)
+                used_cache = True
+            except Exception:
+                portfolio = None
+    if portfolio is None:
+        try:
+            portfolio = await sts.fetch_portfolio()
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Portfolio fetch failed: {e}")
+        try:
+            await redis.set(cache_key, json.dumps(portfolio), ex=300)
+        except Exception:
+            pass
+
+    result = sts.compute_buy_borrow(
+        portfolio, ltv=ltv, maint_ltv=maint_ltv, apr=apr,
+        cap_gains_rate=cap_gains, draw=draw,
+    )
+    result["cached"] = used_cache
+    return result
 
 
 # ── API — Market Calendar ─────────────────────────────────────────────────────
@@ -4824,9 +4885,20 @@ async def get_broker_status():
     w_api_key = ev("WEBULL_API_KEY")
     webull_ok = bool(w_api_key) and not _is_placeholder(w_api_key)
 
-    redis = await get_redis()
-    stored_mode = await redis.get("config:trade_mode")
-    trade_mode  = stored_mode or ev("TRADE_MODE") or "sandbox"
+    # SnapTrade (read-only aggregator; connects Fidelity et al. via SnapTrade or
+    # the Paycheck2Portfolio fallback). Considered connected if either credential
+    # set is present.
+    st_client = ev("SNAPTRADE_CLIENT_ID")
+    st_p2p    = ev("P2P_EMAIL")
+    snaptrade_ok = (bool(st_client) and not _is_placeholder(st_client)) or \
+                   (bool(st_p2p) and not _is_placeholder(st_p2p))
+
+    try:
+        redis = await get_redis()
+        stored_mode = await redis.get("config:trade_mode")
+        trade_mode  = stored_mode or ev("TRADE_MODE") or "sandbox"
+    except Exception:
+        trade_mode = ev("TRADE_MODE") or "sandbox"
 
     return {
         "trade_mode": trade_mode,
@@ -4875,6 +4947,19 @@ async def get_broker_status():
                     "WEBULL_LIVE_ACCOUNT_4_IRA":   ev("WEBULL_LIVE_ACCOUNT_4_IRA"),
                     "WEBULL_LIVE_ACCOUNT_5":       ev("WEBULL_LIVE_ACCOUNT_5"),
                     "WEBULL_LIVE_ACCOUNT_5_IRA":   ev("WEBULL_LIVE_ACCOUNT_5_IRA"),
+                },
+            },
+            "snaptrade": {
+                "connected": snaptrade_ok,
+                "read_only": True,
+                "accounts":  [],
+                "env": {
+                    "SNAPTRADE_CLIENT_ID":     _masked(ev("SNAPTRADE_CLIENT_ID")),
+                    "SNAPTRADE_CONSUMER_KEY":  _masked(ev("SNAPTRADE_CONSUMER_KEY")),
+                    "SNAPTRADE_USER_ID":       ev("SNAPTRADE_USER_ID"),
+                    "SNAPTRADE_USER_SECRET":   _masked(ev("SNAPTRADE_USER_SECRET")),
+                    "P2P_EMAIL":               ev("P2P_EMAIL"),
+                    "P2P_PASSWORD":            _masked(ev("P2P_PASSWORD")),
                 },
             },
         },
@@ -6329,6 +6414,31 @@ async def test_broker_connection(broker: str):
                         msg = (data.get("msg", data.get("message", f"HTTP {r.status}"))
                                if isinstance(data, dict) else f"HTTP {r.status}")
                         return {"ok": False, "message": str(msg)}
+
+        elif broker == "snaptrade":
+            from shared import snaptrade_source as sts
+            # Surface .env / saved credential values to the connector (reads os.environ).
+            for k in ("SNAPTRADE_CLIENT_ID", "SNAPTRADE_CONSUMER_KEY", "SNAPTRADE_USER_ID",
+                      "SNAPTRADE_USER_SECRET", "P2P_EMAIL", "P2P_PASSWORD",
+                      "P2P_SUPABASE_URL", "P2P_SUPABASE_ANON"):
+                v = ev(k)
+                if v:
+                    os.environ[k] = v
+            src = sts.configured_source()
+            if not src:
+                return {"ok": False,
+                        "message": "No SnapTrade or Paycheck2Portfolio credentials configured"}
+            try:
+                pf = await sts.fetch_portfolio()
+            except Exception as e:
+                return {"ok": False, "message": f"{src}: {str(e)[:160]}"}
+            institutions = sorted({a.get("institution") for a in pf.get("accounts", [])
+                                   if a.get("institution")})
+            npos = len(pf.get("positions", []))
+            inst_txt = ", ".join(institutions) if institutions else "no linked brokerages"
+            return {"ok": True,
+                    "message": f"{src} · {inst_txt} · {npos} positions synced"}
+
         else:
             return {"ok": False, "message": f"Unknown broker: {broker}"}
 
