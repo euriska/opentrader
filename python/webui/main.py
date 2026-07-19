@@ -1108,8 +1108,686 @@ async def get_buy_borrow(request: Request, token: str = "",
         portfolio, ltv=ltv, maint_ltv=maint_ltv, apr=apr,
         cap_gains_rate=cap_gains, draw=draw,
     )
+    result["overview"] = sts.compute_fire_summary(portfolio)
     result["cached"] = used_cache
     return result
+
+
+@app.get("/api/equities/positions")
+async def get_positions_summary(request: Request, token: str = "", refresh: int = 0):
+    """Positions dashboard: total value, position/symbol counts, largest holding,
+    and the full position table, computed from SnapTrade-sourced holdings."""
+    check_token(token) if token else None
+    user_id = await _resolve_user_id(request, token)
+    if not user_id and not token:
+        raise HTTPException(status_code=401)
+    if user_id:
+        await _load_user_secrets_to_env(user_id)
+
+    from shared import snaptrade_source as sts
+    if not sts.configured_source():
+        raise HTTPException(
+            status_code=400,
+            detail="No SnapTrade source configured. Add SnapTrade API keys or "
+                   "Paycheck2Portfolio credentials under Config → Secrets.",
+        )
+
+    redis = await get_redis()
+    cache_key = f"equities:buyborrow:portfolio:{user_id or 'token'}"
+    portfolio, used_cache = None, False
+    if not refresh:
+        cached = await redis.get(cache_key)
+        if cached:
+            try:
+                portfolio = json.loads(cached)
+                used_cache = True
+            except Exception:
+                portfolio = None
+    if portfolio is None:
+        try:
+            portfolio = await sts.fetch_portfolio()
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Portfolio fetch failed: {e}")
+        try:
+            await redis.set(cache_key, json.dumps(portfolio), ex=300)
+        except Exception:
+            pass
+
+    result = sts.compute_positions_summary(portfolio)
+    result["cached"] = used_cache
+    return result
+
+
+_FIRE_TX_CATEGORY_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS fire_transaction_categories (
+        transaction_id TEXT NOT NULL,
+        user_id        TEXT NOT NULL DEFAULT 'default',
+        category       TEXT NOT NULL,
+        updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (transaction_id, user_id)
+    )
+"""
+
+_FIRE_CATEGORY_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS fire_categories (
+        name       TEXT        NOT NULL,
+        user_id    TEXT        NOT NULL DEFAULT 'default',
+        parent     TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (name, user_id)
+    )
+"""
+
+# Starter vocabulary — seeded into fire_categories the first time a user has none,
+# so the category list isn't blank on day one. Purely a bootstrap; fully editable
+# and deletable afterward like any user-created category. Flat (no parent) by
+# default — users organize their own sub-categories via the Manage panel.
+_FIRE_DEFAULT_CATEGORIES = [
+    "Dividend Income", "Interest Income", "Capital Gains",
+    "Fees & Commissions", "Advisory Fees", "Taxes", "Utilities",
+    "Margin Loan", "Margin Interest", "Securities-Backed Line of Credit (SBLOC)",
+    "Portfolio Line of Credit", "Home Equity Line of Credit (HELOC)",
+    "Personal Loan", "Mortgage", "Auto Loan", "Loan Draw", "Loan Repayment",
+    "Contribution", "Withdrawal", "Transfer",
+    "Investment Purchase", "Investment Sale", "Rebalancing",
+]
+
+
+async def _ensure_fire_categories_schema(pool):
+    await pool.execute(_FIRE_CATEGORY_TABLE_SQL)
+    # Existing deployments created the table before `parent` existed.
+    await pool.execute("ALTER TABLE fire_categories ADD COLUMN IF NOT EXISTS parent TEXT")
+
+
+async def _fetch_tx_categories(pool, user_id: str = "default") -> dict:
+    await pool.execute(_FIRE_TX_CATEGORY_TABLE_SQL)
+    rows = await pool.fetch(
+        "SELECT transaction_id, category FROM fire_transaction_categories WHERE user_id = $1",
+        user_id,
+    )
+    return {r["transaction_id"]: r["category"] for r in rows}
+
+
+async def _ensure_category(pool, name: str, parent: str | None = None, user_id: str = "default"):
+    await _ensure_fire_categories_schema(pool)
+    if parent:
+        await _ensure_category(pool, parent, None, user_id)  # parent must exist too
+    await pool.execute(
+        "INSERT INTO fire_categories (name, user_id, parent) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        name, user_id, parent,
+    )
+
+
+async def _list_categories(pool, user_id: str = "default") -> list:
+    await _ensure_fire_categories_schema(pool)
+    count = await pool.fetchval("SELECT count(*) FROM fire_categories WHERE user_id = $1", user_id)
+    if count == 0:
+        for name in _FIRE_DEFAULT_CATEGORIES:
+            await pool.execute(
+                "INSERT INTO fire_categories (name, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                name, user_id,
+            )
+    rows = await pool.fetch(
+        "SELECT name, parent FROM fire_categories WHERE user_id = $1 ORDER BY name", user_id,
+    )
+    return [{"name": r["name"], "parent": r["parent"]} for r in rows]
+
+
+@app.get("/api/equities/transactions")
+async def get_transactions(request: Request, token: str = "", refresh: int = 0):
+    """Full account transaction history from SnapTrade-sourced accounts, for the
+    FIRE Transactions dashboard (search/filter/export is handled client-side)."""
+    check_token(token) if token else None
+    user_id = await _resolve_user_id(request, token)
+    if not user_id and not token:
+        raise HTTPException(status_code=401)
+    if user_id:
+        await _load_user_secrets_to_env(user_id)
+
+    from shared import snaptrade_source as sts
+    if not sts.configured_source():
+        raise HTTPException(
+            status_code=400,
+            detail="No SnapTrade source configured. Add SnapTrade API keys or "
+                   "Paycheck2Portfolio credentials under Config → Secrets.",
+        )
+
+    redis = await get_redis()
+    cache_key = f"equities:buyborrow:portfolio:{user_id or 'token'}"
+    portfolio, used_cache = None, False
+    if not refresh:
+        cached = await redis.get(cache_key)
+        if cached:
+            try:
+                portfolio = json.loads(cached)
+                used_cache = True
+            except Exception:
+                portfolio = None
+    if portfolio is None:
+        try:
+            portfolio = await sts.fetch_portfolio()
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Portfolio fetch failed: {e}")
+        try:
+            await redis.set(cache_key, json.dumps(portfolio), ex=300)
+        except Exception:
+            pass
+
+    transactions = portfolio.get("transactions") or []
+    pool = await _get_db_pool()
+    categories = await _fetch_tx_categories(pool)
+    for t in transactions:
+        t["category"] = categories.get(t.get("id"))
+    await _apply_category_rules(pool, transactions)
+
+    return {
+        "source":       portfolio.get("source"),
+        "as_of":        portfolio.get("as_of"),
+        "transactions": transactions,
+        "cached":       used_cache,
+    }
+
+
+@app.get("/api/equities/transaction-categories")
+async def get_transaction_categories():
+    """Full category vocabulary (auto-seeded with starter categories on first
+    use), for the Transactions page's category-edit autocomplete and the
+    Manage Categories panel."""
+    pool = await _get_db_pool()
+    return {"categories": await _list_categories(pool)}
+
+
+@app.post("/api/equities/categories")
+async def add_category(request: Request, token: str = ""):
+    """Add a new category to the vocabulary without assigning it to any
+    transaction yet (Manage Categories panel). Pass `parent` to create it as a
+    sub-category — the parent is auto-created (as top-level) if it doesn't
+    already exist."""
+    check_token(token) if token else None
+    user_id = await _resolve_user_id(request, token)
+    if not user_id and not token:
+        raise HTTPException(status_code=401)
+
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    parent = (body.get("parent") or "").strip() or None
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    if parent == name:
+        raise HTTPException(status_code=400, detail="a category can't be its own parent")
+
+    pool = await _get_db_pool()
+    await _ensure_category(pool, name, parent)
+    return {"ok": True, "categories": await _list_categories(pool)}
+
+
+@app.put("/api/equities/categories/rename")
+async def rename_category(request: Request, token: str = ""):
+    """Rename a category — updates the vocabulary entry (keeping its parent,
+    and re-pointing any sub-categories that reference it) and every transaction
+    currently tagged with the old name."""
+    check_token(token) if token else None
+    user_id = await _resolve_user_id(request, token)
+    if not user_id and not token:
+        raise HTTPException(status_code=401)
+
+    body = await request.json()
+    old_name = (body.get("old_name") or "").strip()
+    new_name = (body.get("new_name") or "").strip()
+    if not old_name or not new_name:
+        raise HTTPException(status_code=400, detail="old_name and new_name required")
+
+    pool = await _get_db_pool()
+    await _ensure_fire_categories_schema(pool)
+    await pool.execute(_FIRE_TX_CATEGORY_TABLE_SQL)
+    if old_name != new_name:
+        existing = await pool.fetchrow(
+            "SELECT parent FROM fire_categories WHERE name = $1 AND user_id = 'default'", old_name,
+        )
+        parent = existing["parent"] if existing else None
+        await pool.execute(
+            "DELETE FROM fire_categories WHERE name = $1 AND user_id = 'default'", old_name,
+        )
+        await _ensure_category(pool, new_name, parent)
+        # Re-point any sub-categories whose parent was the renamed category.
+        await pool.execute(
+            "UPDATE fire_categories SET parent = $1 WHERE parent = $2 AND user_id = 'default'",
+            new_name, old_name,
+        )
+        await pool.execute(
+            """UPDATE fire_transaction_categories SET category = $1, updated_at = NOW()
+               WHERE category = $2 AND user_id = 'default'""",
+            new_name, old_name,
+        )
+    return {"ok": True, "categories": await _list_categories(pool)}
+
+
+@app.delete("/api/equities/categories/{name}")
+async def delete_category(name: str, token: str = ""):
+    """Delete a category from the vocabulary and un-assign it from any
+    transactions currently tagged with it. Any sub-categories under it are
+    promoted to top-level rather than deleted."""
+    check_token(token) if token else None
+    pool = await _get_db_pool()
+    await _ensure_fire_categories_schema(pool)
+    await pool.execute(_FIRE_TX_CATEGORY_TABLE_SQL)
+    await pool.execute(
+        "UPDATE fire_categories SET parent = NULL WHERE parent = $1 AND user_id = 'default'", name,
+    )
+    await pool.execute("DELETE FROM fire_categories WHERE name = $1 AND user_id = 'default'", name)
+    await pool.execute(
+        "DELETE FROM fire_transaction_categories WHERE category = $1 AND user_id = 'default'", name,
+    )
+    return {"ok": True, "categories": await _list_categories(pool)}
+
+
+@app.post("/api/equities/transactions/category")
+async def set_transaction_category(request: Request, token: str = ""):
+    """Assign (or clear, if category is blank) a user-defined category on a
+    transaction, keyed by its stable transaction id. Used by both the
+    Transactions edit UI and downstream dashboards (e.g. Cash Flow by Category)."""
+    check_token(token) if token else None
+    user_id = await _resolve_user_id(request, token)
+    if not user_id and not token:
+        raise HTTPException(status_code=401)
+
+    body = await request.json()
+    tx_id = (body.get("transaction_id") or "").strip()
+    category = (body.get("category") or "").strip()
+    if not tx_id:
+        raise HTTPException(status_code=400, detail="transaction_id required")
+
+    pool = await _get_db_pool()
+    await pool.execute(_FIRE_TX_CATEGORY_TABLE_SQL)
+    if category:
+        await pool.execute(
+            """INSERT INTO fire_transaction_categories (transaction_id, user_id, category, updated_at)
+               VALUES ($1, 'default', $2, NOW())
+               ON CONFLICT (transaction_id, user_id)
+               DO UPDATE SET category = EXCLUDED.category, updated_at = NOW()""",
+            tx_id, category,
+        )
+        await _ensure_category(pool, category)
+    else:
+        await pool.execute(
+            "DELETE FROM fire_transaction_categories WHERE transaction_id = $1 AND user_id = 'default'",
+            tx_id,
+        )
+    return {"ok": True, "transaction_id": tx_id, "category": category or None}
+
+
+_FIRE_CATEGORY_RULES_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS fire_category_rules (
+        id         SERIAL      PRIMARY KEY,
+        user_id    TEXT        NOT NULL DEFAULT 'default',
+        field      TEXT        NOT NULL,               -- 'type' | 'symbol' | 'description'
+        operator   TEXT        NOT NULL DEFAULT 'equals',  -- 'equals' | 'contains'
+        value      TEXT        NOT NULL,
+        category   TEXT        NOT NULL,
+        enabled    BOOLEAN     NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+"""
+_RULE_FIELDS = ("type", "symbol", "description")
+_RULE_OPERATORS = ("equals", "contains")
+
+
+async def _list_category_rules(pool, user_id: str = "default") -> list:
+    await pool.execute(_FIRE_CATEGORY_RULES_TABLE_SQL)
+    rows = await pool.fetch(
+        """SELECT id, field, operator, value, category, enabled FROM fire_category_rules
+           WHERE user_id = $1 ORDER BY id""",
+        user_id,
+    )
+    return [dict(r) for r in rows]
+
+
+def _rule_matches(rule: dict, t: dict) -> bool:
+    field_val = str(t.get(rule["field"]) or "").upper()
+    target = (rule["value"] or "").upper()
+    if not target:
+        return False
+    return target in field_val if rule["operator"] == "contains" else field_val == target
+
+
+async def _apply_category_rules(pool, transactions: list, user_id: str = "default") -> int:
+    """Auto-assign (and persist) categories on uncategorized transactions per
+    enabled rules, first match wins. Returns the count newly categorized."""
+    rules = [r for r in await _list_category_rules(pool, user_id) if r["enabled"]]
+    if not rules:
+        return 0
+    updated = 0
+    for t in transactions:
+        if t.get("category"):
+            continue
+        for rule in rules:
+            if _rule_matches(rule, t):
+                t["category"] = rule["category"]
+                await pool.execute(
+                    """INSERT INTO fire_transaction_categories (transaction_id, user_id, category, updated_at)
+                       VALUES ($1, $2, $3, NOW())
+                       ON CONFLICT (transaction_id, user_id)
+                       DO UPDATE SET category = EXCLUDED.category, updated_at = NOW()""",
+                    t.get("id"), user_id, rule["category"],
+                )
+                await _ensure_category(pool, rule["category"], user_id=user_id)
+                updated += 1
+                break
+    return updated
+
+
+@app.get("/api/equities/category-rules")
+async def get_category_rules():
+    """Auto-categorization rules (Transactions page's Auto-Categorize panel)."""
+    pool = await _get_db_pool()
+    return {"rules": await _list_category_rules(pool)}
+
+
+@app.post("/api/equities/category-rules")
+async def add_category_rule(request: Request, token: str = ""):
+    """Create a rule: when `field` `operator` `value`, assign `category` to any
+    matching, currently-uncategorized transaction. Applied automatically the
+    next time transactions are fetched."""
+    check_token(token) if token else None
+    user_id = await _resolve_user_id(request, token)
+    if not user_id and not token:
+        raise HTTPException(status_code=401)
+
+    body = await request.json()
+    field = (body.get("field") or "").strip().lower()
+    operator = (body.get("operator") or "equals").strip().lower()
+    value = (body.get("value") or "").strip()
+    category = (body.get("category") or "").strip()
+    if field not in _RULE_FIELDS:
+        raise HTTPException(status_code=400, detail=f"field must be one of {_RULE_FIELDS}")
+    if operator not in _RULE_OPERATORS:
+        raise HTTPException(status_code=400, detail=f"operator must be one of {_RULE_OPERATORS}")
+    if not value or not category:
+        raise HTTPException(status_code=400, detail="value and category required")
+
+    pool = await _get_db_pool()
+    await pool.execute(_FIRE_CATEGORY_RULES_TABLE_SQL)
+    await pool.execute(
+        """INSERT INTO fire_category_rules (user_id, field, operator, value, category)
+           VALUES ('default', $1, $2, $3, $4)""",
+        field, operator, value, category,
+    )
+    await _ensure_category(pool, category)
+    return {"ok": True, "rules": await _list_category_rules(pool)}
+
+
+@app.put("/api/equities/category-rules/{rule_id}")
+async def update_category_rule(rule_id: int, request: Request, token: str = ""):
+    """Edit a rule's fields, or toggle it on/off — only the given keys change."""
+    check_token(token) if token else None
+    user_id = await _resolve_user_id(request, token)
+    if not user_id and not token:
+        raise HTTPException(status_code=401)
+
+    body = await request.json()
+    field = body.get("field")
+    operator = body.get("operator")
+    value = body.get("value")
+    category = body.get("category")
+    enabled = body.get("enabled")
+    if field is not None and field not in _RULE_FIELDS:
+        raise HTTPException(status_code=400, detail=f"field must be one of {_RULE_FIELDS}")
+    if operator is not None and operator not in _RULE_OPERATORS:
+        raise HTTPException(status_code=400, detail=f"operator must be one of {_RULE_OPERATORS}")
+
+    pool = await _get_db_pool()
+    await pool.execute(_FIRE_CATEGORY_RULES_TABLE_SQL)
+    await pool.execute(
+        """UPDATE fire_category_rules SET
+             field    = COALESCE($2, field),
+             operator = COALESCE($3, operator),
+             value    = COALESCE($4, value),
+             category = COALESCE($5, category),
+             enabled  = COALESCE($6, enabled)
+           WHERE id = $1 AND user_id = 'default'""",
+        rule_id, field, operator, value, category, enabled,
+    )
+    if category:
+        await _ensure_category(pool, category)
+    return {"ok": True, "rules": await _list_category_rules(pool)}
+
+
+@app.delete("/api/equities/category-rules/{rule_id}")
+async def delete_category_rule(rule_id: int, token: str = ""):
+    check_token(token) if token else None
+    pool = await _get_db_pool()
+    await pool.execute(_FIRE_CATEGORY_RULES_TABLE_SQL)
+    await pool.execute("DELETE FROM fire_category_rules WHERE id = $1 AND user_id = 'default'", rule_id)
+    return {"ok": True, "rules": await _list_category_rules(pool)}
+
+
+@app.post("/api/equities/category-rules/apply")
+async def apply_category_rules_now(request: Request, token: str = "", refresh: int = 0):
+    """Backfill: immediately apply all enabled rules to the current transaction
+    set, instead of waiting for the next natural /transactions fetch."""
+    check_token(token) if token else None
+    user_id = await _resolve_user_id(request, token)
+    if not user_id and not token:
+        raise HTTPException(status_code=401)
+    if user_id:
+        await _load_user_secrets_to_env(user_id)
+
+    from shared import snaptrade_source as sts
+    if not sts.configured_source():
+        raise HTTPException(status_code=400, detail="No SnapTrade source configured.")
+
+    redis = await get_redis()
+    cache_key = f"equities:buyborrow:portfolio:{user_id or 'token'}"
+    portfolio, used_cache = None, False
+    if not refresh:
+        cached = await redis.get(cache_key)
+        if cached:
+            try:
+                portfolio = json.loads(cached)
+                used_cache = True
+            except Exception:
+                portfolio = None
+    if portfolio is None:
+        try:
+            portfolio = await sts.fetch_portfolio()
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Portfolio fetch failed: {e}")
+        try:
+            await redis.set(cache_key, json.dumps(portfolio), ex=300)
+        except Exception:
+            pass
+
+    transactions = portfolio.get("transactions") or []
+    pool = await _get_db_pool()
+    categories = await _fetch_tx_categories(pool)
+    for t in transactions:
+        t["category"] = categories.get(t.get("id"))
+    updated = await _apply_category_rules(pool, transactions)
+    return {"ok": True, "updated": updated, "cached": used_cache}
+
+
+@app.get("/api/equities/cash-flow")
+async def get_cash_flow(request: Request, token: str = "", refresh: int = 0,
+                        start_date: str = "", end_date: str = "", category: str = ""):
+    """Cash Flow dashboard: income, expenses, margin cost, contributions,
+    withdrawals, capital deployed, net operating, and a daily net-operating
+    series over the requested date range — all derived from synced transaction
+    history. Defaults to the trailing 30 days when no range is given."""
+    check_token(token) if token else None
+    user_id = await _resolve_user_id(request, token)
+    if not user_id and not token:
+        raise HTTPException(status_code=401)
+    if user_id:
+        await _load_user_secrets_to_env(user_id)
+
+    from shared import snaptrade_source as sts
+    if not sts.configured_source():
+        raise HTTPException(
+            status_code=400,
+            detail="No SnapTrade source configured. Add SnapTrade API keys or "
+                   "Paycheck2Portfolio credentials under Config → Secrets.",
+        )
+
+    redis = await get_redis()
+    cache_key = f"equities:buyborrow:portfolio:{user_id or 'token'}"
+    portfolio, used_cache = None, False
+    if not refresh:
+        cached = await redis.get(cache_key)
+        if cached:
+            try:
+                portfolio = json.loads(cached)
+                used_cache = True
+            except Exception:
+                portfolio = None
+    if portfolio is None:
+        try:
+            portfolio = await sts.fetch_portfolio()
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Portfolio fetch failed: {e}")
+        try:
+            await redis.set(cache_key, json.dumps(portfolio), ex=300)
+        except Exception:
+            pass
+
+    pool = await _get_db_pool()
+    categories = await _fetch_tx_categories(pool)
+    for t in (portfolio.get("transactions") or []):
+        t["category"] = categories.get(t.get("id"))
+    await _apply_category_rules(pool, portfolio.get("transactions") or [])
+
+    result = sts.compute_cash_flow_summary(
+        portfolio,
+        start_date=start_date or None,
+        end_date=end_date or None,
+        category=category or None,
+    )
+    result["cached"] = used_cache
+    return result
+
+
+_FIRE_SNAPSHOT_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS fire_monthly_snapshots (
+        id            SERIAL PRIMARY KEY,
+        snapshot_date DATE NOT NULL,
+        total_value   NUMERIC NOT NULL,
+        source        TEXT,
+        user_id       TEXT NOT NULL DEFAULT 'default',
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (snapshot_date, user_id)
+    )
+"""
+
+
+@app.post("/api/equities/fire-monthly-snapshot")
+async def capture_fire_monthly_snapshot(token: str = ""):
+    """Capture current FIRE portfolio total value as a monthly snapshot (called by
+    the scheduler on the 1st of each month). Retains 18 months of history."""
+    if token != WEBUI_TOKEN:
+        raise HTTPException(403, "Forbidden")
+
+    from shared import snaptrade_source as sts
+    if not sts.configured_source():
+        return {"ok": False, "detail": "No SnapTrade source configured"}
+
+    try:
+        portfolio = await sts.fetch_portfolio()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Portfolio fetch failed: {e}")
+
+    total_value = sum(p.get("market_value", 0) for p in portfolio.get("positions", []))
+
+    pool = await _get_db_pool()
+    await pool.execute(_FIRE_SNAPSHOT_TABLE_SQL)
+    await pool.execute(
+        """INSERT INTO fire_monthly_snapshots (snapshot_date, total_value, source, user_id)
+           VALUES (CURRENT_DATE, $1, $2, 'default')
+           ON CONFLICT (snapshot_date, user_id)
+           DO UPDATE SET total_value = EXCLUDED.total_value, source = EXCLUDED.source""",
+        total_value, portfolio.get("source"),
+    )
+    await pool.execute(
+        "DELETE FROM fire_monthly_snapshots WHERE snapshot_date < (CURRENT_DATE - INTERVAL '18 months')"
+    )
+    return {"ok": True, "total_value": total_value}
+
+
+@app.get("/api/equities/fire-monthly-history")
+async def get_fire_monthly_history():
+    """18-month history of FIRE portfolio monthly value snapshots, for the
+    Positions dashboard chart."""
+    pool = await _get_db_pool()
+    await pool.execute(_FIRE_SNAPSHOT_TABLE_SQL)
+    rows = await pool.fetch(
+        """SELECT snapshot_date, total_value FROM fire_monthly_snapshots
+           WHERE user_id = 'default' ORDER BY snapshot_date ASC"""
+    )
+    return {"series": [
+        {"date": r["snapshot_date"].isoformat(), "total_value": float(r["total_value"])}
+        for r in rows
+    ]}
+
+
+_FIRE_DAILY_SNAPSHOT_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS fire_daily_snapshots (
+        id            SERIAL PRIMARY KEY,
+        snapshot_date DATE NOT NULL,
+        total_value   NUMERIC NOT NULL,
+        source        TEXT,
+        user_id       TEXT NOT NULL DEFAULT 'default',
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (snapshot_date, user_id)
+    )
+"""
+
+
+@app.post("/api/equities/fire-daily-snapshot")
+async def capture_fire_daily_snapshot(token: str = ""):
+    """Capture current FIRE portfolio total value as a daily snapshot (called by
+    the scheduler once a day). Retains 90 days of history."""
+    if token != WEBUI_TOKEN:
+        raise HTTPException(403, "Forbidden")
+
+    from shared import snaptrade_source as sts
+    if not sts.configured_source():
+        return {"ok": False, "detail": "No SnapTrade source configured"}
+
+    try:
+        portfolio = await sts.fetch_portfolio()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Portfolio fetch failed: {e}")
+
+    total_value = sum(p.get("market_value", 0) for p in portfolio.get("positions", []))
+
+    pool = await _get_db_pool()
+    await pool.execute(_FIRE_DAILY_SNAPSHOT_TABLE_SQL)
+    await pool.execute(
+        """INSERT INTO fire_daily_snapshots (snapshot_date, total_value, source, user_id)
+           VALUES (CURRENT_DATE, $1, $2, 'default')
+           ON CONFLICT (snapshot_date, user_id)
+           DO UPDATE SET total_value = EXCLUDED.total_value, source = EXCLUDED.source""",
+        total_value, portfolio.get("source"),
+    )
+    await pool.execute(
+        "DELETE FROM fire_daily_snapshots WHERE snapshot_date < (CURRENT_DATE - INTERVAL '90 days')"
+    )
+    return {"ok": True, "total_value": total_value}
+
+
+@app.get("/api/equities/fire-daily-history")
+async def get_fire_daily_history():
+    """90-day history of FIRE portfolio daily value snapshots, for the Positions
+    dashboard chart."""
+    pool = await _get_db_pool()
+    await pool.execute(_FIRE_DAILY_SNAPSHOT_TABLE_SQL)
+    rows = await pool.fetch(
+        """SELECT snapshot_date, total_value FROM fire_daily_snapshots
+           WHERE user_id = 'default' AND snapshot_date >= (CURRENT_DATE - INTERVAL '90 days')
+           ORDER BY snapshot_date ASC"""
+    )
+    return {"series": [
+        {"date": r["snapshot_date"].isoformat(), "total_value": float(r["total_value"])}
+        for r in rows
+    ]}
 
 
 # ── API — Market Calendar ─────────────────────────────────────────────────────

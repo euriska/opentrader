@@ -326,6 +326,73 @@ CREATE TABLE IF NOT EXISTS portfolio_snapshots (
 CREATE INDEX IF NOT EXISTS portfolio_snapshots_date ON portfolio_snapshots (snapshot_date DESC);
 CREATE INDEX IF NOT EXISTS portfolio_snapshots_account ON portfolio_snapshots (account_label, snapshot_date DESC);
 
+-- ── FIRE portfolio monthly value snapshots (SnapTrade positions total) ───────
+-- One row per calendar month, captured on the 1st. Retention: 18 months (pruned
+-- by the capturing endpoint, not by this schema).
+CREATE TABLE IF NOT EXISTS fire_monthly_snapshots (
+    id            SERIAL      PRIMARY KEY,
+    snapshot_date DATE        NOT NULL,
+    total_value   NUMERIC     NOT NULL,
+    source        TEXT,
+    user_id       TEXT        NOT NULL DEFAULT 'default',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (snapshot_date, user_id)
+);
+CREATE INDEX IF NOT EXISTS fire_monthly_snapshots_date ON fire_monthly_snapshots (snapshot_date DESC);
+
+-- ── FIRE portfolio daily value snapshots (SnapTrade positions total) ─────────
+-- One row per calendar day, captured once daily. Retention: 90 days (pruned by
+-- the capturing endpoint, not by this schema).
+CREATE TABLE IF NOT EXISTS fire_daily_snapshots (
+    id            SERIAL      PRIMARY KEY,
+    snapshot_date DATE        NOT NULL,
+    total_value   NUMERIC     NOT NULL,
+    source        TEXT,
+    user_id       TEXT        NOT NULL DEFAULT 'default',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (snapshot_date, user_id)
+);
+CREATE INDEX IF NOT EXISTS fire_daily_snapshots_date ON fire_daily_snapshots (snapshot_date DESC);
+
+-- ── FIRE transaction categories (user-assigned, keyed by broker transaction id) ─
+-- Transactions themselves aren't persisted (fetched live from SnapTrade/P2P and
+-- cached briefly in Redis); this table only stores the user's category tags,
+-- joined back onto the live transaction list by id at request time.
+CREATE TABLE IF NOT EXISTS fire_transaction_categories (
+    transaction_id TEXT        NOT NULL,
+    user_id        TEXT        NOT NULL DEFAULT 'default',
+    category       TEXT        NOT NULL,
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (transaction_id, user_id)
+);
+
+-- ── FIRE category vocabulary (add/rename/delete via Manage Categories) ───────
+-- Auto-seeded with starter categories on first read; independent of whether any
+-- transaction currently uses a given name. `parent` supports one level of
+-- sub-categories (NULL = top-level).
+CREATE TABLE IF NOT EXISTS fire_categories (
+    name       TEXT        NOT NULL,
+    user_id    TEXT        NOT NULL DEFAULT 'default',
+    parent     TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (name, user_id)
+);
+
+-- ── FIRE auto-categorization rules (Transactions page Auto-Categorize panel) ─
+-- Applied automatically whenever transactions are fetched: any uncategorized
+-- transaction matching an enabled rule gets tagged with its category and the
+-- assignment is persisted to fire_transaction_categories.
+CREATE TABLE IF NOT EXISTS fire_category_rules (
+    id         SERIAL      PRIMARY KEY,
+    user_id    TEXT        NOT NULL DEFAULT 'default',
+    field      TEXT        NOT NULL,               -- 'type' | 'symbol' | 'description'
+    operator   TEXT        NOT NULL DEFAULT 'equals',  -- 'equals' | 'contains'
+    value      TEXT        NOT NULL,
+    category   TEXT        NOT NULL,
+    enabled    BOOLEAN     NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ── Daily loss tracking (circuit breaker) ────────────────────────────────────
 -- Persists intraday realized P&L per account for loss-limit enforcement.
 -- Reset each morning at market open by the scheduler.

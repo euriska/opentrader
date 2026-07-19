@@ -3,6 +3,14 @@
 All notable changes to OpenTrader will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) — versioning follows [Semantic Versioning](https://semver.org/).
 
+## v4.0.92
+- feat: FIRE Positions dashboard — total value/position count/unique symbols/largest holding stats, positions table (shares, last price, cost basis/share, gain $, return %, portfolio weight), split Daily (90d) / Monthly (18mo) account value charts backed by new `fire_daily_snapshots`/`fire_monthly_snapshots` tables and scheduler jobs (daily 6:05am ET, monthly on the 1st) v4.0.92
+- feat: FIRE Transactions dashboard — searchable/filterable transaction table (type, symbol, category, date range) with CSV export; user-defined transaction categories with one level of sub-categories (add/rename/delete via Manage Categories panel, renames and deletes cascade correctly to children and tagged transactions); rules-based auto-categorization (field/operator/value → category, applied automatically whenever transactions are fetched, never overwrites a manual tag) v4.0.92
+- feat: FIRE Cash Flow dashboard — Total Income/Expenses/Margin Cost/Contributions/Cash Withdrawals/Capital Deployed/Net Operating KPIs derived from tagged transaction history; 7d/30d/60d/90d/YTD/custom date-range and category filters; sliding daily net-operating bar chart; By Category breakdown; transaction table with type-chip filtering (Investment Purchase/Sale — BUY/SELL — excluded by default) v4.0.92
+- feat: Buy-Borrow-Die dashboard — merged top-row pill boxes are now drag-to-reorder and individually hideable via a Customize panel (checkboxes, persisted); added a Margin Req. column to Pledgeable Holdings (cash-equivalent positions correctly show "cash" / $0 borrowable instead of a phantom margin figure) v4.0.92
+- fix: SnapTrade HMAC request signing — query params were signed in sorted order but sent in dict-insertion order, so any call beyond the bare userId/userSecret pair (e.g. `limit`, `startDate`) failed with a 401 "Unable to verify signature"; this silently broke transaction/activity history fetching v4.0.92
+- fix: FIRE dashboard table header alignment — a global unscoped `th{text-align:left}` rule was overriding the intended right-alignment inherited from the row; headers now set `text-align` explicitly per cell, matching the rest of the app's tables v4.0.92
+
 ## v4.0.91
 - fix: broker configuration page fails to render when Redis is unavailable — wrap config:trade_mode Redis read in try/except and fall back to TRADE_MODE env var v4.0.91
 

@@ -315,6 +315,25 @@ select option{background:var(--surface2)}
         <span class="nav-dot" style="background:var(--green)"></span>
         Equity Dividend Income
       </div>
+      <div class="nav-parent" id="nav-parent-fire" onclick="_fireNavToggle()">
+        <span class="nav-dot" style="background:var(--purple,#a855f7)"></span>
+        FIRE
+        <span id="nav-fire-chevron" style="margin-left:auto;font-size:9px;transition:transform .2s">▸</span>
+      </div>
+      <div class="nav-children" id="nav-fire-children">
+        <div class="nav-subitem" onclick="navigate('page-equities-buy-borrow')" data-page="page-equities-buy-borrow">
+          <span class="nav-dot" style="background:var(--purple,#a855f7);width:6px;height:6px"></span>Buy-Borrow-Die
+        </div>
+        <div class="nav-subitem" onclick="navigate('page-fire-positions')" data-page="page-fire-positions">
+          <span class="nav-dot" style="background:var(--teal);width:6px;height:6px"></span>Positions
+        </div>
+        <div class="nav-subitem" onclick="navigate('page-fire-transactions')" data-page="page-fire-transactions">
+          <span class="nav-dot" style="background:var(--blue);width:6px;height:6px"></span>Transactions
+        </div>
+        <div class="nav-subitem" onclick="navigate('page-fire-cashflow')" data-page="page-fire-cashflow">
+          <span class="nav-dot" style="background:var(--green);width:6px;height:6px"></span>Cash Flow
+        </div>
+      </div>
       <div class="nav-item" draggable="true" onclick="navigate('page-portfolio-groups')" data-page="page-portfolio-groups">
         <span class="nav-dot" style="background:#f59e0b"></span>
         Portfolio Groups
@@ -2499,6 +2518,349 @@ select option{background:var(--surface2)}
           <button class="btn btn-primary" onclick="saveBrokerCfg()">Save</button>
         </div>
       </div>
+    </div>
+
+    <!-- ════════════════════════════════════════
+         PAGE: Buy Borrow (Buy-Borrow-Die)
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-equities-buy-borrow">
+
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <div style="font-size:13px;color:var(--muted);max-width:640px">
+          Model a <b style="color:var(--text)">buy&nbsp;·&nbsp;borrow&nbsp;·&nbsp;die</b> strategy against your live
+          SnapTrade holdings: borrow against appreciated assets instead of selling, keeping
+          unrealized gains untaxed while your collateral keeps compounding.
+        </div>
+        <div style="flex:1"></div>
+        <span id="bb-source" style="font-size:10px;color:var(--dim)"></span>
+        <div style="position:relative">
+          <button id="fd-customize-btn" class="btn btn-ghost btn-sm" onclick="_fdToggleCustomizePanel()" style="font-size:11px">&#9881; Customize</button>
+          <div id="fd-customize-panel" style="display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:50;width:260px;max-height:360px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.35);padding:10px"></div>
+        </div>
+        <button class="btn btn-sm" onclick="loadBuyBorrowPage(true)" style="font-size:11px">Refresh</button>
+      </div>
+
+      <div id="bb-error" style="display:none;margin-bottom:14px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-size:12px;color:var(--coral)"></div>
+
+      <!-- Portfolio Overview — pill boxes are drag-to-reorder (order persisted to localStorage) -->
+      <div class="stat-grid" id="fd-stats" style="margin-bottom:16px">
+        <div class="stat-card" data-key="gross"><div class="stat-label">Gross Portfolio</div><div class="stat-value" id="fd-gross">—</div></div>
+        <div class="stat-card" data-key="net"><div class="stat-label">Net Portfolio</div><div class="stat-value" id="fd-net">—</div></div>
+        <div class="stat-card" data-key="margin"><div class="stat-label">Margin Balance</div><div class="stat-value" id="fd-margin" style="color:var(--coral)">—</div></div>
+        <div class="stat-card" data-key="equity"><div class="stat-label">Equity %</div><div class="stat-value" id="fd-equity-pct">—</div></div>
+        <div class="stat-card" data-key="positions"><div class="stat-label">Unique Positions</div><div class="stat-value" id="fd-positions">—</div></div>
+        <div class="stat-card" data-key="cash"><div class="stat-label">Available Cash</div><div class="stat-value" id="fd-cash" style="color:var(--green)">—</div></div>
+        <div class="stat-card" data-key="lastsync"><div class="stat-label">Last Sync</div><div class="stat-value" id="fd-lastsync" style="font-size:15px">—</div></div>
+        <div class="stat-card" data-key="collateral"><div class="stat-label">Collateral</div><div class="stat-value" id="bb-collateral">—</div><div class="stat-sub" id="bb-positions">—</div></div>
+        <div class="stat-card" data-key="avail-credit"><div class="stat-label">Available Credit</div><div class="stat-value" id="bb-available" style="color:var(--green)">—</div><div class="stat-sub" id="bb-creditline">—</div></div>
+        <div class="stat-card" data-key="current-ltv"><div class="stat-label">Current LTV</div><div class="stat-value" id="bb-ltv">—</div><div class="stat-sub">borrowed / collateral</div></div>
+        <div class="stat-card" data-key="drop-margin"><div class="stat-label">Drop to Margin Call</div><div class="stat-value" id="bb-cushion">—</div><div class="stat-sub" id="bb-callvalue">—</div></div>
+        <div class="stat-card" data-key="tax-deferred"><div class="stat-label">Tax Deferred</div><div class="stat-value" id="bb-taxdeferred" style="color:var(--purple,#a855f7)">—</div><div class="stat-sub">gains left unrealized</div></div>
+        <div class="stat-card" data-key="annual-interest"><div class="stat-label">Annual Interest</div><div class="stat-value" id="bb-interest" style="color:var(--amber)">—</div><div class="stat-sub" id="bb-monthlyint">—</div></div>
+      </div>
+
+      <!-- Performance -->
+      <div class="stat-grid" id="fd-perf-stats" style="margin-bottom:16px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+        <div class="stat-card" data-key="day-change"><div class="stat-label">Day Change</div><div class="stat-value" id="fd-day-change">—</div><div class="stat-sub" id="fd-day-change-pct"></div></div>
+        <div class="stat-card" data-key="total-gain"><div class="stat-label">Total Gain</div><div class="stat-value" id="fd-total-gain">—</div></div>
+        <div class="stat-card" data-key="total-return"><div class="stat-label">Total Return</div><div class="stat-value" id="fd-total-return">—</div></div>
+      </div>
+
+      <!-- Allocation + Latest Transactions -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;margin-bottom:16px">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Positions &amp; Allocation</span></div>
+          <div class="card-body" style="display:flex;align-items:flex-start;gap:16px;padding:14px">
+            <svg id="fd-pie-alloc" viewBox="0 0 120 120" style="width:130px;height:130px;flex-shrink:0"></svg>
+            <div id="fd-leg-alloc" style="flex:1;display:flex;flex-direction:column;gap:5px;font-size:11px;overflow-y:auto;max-height:200px"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Latest Transactions</span><span id="fd-tx-count" style="font-size:11px;color:var(--dim)"></span></div>
+          <div class="card-body" style="padding:0;overflow-x:auto;max-height:250px;overflow-y:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead>
+                <tr style="text-align:right;color:var(--muted);border-bottom:1px solid var(--border)">
+                  <th style="text-align:left;padding:8px 12px;position:sticky;top:0;background:var(--surface)">Date</th>
+                  <th style="text-align:left;padding:8px 12px;position:sticky;top:0;background:var(--surface)">Symbol</th>
+                  <th style="text-align:right;padding:8px 12px;position:sticky;top:0;background:var(--surface)">Type</th>
+                  <th style="text-align:right;padding:8px 12px;position:sticky;top:0;background:var(--surface)">Qty</th>
+                  <th style="text-align:right;padding:8px 12px;position:sticky;top:0;background:var(--surface)">Amount</th>
+                </tr>
+              </thead>
+              <tbody id="fd-tx-body"><tr><td colspan="5" style="padding:16px;text-align:center;color:var(--dim)">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Holdings table -->
+      <div class="card">
+        <div class="card-header"><span class="card-title">Pledgeable Holdings</span><span id="bb-holdings-count" style="font-size:11px;color:var(--dim)"></span></div>
+        <div class="card-body" style="padding:0;overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr id="bb-holdings-head" style="text-align:right;color:var(--muted);border-bottom:1px solid var(--border)">
+                <th style="text-align:left;padding:9px 14px">Symbol</th>
+                <th style="text-align:right;padding:9px 14px">Qty</th>
+                <th style="text-align:right;padding:9px 14px">Price</th>
+                <th style="text-align:right;padding:9px 14px">Market Value</th>
+                <th style="text-align:right;padding:9px 14px">Cost Basis</th>
+                <th style="text-align:right;padding:9px 14px">Unrealized</th>
+                <th style="text-align:right;padding:9px 14px">Weight</th>
+                <th style="text-align:right;padding:9px 14px">Margin Req.</th>
+                <th style="text-align:right;padding:9px 14px">Borrowable</th>
+              </tr>
+            </thead>
+            <tbody id="bb-holdings"><tr><td colspan="9" style="padding:16px;text-align:center;color:var(--dim)">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ════════════════════════════════════════
+         PAGE: FIRE — Positions
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-fire-positions">
+
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <div style="font-size:13px;color:var(--muted);max-width:640px">
+          Every position across your synced SnapTrade accounts, with cost basis, gain, and
+          portfolio weight per holding.
+        </div>
+        <div style="flex:1"></div>
+        <span id="fp-source" style="font-size:10px;color:var(--dim)"></span>
+        <button class="btn btn-sm" onclick="loadFirePositionsPage(true)" style="font-size:11px">Refresh</button>
+      </div>
+
+      <div id="fp-error" style="display:none;margin-bottom:14px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-size:12px;color:var(--coral)"></div>
+
+      <div class="stat-grid" style="margin-bottom:16px">
+        <div class="stat-card"><div class="stat-label">Total Value</div><div class="stat-value" id="fp-total-value">—</div></div>
+        <div class="stat-card"><div class="stat-label">Number of Positions</div><div class="stat-value" id="fp-num-positions">—</div></div>
+        <div class="stat-card"><div class="stat-label">Unique Symbols</div><div class="stat-value" id="fp-unique-symbols">—</div></div>
+        <div class="stat-card"><div class="stat-label">Largest Holding</div><div class="stat-value" id="fp-largest-symbol">—</div><div class="stat-sub" id="fp-largest-detail">—</div></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" class="fp-split-grid">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Positions</span><span id="fp-positions-count" style="font-size:11px;color:var(--dim)"></span></div>
+          <div class="card-body" style="padding:0;overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead>
+                <tr style="text-align:right;color:var(--muted);border-bottom:1px solid var(--border)">
+                  <th style="text-align:left;padding:9px 14px">Ticker</th>
+                  <th style="text-align:right;padding:9px 14px">Shares</th>
+                  <th style="text-align:right;padding:9px 14px">Last Price</th>
+                  <th style="text-align:right;padding:9px 14px">Cost Basis/Share</th>
+                  <th style="text-align:right;padding:9px 14px">Total Gain</th>
+                  <th style="text-align:right;padding:9px 14px">Total Return</th>
+                  <th style="text-align:right;padding:9px 14px">% of Portfolio</th>
+                </tr>
+              </thead>
+              <tbody id="fp-positions-body"><tr><td colspan="7" style="padding:16px;text-align:center;color:var(--dim)">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><span class="card-title">Account Value</span></div>
+          <div style="padding:14px;border-bottom:1px solid var(--border)">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px">Daily · 90 Days</div>
+            <div id="fp-daily-chart" style="min-height:190px">
+              <div style="color:var(--muted);font-size:12px;text-align:center;padding:30px 0">Loading…</div>
+            </div>
+          </div>
+          <div style="padding:14px">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px">Monthly · 18 Months</div>
+            <div id="fp-monthly-chart" style="min-height:190px">
+              <div style="color:var(--muted);font-size:12px;text-align:center;padding:30px 0">Loading…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ════════════════════════════════════════
+         PAGE: FIRE — Transactions
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-fire-transactions">
+
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <div style="font-size:13px;color:var(--muted);max-width:640px">
+          Every synced transaction across your SnapTrade accounts — trades, dividends,
+          contributions, and cash activity.
+        </div>
+        <div style="flex:1"></div>
+        <span id="ft-source" style="font-size:10px;color:var(--dim)"></span>
+        <div style="position:relative">
+          <button id="ft-categories-btn" class="btn btn-ghost btn-sm" onclick="_ftToggleCategoriesPanel()" style="font-size:11px">&#127991; Categories</button>
+          <div id="ft-categories-panel" style="display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:50;width:280px;max-height:400px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.35);padding:10px"></div>
+        </div>
+        <div style="position:relative">
+          <button id="ft-rules-btn" class="btn btn-ghost btn-sm" onclick="_frToggleRulesPanel()" style="font-size:11px">&#9881; Auto-Categorize</button>
+          <div id="ft-rules-panel" style="display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:50;width:340px;max-height:440px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.35);padding:10px"></div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="_ftExportCsv()" style="font-size:11px">&#8659; Export CSV</button>
+        <button class="btn btn-sm" onclick="loadFireTransactionsPage(true)" style="font-size:11px">Refresh</button>
+      </div>
+
+      <div id="ft-error" style="display:none;margin-bottom:14px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-size:12px;color:var(--coral)"></div>
+
+      <!-- Search / filter controls -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;align-items:end;padding:14px">
+          <label style="font-size:11px;color:var(--muted)">Type
+            <select id="ft-filter-type" onchange="_ftApplyFilters()" style="margin-top:5px;width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+              <option value="">All types</option>
+            </select>
+          </label>
+          <label style="font-size:11px;color:var(--muted)">Symbol
+            <input id="ft-filter-symbol" type="text" placeholder="e.g. VTI" oninput="_ftApplyFilters()"
+              style="margin-top:5px;width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);box-sizing:border-box">
+          </label>
+          <label style="font-size:11px;color:var(--muted)">Category
+            <select id="ft-filter-category" onchange="_ftApplyFilters()" style="margin-top:5px;width:100%;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+              <option value="">All categories</option>
+              <option value="__uncategorized__">Uncategorized</option>
+            </select>
+          </label>
+          <label style="font-size:11px;color:var(--muted)">From
+            <input id="ft-filter-from" type="date" onchange="_ftApplyFilters()"
+              style="margin-top:5px;width:100%;padding:5px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);box-sizing:border-box">
+          </label>
+          <label style="font-size:11px;color:var(--muted)">To
+            <input id="ft-filter-to" type="date" onchange="_ftApplyFilters()"
+              style="margin-top:5px;width:100%;padding:5px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);box-sizing:border-box">
+          </label>
+          <button class="btn btn-ghost btn-sm" onclick="_ftClearFilters()" style="font-size:11px">Clear filters</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">Transactions</span><span id="ft-count" style="font-size:11px;color:var(--dim)"></span></div>
+        <div class="card-body" style="padding:0;overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr style="text-align:right;color:var(--muted);border-bottom:1px solid var(--border)">
+                <th style="text-align:left;padding:9px 14px">Date</th>
+                <th style="text-align:left;padding:9px 14px">Type</th>
+                <th style="text-align:left;padding:9px 14px">Ticker</th>
+                <th style="text-align:left;padding:9px 14px">Description</th>
+                <th style="text-align:left;padding:9px 14px">Category</th>
+                <th style="text-align:right;padding:9px 14px">Amount</th>
+              </tr>
+            </thead>
+            <tbody id="ft-body"><tr><td colspan="6" style="padding:16px;text-align:center;color:var(--dim)">Loading…</td></tr></tbody>
+          </table>
+          <datalist id="ft-category-list"></datalist>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ════════════════════════════════════════
+         PAGE: FIRE — Cash Flow
+    ════════════════════════════════════════ -->
+    <div class="page" id="page-fire-cashflow">
+
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <div style="font-size:13px;color:var(--muted);max-width:640px">
+          Income, expenses, and financing activity derived from your synced transaction
+          history. Net Operating = income − expenses − margin cost.
+        </div>
+        <div style="flex:1"></div>
+        <span id="cf-source" style="font-size:10px;color:var(--dim)"></span>
+        <button class="btn btn-sm" onclick="loadFireCashFlowPage(true)" style="font-size:11px">Refresh</button>
+      </div>
+
+      <div id="cf-error" style="display:none;margin-bottom:14px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-size:12px;color:var(--coral)"></div>
+
+      <!-- Date range + category filter -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-body" style="display:flex;flex-wrap:wrap;gap:14px;align-items:end;padding:14px">
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:5px">Date Range</div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              <button class="btn btn-ghost btn-sm cf-range-btn" data-range="7" onclick="_cfSetRange('7')" style="font-size:11px">7D</button>
+              <button class="btn btn-ghost btn-sm cf-range-btn" data-range="30" onclick="_cfSetRange('30')" style="font-size:11px">30D</button>
+              <button class="btn btn-ghost btn-sm cf-range-btn" data-range="60" onclick="_cfSetRange('60')" style="font-size:11px">60D</button>
+              <button class="btn btn-ghost btn-sm cf-range-btn" data-range="90" onclick="_cfSetRange('90')" style="font-size:11px">90D</button>
+              <button class="btn btn-ghost btn-sm cf-range-btn" data-range="ytd" onclick="_cfSetRange('ytd')" style="font-size:11px">YTD</button>
+              <button class="btn btn-ghost btn-sm cf-range-btn" data-range="custom" onclick="_cfSetRange('custom')" style="font-size:11px">Custom</button>
+            </div>
+          </div>
+          <div id="cf-custom-range" style="display:none;gap:10px;align-items:end">
+            <label style="font-size:11px;color:var(--muted)">From
+              <input id="cf-filter-from" type="date" onchange="_cfApplyCustomRange()"
+                style="display:block;margin-top:5px;padding:5px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            </label>
+            <label style="font-size:11px;color:var(--muted)">To
+              <input id="cf-filter-to" type="date" onchange="_cfApplyCustomRange()"
+                style="display:block;margin-top:5px;padding:5px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            </label>
+          </div>
+          <div style="flex:1"></div>
+          <label style="font-size:11px;color:var(--muted)">Category
+            <select id="cf-filter-category" onchange="loadFireCashFlowPage()"
+              style="display:block;margin-top:5px;padding:6px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);min-width:200px">
+              <option value="">All categories</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="stat-grid" style="margin-bottom:16px">
+        <div class="stat-card"><div class="stat-label">Total Income</div><div class="stat-value" id="cf-income" style="color:var(--green)">—</div></div>
+        <div class="stat-card"><div class="stat-label">Total Expenses</div><div class="stat-value" id="cf-expenses" style="color:var(--coral)">—</div></div>
+        <div class="stat-card"><div class="stat-label">Margin Cost</div><div class="stat-value" id="cf-margin-cost" style="color:var(--coral)">—</div></div>
+        <div class="stat-card"><div class="stat-label">Contributions</div><div class="stat-value" id="cf-contributions" style="color:var(--green)">—</div></div>
+        <div class="stat-card"><div class="stat-label">Cash Withdrawals</div><div class="stat-value" id="cf-withdrawals" style="color:var(--amber)">—</div></div>
+        <div class="stat-card"><div class="stat-label">Capital Deployed</div><div class="stat-value" id="cf-capital-deployed">—</div></div>
+        <div class="stat-card"><div class="stat-label">Net Operating</div><div class="stat-value" id="cf-net-operating">—</div></div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><span class="card-title">Daily Net Operating</span><span id="cf-range-label" style="font-size:10px;color:var(--dim)">trailing 30 days</span></div>
+        <div class="card-body" id="cf-daily-chart" style="padding:14px;min-height:200px">
+          <div style="color:var(--muted);font-size:12px;text-align:center;padding:30px 0">Loading…</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><span class="card-title">By Category</span><span style="font-size:10px;color:var(--dim)">from categories tagged on the Transactions page</span></div>
+        <div class="card-body" id="cf-by-category" style="padding:0">
+          <div style="color:var(--muted);font-size:12px;text-align:center;padding:30px 0">Loading…</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">Transactions</span><span id="cf-tx-count" style="font-size:11px;color:var(--dim)"></span></div>
+        <div style="padding:12px 14px;border-bottom:1px solid var(--border)">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px">
+            Types <span style="color:var(--dim)">(Investment Purchase / Sale excluded by default — click to include)</span>
+          </div>
+          <div id="cf-type-chips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        </div>
+        <div class="card-body" style="padding:0;overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr style="text-align:right;color:var(--muted);border-bottom:1px solid var(--border)">
+                <th style="text-align:left;padding:9px 14px">Date</th>
+                <th style="text-align:left;padding:9px 14px">Type</th>
+                <th style="text-align:left;padding:9px 14px">Ticker</th>
+                <th style="text-align:left;padding:9px 14px">Description</th>
+                <th style="text-align:left;padding:9px 14px">Category</th>
+                <th style="text-align:right;padding:9px 14px">Amount</th>
+              </tr>
+            </thead>
+            <tbody id="cf-tx-body"><tr><td colspan="6" style="padding:16px;text-align:center;color:var(--dim)">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
     </div>
 
     <!-- ════════════════════════════════════════
@@ -5919,6 +6281,10 @@ const PAGE_TITLES = {
   'page-trading-trades':     'Equity Trades',
   'page-trading-broker':     'Broker Configuration',
   'page-trading-dividends':  'Equity Dividend Income',
+  'page-equities-buy-borrow':'FIRE',
+  'page-fire-positions':     'Positions',
+  'page-fire-transactions':  'Transactions',
+  'page-fire-cashflow':      'Cash Flow',
   'page-portfolio-groups':   'Portfolio Groups',
   'page-trading-sectormap':  'Sector Map',
   'page-trading-alerts':     'Price Alerts',
@@ -6029,6 +6395,1177 @@ async function apiFetch(path, opts = {}) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// Buy Borrow (Buy-Borrow-Die) dashboard
+// ══════════════════════════════════════════════════════════════════════════════
+let _bbData = null;  // last server payload (holdings + totals), scenario recomputed client-side
+const _bbUsd = (n) => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', {maximumFractionDigits: 0});
+const _bbPct = (f) => (f * 100).toFixed(1) + '%';
+
+async function loadBuyBorrowPage(refresh = false) {
+  const err = document.getElementById('bb-error');
+  err.style.display = 'none';
+  document.getElementById('bb-holdings').innerHTML =
+    '<tr><td colspan="8" style="padding:16px;text-align:center;color:var(--dim)">Loading…</td></tr>';
+  try {
+    const d = await apiFetch('/api/equities/buy-borrow' + (refresh ? '?refresh=1' : ''));
+    _bbData = d;
+    document.getElementById('bb-source').textContent =
+      (d.source ? 'source: ' + d.source : '') + (d.as_of ? ' · as of ' + d.as_of : '') +
+      (d.cached ? ' · cached' : '');
+    bbRenderHoldings(d.holdings);
+    bbRenderStats(d);
+    fdRenderOverview(d.overview);
+    _fdApplyStatsOrder();
+    _fdInitStatsDrag();
+    _fdApplyHidden();
+  } catch (e) {
+    err.textContent = 'Failed to load: ' + e.message;
+    err.style.display = 'block';
+    document.getElementById('bb-holdings').innerHTML =
+      '<tr><td colspan="8" style="padding:16px;text-align:center;color:var(--dim)">No data</td></tr>';
+  }
+}
+
+// Pledgeable Holdings — Symbol/Qty are fixed; the rest are drag-to-reorder columns.
+const _HOLD_MOVABLE_DEFS = [
+  { id:'price',        label:'Price' },
+  { id:'market_value',  label:'Market Value' },
+  { id:'cost_basis',    label:'Cost Basis' },
+  { id:'unrealized',    label:'Unrealized' },
+  { id:'weight',        label:'Weight' },
+  { id:'margin_req',    label:'Margin Req.' },
+  { id:'borrowable',    label:'Borrowable' },
+];
+const _HOLD_COL_LS = 'fire_holdings_col_order_v1';
+
+function _holdMovableOrder() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(_HOLD_COL_LS) || 'null');
+    if (Array.isArray(saved) && saved.length === _HOLD_MOVABLE_DEFS.length &&
+        _HOLD_MOVABLE_DEFS.every(c => saved.includes(c.id))) return saved;
+  } catch(e) {}
+  return _HOLD_MOVABLE_DEFS.map(c => c.id);
+}
+function _holdSaveMovableOrder(order) { localStorage.setItem(_HOLD_COL_LS, JSON.stringify(order)); }
+
+function _holdCellHtml(h) {
+  const gc = h.unrealized_gain >= 0 ? 'var(--green)' : 'var(--coral)';
+  const marginReq = h.cash_equivalent
+    ? '<span style="color:var(--dim)" title="Cash-equivalent — not marginable">cash</span>'
+    : (h.margin_req_pct != null ? h.margin_req_pct.toFixed(0) + '%' : '—');
+  return {
+    price:        `<td style="padding:8px 14px">$${h.price.toFixed(2)}</td>`,
+    market_value: `<td style="padding:8px 14px">${_bbUsd(h.market_value)}</td>`,
+    cost_basis:   `<td style="padding:8px 14px;color:var(--muted)">${_bbUsd(h.cost_basis)}</td>`,
+    unrealized:   `<td style="padding:8px 14px;color:${gc}">${_bbUsd(h.unrealized_gain)} <span style="font-size:10px">(${h.unrealized_pct.toFixed(1)}%)</span></td>`,
+    weight:       `<td style="padding:8px 14px;color:var(--muted)">${h.weight.toFixed(1)}%</td>`,
+    margin_req:   `<td style="padding:8px 14px;color:var(--muted)">${marginReq}</td>`,
+    borrowable:   `<td style="padding:8px 14px;color:var(--green)">${_bbUsd(h.borrowable)}</td>`,
+  };
+}
+
+function bbRenderHoldings(holdings) {
+  const head = document.getElementById('bb-holdings-head');
+  const tb = document.getElementById('bb-holdings');
+  document.getElementById('bb-holdings-count').textContent = holdings.length + ' positions';
+
+  const order = _holdMovableOrder();
+  const movableCols = order.map(id => _HOLD_MOVABLE_DEFS.find(c => c.id === id));
+
+  head.innerHTML =
+    '<th style="text-align:left;padding:9px 14px">Symbol</th>' +
+    '<th style="text-align:right;padding:9px 14px">Qty</th>' +
+    movableCols.map(c => `<th draggable="true" data-col="${c.id}"
+      style="text-align:right;padding:9px 14px;cursor:grab;user-select:none"
+      ondragstart="_holdDragStart(event)" ondragover="_holdDragOver(event)"
+      ondrop="_holdDrop(event)" ondragend="_holdDragEnd(event)">${c.label}<span style="color:var(--muted);margin-left:4px;font-size:9px;opacity:.5">⠿</span></th>`).join('');
+
+  if (!holdings.length) {
+    tb.innerHTML = `<tr><td colspan="${2 + movableCols.length}" style="padding:16px;text-align:center;color:var(--dim)">No holdings</td></tr>`;
+    return;
+  }
+  tb.innerHTML = holdings.map(h => {
+    const cells = _holdCellHtml(h);
+    return `<tr style="text-align:right;border-bottom:1px solid var(--border)">
+      <td style="text-align:left;padding:8px 14px;font-weight:600">${h.symbol}</td>
+      <td style="padding:8px 14px">${h.quantity}</td>
+      ${order.map(id => cells[id]).join('')}
+    </tr>`;
+  }).join('');
+}
+
+let _holdDragSrc = null;
+function _holdDragStart(e) {
+  _holdDragSrc = e.currentTarget;
+  e.currentTarget.style.opacity = '0.4';
+  e.dataTransfer.effectAllowed = 'move';
+}
+function _holdDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('#bb-holdings-head th[data-col]').forEach(th => th.style.background = '');
+  e.currentTarget.style.background = 'var(--surface2)';
+}
+function _holdDrop(e) {
+  e.preventDefault();
+  if (!_holdDragSrc || _holdDragSrc === e.currentTarget) return;
+  const order  = _holdMovableOrder();
+  const fromId = _holdDragSrc.dataset.col;
+  const toId   = e.currentTarget.dataset.col;
+  const fi = order.indexOf(fromId), ti = order.indexOf(toId);
+  if (fi < 0 || ti < 0) return;
+  order.splice(fi, 1);
+  order.splice(ti, 0, fromId);
+  _holdSaveMovableOrder(order);
+  if (_bbData) bbRenderHoldings(_bbData.holdings);
+}
+function _holdDragEnd(e) {
+  e.currentTarget.style.opacity = '';
+  document.querySelectorAll('#bb-holdings-head th[data-col]').forEach(th => th.style.background = '');
+}
+
+function _fdFormatSync(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;  // plain date string (P2P snapshot) — show as-is
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function fdRenderOverview(o) {
+  if (!o) return;
+  document.getElementById('fd-gross').textContent       = _bbUsd(o.gross_portfolio);
+  document.getElementById('fd-net').textContent         = _bbUsd(o.net_portfolio);
+  document.getElementById('fd-margin').textContent      = _bbUsd(o.margin_balance);
+  document.getElementById('fd-equity-pct').textContent  = o.equity_pct.toFixed(1) + '%';
+  document.getElementById('fd-positions').textContent   = o.unique_positions;
+  document.getElementById('fd-cash').textContent        = _bbUsd(o.available_cash);
+  document.getElementById('fd-lastsync').textContent    = _fdFormatSync(o.last_sync);
+
+  const dc = document.getElementById('fd-day-change');
+  const dcPct = document.getElementById('fd-day-change-pct');
+  if (o.day_change === null || o.day_change === undefined) {
+    dc.textContent = 'n/a';
+    dc.style.color = 'var(--muted)';
+    dcPct.textContent = 'no prior snapshot';
+  } else {
+    dc.textContent = (o.day_change >= 0 ? '+' : '') + _bbUsd(o.day_change);
+    dc.style.color = o.day_change >= 0 ? 'var(--green)' : 'var(--coral)';
+    dcPct.textContent = (o.day_change_pct >= 0 ? '+' : '') + o.day_change_pct.toFixed(2) + '%';
+  }
+
+  const tg = document.getElementById('fd-total-gain');
+  tg.textContent = (o.total_gain >= 0 ? '+' : '') + _bbUsd(o.total_gain);
+  tg.style.color = o.total_gain >= 0 ? 'var(--green)' : 'var(--coral)';
+
+  const tr = document.getElementById('fd-total-return');
+  tr.textContent = (o.total_return_pct >= 0 ? '+' : '') + o.total_return_pct.toFixed(2) + '%';
+  tr.style.color = o.total_return_pct >= 0 ? 'var(--green)' : 'var(--coral)';
+
+  // Allocation pie
+  const alloc = (o.allocation || []).slice(0, 12).map((a, i) => ({
+    label: a.symbol, value: a.value, pct: a.pct, color: _DIV_PALETTE[i % _DIV_PALETTE.length],
+  }));
+  _divDrawDonut('fd-pie-alloc', alloc);
+  document.getElementById('fd-leg-alloc').innerHTML = alloc.map(d => `
+    <div style="display:flex;align-items:center;gap:8px;min-width:0">
+      <span style="width:8px;height:8px;border-radius:2px;background:${d.color};flex-shrink:0;display:inline-block"></span>
+      <span style="color:var(--text);white-space:nowrap;min-width:48px;flex-shrink:0">${_escHtml(d.label)}</span>
+      <span style="color:var(--muted);white-space:nowrap;margin-left:8px">$${(+d.value).toFixed(0)} <span style="color:var(--dim)">(${(+d.pct).toFixed(1)}% of portfolio)</span></span>
+    </div>`).join('');
+
+  // Latest transactions
+  const tb = document.getElementById('fd-tx-body');
+  const txs = o.transactions || [];
+  document.getElementById('fd-tx-count').textContent = txs.length ? txs.length + ' recent' : '';
+  if (!txs.length) {
+    tb.innerHTML = '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--dim)">No transactions synced</td></tr>';
+  } else {
+    tb.innerHTML = txs.map(t => {
+      const amtColor = (t.amount || 0) >= 0 ? 'var(--green)' : 'var(--coral)';
+      return `<tr style="text-align:right;border-bottom:1px solid var(--border)">
+        <td style="text-align:left;padding:7px 12px;color:var(--muted)">${t.date || '—'}</td>
+        <td style="text-align:left;padding:7px 12px;font-weight:600">${t.symbol || '—'}</td>
+        <td style="padding:7px 12px;color:var(--muted)">${t.type || '—'}</td>
+        <td style="padding:7px 12px">${t.quantity || '—'}</td>
+        <td style="padding:7px 12px;color:${amtColor}">${_bbUsd(t.amount || 0)}</td>
+      </tr>`;
+    }).join('');
+  }
+}
+
+// Drag-to-reorder for the FIRE dashboard pill boxes (order persisted per grid).
+const _FD_DRAG_GRIDS = [
+  { id: 'fd-stats',      lsKey: 'fd_stats_order_v1',      label: 'Portfolio Overview' },
+  { id: 'fd-perf-stats', lsKey: 'fd_perf_stats_order_v1', label: 'Performance' },
+];
+
+// Show/hide (collapse) individual pill boxes via checkboxes in the Customize panel.
+const _FD_HIDDEN_LS = 'fd_stats_hidden_v1';
+
+function _fdHiddenSet() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(_FD_HIDDEN_LS) || '[]');
+    if (Array.isArray(saved)) return new Set(saved);
+  } catch(_) {}
+  return new Set();
+}
+function _fdSaveHidden(set) {
+  localStorage.setItem(_FD_HIDDEN_LS, JSON.stringify([...set]));
+}
+
+function _fdApplyHidden() {
+  const hidden = _fdHiddenSet();
+  _FD_DRAG_GRIDS.forEach(({ id }) => {
+    const grid = document.getElementById(id);
+    if (!grid) return;
+    [...grid.children].forEach(card => {
+      card.style.display = hidden.has(card.dataset.key) ? 'none' : '';
+    });
+  });
+}
+
+function _fdToggleCustomizePanel() {
+  const panel = document.getElementById('fd-customize-panel');
+  if (!panel) return;
+  const opening = panel.style.display === 'none';
+  if (opening) {
+    _fdBuildCustomizePanel();
+    panel.style.display = 'block';
+    setTimeout(() => document.addEventListener('click', _fdCustomizeOutsideClick), 0);
+  } else {
+    panel.style.display = 'none';
+    document.removeEventListener('click', _fdCustomizeOutsideClick);
+  }
+}
+function _fdCustomizeOutsideClick(e) {
+  const panel = document.getElementById('fd-customize-panel');
+  const btn   = document.getElementById('fd-customize-btn');
+  if (!panel || panel.contains(e.target) || (btn && btn.contains(e.target))) return;
+  panel.style.display = 'none';
+  document.removeEventListener('click', _fdCustomizeOutsideClick);
+}
+
+function _fdBuildCustomizePanel() {
+  const panel = document.getElementById('fd-customize-panel');
+  if (!panel) return;
+  const hidden = _fdHiddenSet();
+  let html = '';
+  _FD_DRAG_GRIDS.forEach(({ id, label }) => {
+    const grid = document.getElementById(id);
+    if (!grid) return;
+    html += `<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:8px 4px 4px">${label}</div>`;
+    html += [...grid.children].map(card => {
+      const key = card.dataset.key;
+      const cardLabel = card.querySelector('.stat-label')?.textContent || key;
+      const checked = hidden.has(key) ? '' : 'checked';
+      return `<label style="display:flex;align-items:center;gap:8px;padding:5px 6px;font-size:12px;color:var(--text);cursor:pointer;border-radius:6px" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+        <input type="checkbox" ${checked} onchange="_fdTogglePill('${key}', this.checked)" style="cursor:pointer;accent-color:var(--blue)">
+        ${cardLabel}
+      </label>`;
+    }).join('');
+  });
+  html += `<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;text-align:center">
+    <span onclick="_fdShowAllPills()" style="cursor:pointer;color:var(--muted);font-size:11px" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">Show all</span>
+  </div>`;
+  panel.innerHTML = html;
+}
+
+function _fdTogglePill(key, visible) {
+  const hidden = _fdHiddenSet();
+  if (visible) hidden.delete(key); else hidden.add(key);
+  _fdSaveHidden(hidden);
+  _fdApplyHidden();
+}
+
+function _fdShowAllPills() {
+  _fdSaveHidden(new Set());
+  _fdApplyHidden();
+  _fdBuildCustomizePanel();
+}
+
+function _fdApplyStatsOrder() {
+  _FD_DRAG_GRIDS.forEach(({ id, lsKey }) => {
+    const grid = document.getElementById(id);
+    if (!grid) return;
+    let saved;
+    try { saved = JSON.parse(localStorage.getItem(lsKey)); } catch(_) { saved = null; }
+    if (!Array.isArray(saved) || !saved.length) return;
+    const byKey = new Map([...grid.children].map(c => [c.dataset.key, c]));
+    saved.forEach(k => { const c = byKey.get(k); if (c) grid.appendChild(c); });
+  });
+}
+
+function _fdSaveStatsOrder(grid, lsKey) {
+  localStorage.setItem(lsKey, JSON.stringify([...grid.children].map(c => c.dataset.key)));
+}
+
+function _fdInitStatsDrag() {
+  _FD_DRAG_GRIDS.forEach(({ id, lsKey }) => {
+    const grid = document.getElementById(id);
+    if (!grid || grid.dataset.dragInit) return;
+    grid.dataset.dragInit = '1';
+    let dragSrc = null;
+    [...grid.children].forEach(card => {
+      card.draggable = true;
+      card.style.cursor = 'grab';
+      card.style.transition = 'box-shadow .15s, opacity .15s, border-color .15s';
+      card.addEventListener('dragstart', () => {
+        dragSrc = card;
+        setTimeout(() => { card.style.opacity = '0.35'; card.style.borderColor = 'var(--blue)'; }, 0);
+      });
+      card.addEventListener('dragend', () => {
+        card.style.opacity = '';
+        card.style.borderColor = '';
+        dragSrc = null;
+        [...grid.children].forEach(c => { c.style.boxShadow = ''; c.style.borderColor = ''; });
+      });
+      card.addEventListener('dragover', e => {
+        e.preventDefault();
+        if (dragSrc && dragSrc !== card) {
+          card.style.boxShadow = 'inset 0 0 0 2px var(--blue)';
+          card.style.borderColor = 'var(--blue)';
+        }
+      });
+      card.addEventListener('dragleave', () => {
+        card.style.boxShadow = '';
+        card.style.borderColor = '';
+      });
+      card.addEventListener('drop', e => {
+        e.preventDefault();
+        card.style.boxShadow = '';
+        card.style.borderColor = '';
+        if (!dragSrc || dragSrc === card) return;
+        const all  = [...grid.children];
+        const from = all.indexOf(dragSrc);
+        const to   = all.indexOf(card);
+        grid.insertBefore(dragSrc, from < to ? card.nextSibling : card);
+        _fdSaveStatsOrder(grid, lsKey);
+      });
+    });
+  });
+}
+
+function bbRenderStats(d) {
+  const t = d.totals, b = d.borrow, tax = d.tax;
+  document.getElementById('bb-collateral').textContent = _bbUsd(t.collateral);
+  document.getElementById('bb-positions').textContent  = t.num_positions + ' positions · ' + _bbUsd(t.cash) + ' cash';
+  document.getElementById('bb-available').textContent  = _bbUsd(b.available);
+  document.getElementById('bb-creditline').textContent = _bbPct(d.assumptions.ltv) + ' of ' + _bbUsd(t.collateral);
+  document.getElementById('bb-ltv').textContent        = _bbPct(b.current_ltv);
+  document.getElementById('bb-cushion').textContent    = b.cushion_pct > 0 ? '−' + _bbPct(b.cushion_pct) : 'n/a';
+  document.getElementById('bb-callvalue').textContent  = b.current_borrow > 0 ? 'call near ' + _bbUsd(b.value_at_call) : 'no loan drawn';
+  document.getElementById('bb-taxdeferred').textContent= _bbUsd(tax.deferred_tax);
+  document.getElementById('bb-interest').textContent   = _bbUsd(b.annual_interest);
+  document.getElementById('bb-monthlyint').textContent = _bbUsd(b.monthly_interest) + ' / mo';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FIRE — Positions
+// ══════════════════════════════════════════════════════════════════════════════
+async function loadFirePositionsPage(refresh = false) {
+  const err = document.getElementById('fp-error');
+  err.style.display = 'none';
+  document.getElementById('fp-positions-body').innerHTML =
+    '<tr><td colspan="7" style="padding:16px;text-align:center;color:var(--dim)">Loading…</td></tr>';
+  try {
+    const d = await apiFetch('/api/equities/positions' + (refresh ? '?refresh=1' : ''));
+    document.getElementById('fp-source').textContent =
+      (d.source ? 'source: ' + d.source : '') + (d.as_of ? ' · as of ' + d.as_of : '') +
+      (d.cached ? ' · cached' : '');
+
+    const t = d.totals;
+    document.getElementById('fp-total-value').textContent    = _bbUsd(t.total_value);
+    document.getElementById('fp-num-positions').textContent  = t.num_positions;
+    document.getElementById('fp-unique-symbols').textContent = t.unique_symbols;
+
+    const lg = d.largest_holding;
+    document.getElementById('fp-largest-symbol').textContent = lg ? lg.symbol : '—';
+    document.getElementById('fp-largest-detail').textContent = lg
+      ? _bbUsd(lg.market_value) + ' · ' + lg.pct_of_portfolio.toFixed(1) + '% of portfolio'
+      : '—';
+
+    _fpRenderPositions(d.positions);
+  } catch (e) {
+    err.textContent = 'Failed to load: ' + e.message;
+    err.style.display = 'block';
+    document.getElementById('fp-positions-body').innerHTML =
+      '<tr><td colspan="7" style="padding:16px;text-align:center;color:var(--dim)">No data</td></tr>';
+  }
+  _fpLoadDailyChart();
+  _fpLoadMonthlyChart();
+}
+
+async function _fpLoadDailyChart() {
+  const cont = document.getElementById('fp-daily-chart');
+  if (!cont) return;
+  try {
+    const d = await apiFetch('/api/equities/fire-daily-history');
+    _fpRenderValueChart(cont, d.series || [], 'No daily snapshots yet — captured once a day.');
+  } catch (e) {
+    cont.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:30px 0">Daily history unavailable</div>';
+  }
+}
+
+async function _fpLoadMonthlyChart() {
+  const cont = document.getElementById('fp-monthly-chart');
+  if (!cont) return;
+  try {
+    const d = await apiFetch('/api/equities/fire-monthly-history');
+    _fpRenderValueChart(cont, d.series || [], 'No monthly snapshots yet — captured on the 1st of each month.');
+  } catch (e) {
+    cont.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:30px 0">Monthly history unavailable</div>';
+  }
+}
+
+function _fpRenderValueChart(cont, series, emptyMsg) {
+  if (!series.length) {
+    cont.innerHTML = `<div style="color:var(--muted);font-size:12px;text-align:center;padding:30px 0">${emptyMsg}</div>`;
+    return;
+  }
+  const values = series.map(p => p.total_value);
+  const dates  = series.map(p => p.date);
+  const minV   = Math.min(...values);
+  const maxV   = Math.max(...values);
+  const range  = (maxV - minV) || 1;
+  const W = cont.offsetWidth || 380;
+  const H = 150;
+  const pad = { l: 8, r: 8, t: 8, b: 8 };
+  const chartW = W - pad.l - pad.r;
+  const chartH = H - pad.t - pad.b;
+  const n = values.length;
+  const pts = values.map((v, i) => {
+    const x = pad.l + (n > 1 ? (i / (n - 1)) * chartW : chartW / 2);
+    const y = pad.t + (1 - (v - minV) / range) * chartH;
+    return { x, y };
+  });
+  const first = values[0], last = values[values.length - 1];
+  const change = last - first;
+  const changePct = first ? (change / first * 100) : 0;
+  const lineColor = change >= 0 ? '#22c55e' : '#ef4444';
+  const linePts = pts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  // Too many points (e.g. 90 daily) makes individual dots noisy — only the last
+  // point gets a marker in that case; short series (e.g. 18 monthly) show all.
+  const dotIndices = n <= 24 ? pts.map((_, i) => i) : [n - 1];
+  const dots = dotIndices.map(i =>
+    `<circle cx="${pts[i].x.toFixed(1)}" cy="${pts[i].y.toFixed(1)}" r="2.5" fill="${lineColor}"><title>${dates[i]}: ${_bbUsd(values[i])}</title></circle>`
+  ).join('');
+
+  cont.innerHTML = `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+      <div>
+        <div style="font-size:18px;font-weight:800;color:var(--fg)">${_bbUsd(last)}</div>
+        <div style="font-size:10px;color:var(--muted)">latest snapshot</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:12px;font-weight:700;color:${lineColor}">${change >= 0 ? '+' : ''}${_bbUsd(change)} (${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}%)</div>
+        <div style="font-size:10px;color:var(--dim)">${dates[0]} — ${dates[dates.length-1]}</div>
+      </div>
+    </div>
+    <svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="display:block;overflow:visible">
+      <polyline points="${linePts}" fill="none" stroke="${lineColor}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+      ${dots}
+    </svg>`;
+}
+
+function _fpRenderPositions(positions) {
+  const tb = document.getElementById('fp-positions-body');
+  document.getElementById('fp-positions-count').textContent = positions.length + ' positions';
+  if (!positions.length) {
+    tb.innerHTML = '<tr><td colspan="7" style="padding:16px;text-align:center;color:var(--dim)">No positions</td></tr>';
+    return;
+  }
+  tb.innerHTML = positions.map(p => {
+    const gc = p.total_gain >= 0 ? 'var(--green)' : 'var(--coral)';
+    return `<tr style="text-align:right;border-bottom:1px solid var(--border)">
+      <td style="text-align:left;padding:8px 14px;font-weight:600">${p.symbol}</td>
+      <td style="padding:8px 14px">${p.shares}</td>
+      <td style="padding:8px 14px">$${p.last_price.toFixed(2)}</td>
+      <td style="padding:8px 14px;color:var(--muted)">$${p.cost_basis_per_share.toFixed(2)}</td>
+      <td style="padding:8px 14px;color:${gc}">${p.total_gain >= 0 ? '+' : ''}${_bbUsd(p.total_gain)}</td>
+      <td style="padding:8px 14px;color:${gc}">${p.total_return_pct >= 0 ? '+' : ''}${p.total_return_pct.toFixed(2)}%</td>
+      <td style="padding:8px 14px;color:var(--muted)">${p.pct_of_portfolio.toFixed(1)}%</td>
+    </tr>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FIRE — Transactions
+// ══════════════════════════════════════════════════════════════════════════════
+let _ftAllTransactions = [];
+let _ftKnownCategories = [];  // full vocabulary, from the server (auto-seeded with starter categories)
+
+function _ftEscAttr(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function loadFireTransactionsPage(refresh = false) {
+  const err = document.getElementById('ft-error');
+  err.style.display = 'none';
+  document.getElementById('ft-body').innerHTML =
+    '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--dim)">Loading…</td></tr>';
+  try {
+    const [d, catResp] = await Promise.all([
+      apiFetch('/api/equities/transactions' + (refresh ? '?refresh=1' : '')),
+      apiFetch('/api/equities/transaction-categories').catch(() => ({ categories: [] })),
+    ]);
+    document.getElementById('ft-source').textContent =
+      (d.source ? 'source: ' + d.source : '') + (d.as_of ? ' · as of ' + d.as_of : '') +
+      (d.cached ? ' · cached' : '');
+
+    _ftAllTransactions = d.transactions || [];
+
+    // Populate the type filter from whatever types are actually present.
+    const types = [...new Set(_ftAllTransactions.map(t => t.type).filter(Boolean))].sort();
+    const typeSel = document.getElementById('ft-filter-type');
+    const prevType = typeSel.value;
+    typeSel.innerHTML = '<option value="">All types</option>' +
+      types.map(t => `<option value="${t}">${t}</option>`).join('');
+    if (types.includes(prevType)) typeSel.value = prevType;
+
+    _ftRefreshCategoryUi(catResp.categories || []);
+    _ftApplyFilters();
+  } catch (e) {
+    err.textContent = 'Failed to load: ' + e.message;
+    err.style.display = 'block';
+    document.getElementById('ft-body').innerHTML =
+      '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--dim)">No data</td></tr>';
+  }
+}
+
+// _ftKnownCategories entries are {name, parent} — parent is null for top-level.
+function _ftCategoryLabel(c) {
+  return c && c.parent ? `${c.parent} / ${c.name}` : (c ? c.name : '');
+}
+
+function _ftRefreshCategoryUi(serverCategories) {
+  const byName = new Map((serverCategories || []).map(c => [c.name, c]));
+  _ftAllTransactions.forEach(t => {
+    if (t.category && !byName.has(t.category)) byName.set(t.category, { name: t.category, parent: null });
+  });
+  _ftKnownCategories = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+
+  document.getElementById('ft-category-list').innerHTML =
+    _ftKnownCategories.map(c => `<option value="${_ftEscAttr(c.name)}" label="${_ftEscAttr(_ftCategoryLabel(c))}">`).join('');
+
+  const catSel = document.getElementById('ft-filter-category');
+  const prevCat = catSel.value;
+  const presentNames = [...new Set(_ftAllTransactions.map(t => t.category).filter(Boolean))].sort();
+  catSel.innerHTML = '<option value="">All categories</option>' +
+    '<option value="__uncategorized__">Uncategorized</option>' +
+    presentNames.map(name => `<option value="${_ftEscAttr(name)}">${_escHtml(_ftCategoryLabel(byName.get(name)) || name)}</option>`).join('');
+  if (prevCat && [...catSel.options].some(o => o.value === prevCat)) catSel.value = prevCat;
+
+  const panel = document.getElementById('ft-categories-panel');
+  if (panel && panel.style.display !== 'none') _ftBuildCategoriesPanel();
+}
+
+function _ftClearFilters() {
+  document.getElementById('ft-filter-type').value = '';
+  document.getElementById('ft-filter-symbol').value = '';
+  document.getElementById('ft-filter-category').value = '';
+  document.getElementById('ft-filter-from').value = '';
+  document.getElementById('ft-filter-to').value = '';
+  _ftApplyFilters();
+}
+
+function _ftFilteredTransactions() {
+  const type   = document.getElementById('ft-filter-type').value;
+  const symbol = document.getElementById('ft-filter-symbol').value.trim().toUpperCase();
+  const cat    = document.getElementById('ft-filter-category').value;
+  const from   = document.getElementById('ft-filter-from').value;
+  const to     = document.getElementById('ft-filter-to').value;
+  return _ftAllTransactions.filter(t => {
+    if (type && t.type !== type) return false;
+    if (symbol && !(t.symbol || '').toUpperCase().includes(symbol)) return false;
+    if (cat === '__uncategorized__' && t.category) return false;
+    if (cat && cat !== '__uncategorized__' && t.category !== cat) return false;
+    if (from && (!t.date || t.date < from)) return false;
+    if (to && (!t.date || t.date > to)) return false;
+    return true;
+  });
+}
+
+function _ftApplyFilters() {
+  _ftRenderTable(_ftFilteredTransactions());
+}
+
+function _ftRenderTable(rows) {
+  const tb = document.getElementById('ft-body');
+  document.getElementById('ft-count').textContent =
+    rows.length + ' of ' + _ftAllTransactions.length + ' transactions';
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--dim)">No transactions match these filters</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map(t => {
+    const amtColor = (t.amount || 0) >= 0 ? 'var(--green)' : 'var(--coral)';
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="text-align:left;padding:8px 14px;color:var(--muted);white-space:nowrap">${t.date || '—'}</td>
+      <td style="text-align:left;padding:8px 14px">${t.type || '—'}</td>
+      <td style="text-align:left;padding:8px 14px;font-weight:600">${t.symbol || '—'}</td>
+      <td style="text-align:left;padding:8px 14px;color:var(--muted)">${_escHtml(t.description || '—')}</td>
+      <td style="text-align:left;padding:6px 10px">
+        <input type="text" list="ft-category-list" value="${_ftEscAttr(t.category || '')}" placeholder="+ Add"
+          data-tx-id="${_ftEscAttr(t.id)}"
+          onblur="_ftSaveCategory(this)"
+          onkeydown="if(event.key==='Enter')this.blur()"
+          style="width:110px;padding:3px 6px;font-size:11px;background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text)">
+      </td>
+      <td style="text-align:right;padding:8px 14px;color:${amtColor}">${_bbUsd(t.amount || 0)}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function _ftSaveCategory(input) {
+  const txId = input.dataset.txId;
+  const category = input.value.trim();
+  const tx = _ftAllTransactions.find(t => t.id === txId);
+  if (tx && (tx.category || '') === category) return;  // no change
+  try {
+    await apiFetch('/api/equities/transactions/category', {
+      method: 'POST',
+      body: JSON.stringify({ transaction_id: txId, category }),
+    });
+    if (tx) tx.category = category || null;
+    if (category && !_ftKnownCategories.some(c => c.name === category)) {
+      _ftKnownCategories.push({ name: category, parent: null });
+    }
+    _ftRefreshCategoryUi(_ftKnownCategories);
+    toast('success', 'Category Saved', category ? `Tagged as "${category}"` : 'Category cleared');
+  } catch (e) {
+    toast('error', 'Save Failed', e.message);
+  }
+}
+
+// ── Manage Categories panel: add / rename / delete the category vocabulary ────
+function _ftToggleCategoriesPanel() {
+  const panel = document.getElementById('ft-categories-panel');
+  if (!panel) return;
+  const opening = panel.style.display === 'none';
+  if (opening) {
+    _ftBuildCategoriesPanel();
+    panel.style.display = 'block';
+    setTimeout(() => document.addEventListener('click', _ftCategoriesOutsideClick), 0);
+  } else {
+    panel.style.display = 'none';
+    document.removeEventListener('click', _ftCategoriesOutsideClick);
+  }
+}
+function _ftCategoriesOutsideClick(e) {
+  const panel = document.getElementById('ft-categories-panel');
+  const btn   = document.getElementById('ft-categories-btn');
+  if (!panel || panel.contains(e.target) || (btn && btn.contains(e.target))) return;
+  panel.style.display = 'none';
+  document.removeEventListener('click', _ftCategoriesOutsideClick);
+}
+
+function _ftSlug(s) {
+  return String(s).replace(/[^a-z0-9]/gi, '_');
+}
+
+function _ftCategoryRow(c, indent) {
+  const escName = _ftEscAttr(c.name).replace(/'/g, "\\'");
+  const addSubBtn = indent === 0
+    ? `<span onclick="_ftShowAddSub('${escName}')" title="Add sub-category"
+        style="cursor:pointer;color:var(--dim);font-size:14px;padding:0 3px;line-height:1"
+        onmouseover="this.style.color='var(--blue)'" onmouseout="this.style.color='var(--dim)'">+</span>`
+    : '';
+  return `
+    <div style="display:flex;align-items:center;gap:6px;padding:3px 0;padding-left:${indent}px">
+      <input type="text" value="${_ftEscAttr(c.name)}" data-old-name="${_ftEscAttr(c.name)}"
+        onblur="_ftRenameCategory(this)" onkeydown="if(event.key==='Enter')this.blur()"
+        style="flex:1;min-width:0;padding:4px 6px;font-size:12px;background:transparent;border:1px solid transparent;border-radius:5px;color:var(--text)"
+        onfocus="this.style.background='var(--surface2)';this.style.borderColor='var(--border)'"
+        onmouseover="if(document.activeElement!==this){this.style.background='var(--surface2)'}"
+        onmouseout="if(document.activeElement!==this){this.style.background='transparent';this.style.borderColor='transparent'}">
+      ${addSubBtn}
+      <span onclick="_ftDeleteCategory('${escName}')" title="Delete category"
+        style="cursor:pointer;color:var(--dim);font-size:13px;padding:0 4px"
+        onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='var(--dim)'">&#x2715;</span>
+    </div>`;
+}
+
+function _ftBuildCategoriesPanel() {
+  const panel = document.getElementById('ft-categories-panel');
+  if (!panel) return;
+  const topLevel = _ftKnownCategories.filter(c => !c.parent);
+  const childrenOf = {};
+  _ftKnownCategories.forEach(c => {
+    if (c.parent) (childrenOf[c.parent] = childrenOf[c.parent] || []).push(c);
+  });
+
+  const rows = topLevel.map(c => {
+    const kids = (childrenOf[c.name] || []).map(k => _ftCategoryRow(k, 22)).join('');
+    const subAdd = `<div id="ft-sub-add-${_ftSlug(c.name)}" style="display:none;padding-left:22px;padding-top:2px;padding-bottom:4px">
+      <input type="text" placeholder="+ Sub-category name" onkeydown="if(event.key==='Enter')_ftAddSubCategory(this)"
+        data-parent="${_ftEscAttr(c.name)}"
+        style="width:100%;padding:4px 6px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);box-sizing:border-box">
+    </div>`;
+    return _ftCategoryRow(c, 0) + kids + subAdd;
+  }).join('');
+
+  panel.innerHTML = `
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <input type="text" id="ft-new-category-input" placeholder="+ Add category" onkeydown="if(event.key==='Enter')_ftAddCategory()"
+        style="flex:1;min-width:0;padding:5px 8px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+      <button class="btn btn-sm" onclick="_ftAddCategory()" style="font-size:11px;padding:4px 10px">Add</button>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:6px">
+      ${rows || '<div style="color:var(--muted);font-size:12px;padding:6px 0">No categories yet</div>'}
+    </div>`;
+}
+
+function _ftShowAddSub(parentName) {
+  const el = document.getElementById('ft-sub-add-' + _ftSlug(parentName));
+  if (!el) return;
+  const showing = el.style.display !== 'none';
+  el.style.display = showing ? 'none' : 'block';
+  if (!showing) el.querySelector('input').focus();
+}
+
+async function _ftAddSubCategory(input) {
+  const name = input.value.trim();
+  const parent = input.dataset.parent;
+  if (!name) return;
+  try {
+    const resp = await apiFetch('/api/equities/categories', {
+      method: 'POST',
+      body: JSON.stringify({ name, parent }),
+    });
+    _ftRefreshCategoryUi(resp.categories || []);
+  } catch (e) {
+    toast('error', 'Add Failed', e.message);
+  }
+}
+
+async function _ftAddCategory() {
+  const input = document.getElementById('ft-new-category-input');
+  const name = input.value.trim();
+  if (!name) return;
+  try {
+    const resp = await apiFetch('/api/equities/categories', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+    _ftRefreshCategoryUi(resp.categories || []);
+    input.value = '';
+  } catch (e) {
+    toast('error', 'Add Failed', e.message);
+  }
+}
+
+async function _ftRenameCategory(input) {
+  const oldName = input.dataset.oldName;
+  const newName = input.value.trim();
+  if (!newName || newName === oldName) { input.value = oldName; return; }
+  try {
+    const resp = await apiFetch('/api/equities/categories/rename', {
+      method: 'PUT',
+      body: JSON.stringify({ old_name: oldName, new_name: newName }),
+    });
+    _ftAllTransactions.forEach(t => { if (t.category === oldName) t.category = newName; });
+    _ftRefreshCategoryUi(resp.categories || []);
+    _ftApplyFilters();
+    toast('success', 'Category Renamed', `"${oldName}" → "${newName}"`);
+  } catch (e) {
+    toast('error', 'Rename Failed', e.message);
+    input.value = oldName;
+  }
+}
+
+async function _ftDeleteCategory(name) {
+  try {
+    const resp = await apiFetch(`/api/equities/categories/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    _ftAllTransactions.forEach(t => { if (t.category === name) t.category = null; });
+    _ftRefreshCategoryUi(resp.categories || []);
+    _ftApplyFilters();
+    toast('success', 'Category Deleted', `"${name}" removed`);
+  } catch (e) {
+    toast('error', 'Delete Failed', e.message);
+  }
+}
+
+// ── Auto-Categorize rules panel ────────────────────────────────────────────
+let _frRules = [];
+
+function _frToggleRulesPanel() {
+  const panel = document.getElementById('ft-rules-panel');
+  if (!panel) return;
+  const opening = panel.style.display === 'none';
+  if (opening) {
+    _frBuildRulesPanel();
+    panel.style.display = 'block';
+    setTimeout(() => document.addEventListener('click', _frOutsideClick), 0);
+  } else {
+    panel.style.display = 'none';
+    document.removeEventListener('click', _frOutsideClick);
+  }
+}
+function _frOutsideClick(e) {
+  const panel = document.getElementById('ft-rules-panel');
+  const btn   = document.getElementById('ft-rules-btn');
+  if (!panel || panel.contains(e.target) || (btn && btn.contains(e.target))) return;
+  panel.style.display = 'none';
+  document.removeEventListener('click', _frOutsideClick);
+}
+
+function _frValueInputHtml() {
+  const field = document.getElementById('fr-new-field')?.value || 'type';
+  if (field === 'type') {
+    const types = [...new Set(_ftAllTransactions.map(t => t.type).filter(Boolean))].sort();
+    return `<select id="fr-new-value" style="flex:1;padding:4px 6px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text)">
+      ${types.map(t => `<option value="${_ftEscAttr(t)}">${t}</option>`).join('')}
+    </select>`;
+  }
+  return `<input type="text" id="fr-new-value" placeholder="${field === 'symbol' ? 'e.g. VTI' : 'e.g. margin interest'}"
+    style="flex:1;padding:4px 6px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text)">`;
+}
+
+function _frFieldChanged() {
+  const wrap = document.getElementById('fr-new-value-wrap');
+  if (wrap) wrap.innerHTML = _frValueInputHtml();
+}
+
+async function _frBuildRulesPanel() {
+  const panel = document.getElementById('ft-rules-panel');
+  if (!panel) return;
+  panel.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:6px 0">Loading…</div>';
+  try {
+    const resp = await apiFetch('/api/equities/category-rules');
+    _frRules = resp.rules || [];
+  } catch (e) {
+    panel.innerHTML = `<div style="color:var(--coral);font-size:12px;padding:6px 0">Failed to load rules: ${e.message}</div>`;
+    return;
+  }
+
+  const rulesHtml = _frRules.map(r => `
+    <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border)">
+      <input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="_frToggleRule(${r.id}, this.checked)" style="cursor:pointer;accent-color:var(--blue)">
+      <div style="flex:1;min-width:0;font-size:11px;color:var(--text);line-height:1.4">
+        When <b>${_escHtml(r.field)}</b> ${_escHtml(r.operator)} "<b>${_escHtml(r.value)}</b>" &rarr; <span style="color:var(--blue)">${_escHtml(r.category)}</span>
+      </div>
+      <span onclick="_frDeleteRule(${r.id})" title="Delete rule"
+        style="cursor:pointer;color:var(--dim);font-size:13px;padding:0 4px;flex-shrink:0"
+        onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='var(--dim)'">&#x2715;</span>
+    </div>`).join('');
+
+  panel.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+      <div style="font-size:11px;color:var(--muted);font-weight:600">New Rule</div>
+      <div style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--muted)">
+        <span>When</span>
+        <select id="fr-new-field" onchange="_frFieldChanged()" style="flex:1;padding:4px 6px;font-size:11px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text)">
+          <option value="type">Type</option>
+          <option value="symbol">Symbol</option>
+          <option value="description">Description</option>
+        </select>
+        <select id="fr-new-operator" style="padding:4px 6px;font-size:11px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text)">
+          <option value="equals">equals</option>
+          <option value="contains">contains</option>
+        </select>
+      </div>
+      <div id="fr-new-value-wrap" style="display:flex">${_frValueInputHtml()}</div>
+      <div style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--muted)">
+        <span>Category</span>
+        <input type="text" id="fr-new-category" list="ft-category-list" placeholder="e.g. Investment Sale"
+          style="flex:1;padding:4px 6px;font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text)">
+      </div>
+      <button class="btn btn-sm" onclick="_frAddRule()" style="font-size:11px;align-self:flex-start">+ Add Rule</button>
+    </div>
+    <div>${rulesHtml || '<div style="color:var(--muted);font-size:12px;padding:6px 0">No rules yet</div>'}</div>
+    <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;text-align:center">
+      <span onclick="_frApplyNow()" style="cursor:pointer;color:var(--blue);font-size:11px"
+        onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration=''">&#9889; Apply rules now</span>
+    </div>`;
+}
+
+async function _frAddRule() {
+  const field = document.getElementById('fr-new-field').value;
+  const operator = document.getElementById('fr-new-operator').value;
+  const value = document.getElementById('fr-new-value').value.trim();
+  const category = document.getElementById('fr-new-category').value.trim();
+  if (!value || !category) { toast('warning', 'Missing Fields', 'Value and category are required'); return; }
+  try {
+    await apiFetch('/api/equities/category-rules', {
+      method: 'POST',
+      body: JSON.stringify({ field, operator, value, category }),
+    });
+    toast('success', 'Rule Added', `When ${field} ${operator} "${value}" → ${category}`);
+    await _frBuildRulesPanel();
+  } catch (e) {
+    toast('error', 'Add Failed', e.message);
+  }
+}
+
+async function _frToggleRule(id, enabled) {
+  try {
+    await apiFetch(`/api/equities/category-rules/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    });
+  } catch (e) {
+    toast('error', 'Update Failed', e.message);
+  }
+}
+
+async function _frDeleteRule(id) {
+  try {
+    await apiFetch(`/api/equities/category-rules/${id}`, { method: 'DELETE' });
+    await _frBuildRulesPanel();
+  } catch (e) {
+    toast('error', 'Delete Failed', e.message);
+  }
+}
+
+async function _frApplyNow() {
+  try {
+    const resp = await apiFetch('/api/equities/category-rules/apply', { method: 'POST' });
+    toast('success', 'Rules Applied', `${resp.updated} transaction${resp.updated === 1 ? '' : 's'} categorized`);
+    await loadFireTransactionsPage(true);
+  } catch (e) {
+    toast('error', 'Apply Failed', e.message);
+  }
+}
+
+function _ftExportCsv() {
+  const rows = _ftFilteredTransactions();
+  if (!rows.length) { toast('warning', 'No Transactions', 'No transactions to export'); return; }
+  const cols = ['date','type','symbol','category','description','quantity','price','amount'];
+  const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = [cols.join(',')]
+    .concat(rows.map(r => cols.map(c => esc(r[c])).join(',')))
+    .join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `transactions_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FIRE — Cash Flow
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Date range + category filter state ─────────────────────────────────────
+let _cfCurrentRange = '30';  // '7' | '30' | '60' | '90' | 'ytd' | 'custom'
+
+function _cfComputeRange(range) {
+  const fmt = d => d.toISOString().slice(0, 10);
+  const today = new Date();
+  if (range === 'custom') {
+    return {
+      start: document.getElementById('cf-filter-from').value || fmt(today),
+      end:   document.getElementById('cf-filter-to').value   || fmt(today),
+    };
+  }
+  if (range === 'ytd') {
+    return { start: `${today.getFullYear()}-01-01`, end: fmt(today) };
+  }
+  const days = parseInt(range, 10) || 30;
+  const start = new Date(today);
+  start.setDate(start.getDate() - (days - 1));
+  return { start: fmt(start), end: fmt(today) };
+}
+
+function _cfHighlightRangeBtn(range) {
+  document.querySelectorAll('.cf-range-btn').forEach(b => {
+    const active = b.dataset.range === range;
+    b.style.background = active ? 'var(--blue)' : '';
+    b.style.color = active ? '#fff' : '';
+  });
+  document.getElementById('cf-custom-range').style.display = range === 'custom' ? 'flex' : 'none';
+}
+
+function _cfSetRange(range) {
+  _cfCurrentRange = range;
+  _cfHighlightRangeBtn(range);
+  if (range !== 'custom') loadFireCashFlowPage();
+}
+
+function _cfApplyCustomRange() {
+  const from = document.getElementById('cf-filter-from').value;
+  const to = document.getElementById('cf-filter-to').value;
+  if (from && to) loadFireCashFlowPage();
+}
+
+async function _cfLoadCategoryOptions() {
+  const sel = document.getElementById('cf-filter-category');
+  if (!sel || sel.dataset.loaded) return;
+  try {
+    const resp = await apiFetch('/api/equities/transaction-categories');
+    const cats = resp.categories || [];
+    sel.innerHTML = '<option value="">All categories</option>' +
+      cats.map(c => {
+        const label = c.parent ? `${c.parent} / ${c.name}` : c.name;
+        return `<option value="${_ftEscAttr(c.name)}">${_escHtml(label)}</option>`;
+      }).join('');
+    sel.dataset.loaded = '1';
+  } catch (e) { /* leave default option */ }
+}
+
+async function loadFireCashFlowPage(refresh = false) {
+  const err = document.getElementById('cf-error');
+  err.style.display = 'none';
+  _cfHighlightRangeBtn(_cfCurrentRange);
+  await _cfLoadCategoryOptions();
+
+  const { start, end } = _cfComputeRange(_cfCurrentRange);
+  const category = document.getElementById('cf-filter-category').value;
+  const params = new URLSearchParams({ start_date: start, end_date: end });
+  if (category) params.set('category', category);
+  if (refresh) params.set('refresh', '1');
+
+  try {
+    const d = await apiFetch('/api/equities/cash-flow?' + params.toString());
+    document.getElementById('cf-source').textContent =
+      (d.source ? 'source: ' + d.source : '') + (d.cached ? ' · cached' : '');
+
+    const t = d.totals;
+    document.getElementById('cf-income').textContent           = _bbUsd(t.total_income);
+    document.getElementById('cf-expenses').textContent         = _bbUsd(t.total_expenses);
+    document.getElementById('cf-margin-cost').textContent      = _bbUsd(t.margin_cost);
+    document.getElementById('cf-contributions').textContent    = _bbUsd(t.contributions);
+    document.getElementById('cf-withdrawals').textContent      = _bbUsd(t.cash_withdrawals);
+    document.getElementById('cf-capital-deployed').textContent = _bbUsd(t.capital_deployed);
+    const netEl = document.getElementById('cf-net-operating');
+    netEl.textContent = (t.net_operating >= 0 ? '+' : '') + _bbUsd(t.net_operating);
+    netEl.style.color = t.net_operating >= 0 ? 'var(--green)' : 'var(--coral)';
+
+    const rangeLabel = document.getElementById('cf-range-label');
+    if (rangeLabel && d.range) rangeLabel.textContent = `${d.range.start_date} — ${d.range.end_date}`;
+
+    _cfRenderDailyChart(document.getElementById('cf-daily-chart'), d.daily_series || []);
+    _cfRenderByCategory(document.getElementById('cf-by-category'), d.by_category || []);
+
+    _cfAllTransactions = d.transactions || [];
+    _cfRenderTypeChips();
+    _cfApplyTypeFilter();
+  } catch (e) {
+    err.textContent = 'Failed to load: ' + e.message;
+    err.style.display = 'block';
+  }
+}
+
+// ── Cash Flow transaction table (respects the page's date/category filters,
+// plus its own type include/exclude chips — BUY/SELL off by default) ────────
+let _cfAllTransactions = [];
+let _cfExcludedTypes = new Set(['BUY', 'SELL']);
+
+function _cfRenderTypeChips() {
+  const cont = document.getElementById('cf-type-chips');
+  if (!cont) return;
+  const types = [...new Set(_cfAllTransactions.map(t => t.type).filter(Boolean))].sort();
+  cont.innerHTML = types.map(t => {
+    const active = !_cfExcludedTypes.has(t);
+    return `<button class="btn btn-ghost btn-sm cf-type-chip" data-type="${_ftEscAttr(t)}" onclick="_cfToggleType('${_ftEscAttr(t).replace(/'/g,"\\'")}')"
+      style="font-size:11px;${active ? 'background:var(--blue);color:#fff' : ''}">${t}</button>`;
+  }).join('');
+}
+
+function _cfToggleType(type) {
+  if (_cfExcludedTypes.has(type)) _cfExcludedTypes.delete(type);
+  else _cfExcludedTypes.add(type);
+  _cfRenderTypeChips();
+  _cfApplyTypeFilter();
+}
+
+function _cfApplyTypeFilter() {
+  const rows = _cfAllTransactions.filter(t => !_cfExcludedTypes.has(t.type));
+  _cfRenderTransactionsTable(rows);
+}
+
+function _cfRenderTransactionsTable(rows) {
+  const tb = document.getElementById('cf-tx-body');
+  if (!tb) return;
+  document.getElementById('cf-tx-count').textContent =
+    rows.length + ' of ' + _cfAllTransactions.length + ' transactions';
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--dim)">No transactions match these filters</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map(t => {
+    const amtColor = (t.amount || 0) >= 0 ? 'var(--green)' : 'var(--coral)';
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="text-align:left;padding:8px 14px;color:var(--muted);white-space:nowrap">${t.date || '—'}</td>
+      <td style="text-align:left;padding:8px 14px">${t.type || '—'}</td>
+      <td style="text-align:left;padding:8px 14px;font-weight:600">${t.symbol || '—'}</td>
+      <td style="text-align:left;padding:8px 14px;color:var(--muted)">${_escHtml(t.description || '—')}</td>
+      <td style="text-align:left;padding:8px 14px;color:var(--muted)">${t.category ? _escHtml(t.category) : '—'}</td>
+      <td style="text-align:right;padding:8px 14px;color:${amtColor}">${_bbUsd(t.amount || 0)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function _cfRenderByCategory(cont, rows) {
+  if (!cont) return;
+  if (!rows.length) {
+    cont.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:30px 0">No categorized transactions yet — assign categories on the Transactions page.</div>';
+    return;
+  }
+  const maxAbs = Math.max(...rows.map(r => Math.abs(r.amount)), 1);
+  cont.innerHTML = rows.map(r => {
+    const color = r.amount >= 0 ? 'var(--green)' : 'var(--coral)';
+    const pct = Math.abs(r.amount) / maxAbs * 100;
+    return `<div style="padding:9px 14px;border-bottom:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px">
+        <span style="color:var(--text);font-weight:600">${_escHtml(r.category)}</span>
+        <span style="color:${color};font-weight:600">${r.amount >= 0 ? '+' : ''}${_bbUsd(r.amount)}</span>
+      </div>
+      <div style="height:5px;border-radius:3px;background:var(--surface2);overflow:hidden">
+        <div style="height:100%;width:${pct.toFixed(1)}%;background:${color}"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function _cfRenderDailyChart(cont, series) {
+  if (!cont) return;
+  if (!series.length) {
+    cont.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:30px 0">No transaction data in this window</div>';
+    return;
+  }
+  const values = series.map(p => p.net_operating);
+  const dates  = series.map(p => p.date);
+  const maxAbs = Math.max(...values.map(v => Math.abs(v)), 1);
+  const W = cont.offsetWidth || 700;
+  const H = 170;
+  const pad = { l: 4, r: 4, t: 8, b: 4 };
+  const chartW = W - pad.l - pad.r;
+  const chartH = H - pad.t - pad.b;
+  const zeroY = pad.t + chartH / 2;
+  const n = values.length;
+  const barW = Math.max(2, chartW / n - 2);
+  const bars = values.map((v, i) => {
+    const x = pad.l + (i / n) * chartW;
+    const h = (Math.abs(v) / maxAbs) * (chartH / 2);
+    const y = v >= 0 ? zeroY - h : zeroY;
+    const color = v > 0 ? '#22c55e' : (v < 0 ? '#ef4444' : 'var(--border)');
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(h,1).toFixed(1)}" fill="${color}" opacity="0.85"><title>${dates[i]}: ${_bbUsd(v)}</title></rect>`;
+  }).join('');
+
+  const total = values.reduce((s, v) => s + v, 0);
+  const avg = total / n;
+  const totalColor = total >= 0 ? 'var(--green)' : 'var(--coral)';
+
+  cont.innerHTML = `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+      <div>
+        <div style="font-size:18px;font-weight:800;color:${totalColor}">${total >= 0 ? '+' : ''}${_bbUsd(total)}</div>
+        <div style="font-size:10px;color:var(--muted)">net operating — last ${n} days</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:12px;font-weight:700;color:var(--muted)">${avg >= 0 ? '+' : ''}${_bbUsd(avg)} / day avg</div>
+        <div style="font-size:10px;color:var(--dim)">${dates[0]} — ${dates[dates.length-1]}</div>
+      </div>
+    </div>
+    <svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="display:block;overflow:visible">
+      <line x1="${pad.l}" y1="${zeroY.toFixed(1)}" x2="${W-pad.r}" y2="${zeroY.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>
+      ${bars}
+    </svg>`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Navigation
 // ══════════════════════════════════════════════════════════════════════════════
 function navigate(pageId) {
@@ -6047,6 +7584,17 @@ function navigate(pageId) {
     const ch = document.getElementById('nav-cfg-children');
     const cv = document.getElementById('nav-cfg-chevron');
     const pr = document.getElementById('nav-parent-cfg');
+    if (ch && !ch.classList.contains('open')) {
+      ch.classList.add('open');
+      if (cv) cv.style.transform = 'rotate(90deg)';
+      if (pr) pr.classList.add('open');
+    }
+  }
+  const _FIRE_PAGES = ['page-equities-buy-borrow','page-fire-positions','page-fire-transactions','page-fire-cashflow'];
+  if (_FIRE_PAGES.includes(pageId)) {
+    const ch = document.getElementById('nav-fire-children');
+    const cv = document.getElementById('nav-fire-chevron');
+    const pr = document.getElementById('nav-parent-fire');
     if (ch && !ch.classList.contains('open')) {
       ch.classList.add('open');
       if (cv) cv.style.transform = 'rotate(90deg)';
@@ -6074,6 +7622,10 @@ function navigate(pageId) {
     case 'page-trading-trades':     loadTradesPage();    break;
     case 'page-trading-broker':     loadBrokerPage();       break;
     case 'page-trading-dividends':  loadDividendPage();     break;
+    case 'page-equities-buy-borrow': loadBuyBorrowPage();   break;
+    case 'page-fire-positions':     loadFirePositionsPage(); break;
+    case 'page-fire-transactions':  loadFireTransactionsPage(); break;
+    case 'page-fire-cashflow':      loadFireCashFlowPage(); break;
     case 'page-portfolio-groups':   loadPortfolioGroups();  break;
     case 'page-trading-sectormap':  /* loaded by _smNavSelect */ break;
     case 'page-trading-alerts':     loadAlertsPage(); break;
@@ -12422,6 +13974,22 @@ const BROKER_META = {
       { key:'WEBULL_LIVE_ACCOUNT_5', label:'Account 5', type:'text', hint:'Webull live account number (optional)', ira:'WEBULL_LIVE_ACCOUNT_5_IRA', name_key:'WEBULL_LIVE_5_DISPLAY_NAME' },
     ],
   },
+  snaptrade: {
+    name: 'SnapTrade', letter: 'S', bg: '#6D28D9', fg: '#fff',
+    docs: 'https://docs.snaptrade.com/',
+    fields: [
+      { type:'note', text:'<strong>Read-only aggregator.</strong> SnapTrade links Fidelity (and other brokerages) to sync balances, positions and transactions — used by the <em>Buy Borrow</em> dashboard. Enter your SnapTrade app keys plus the per-user pair, then press <em>Test</em> to confirm the Fidelity link.' },
+      { type:'separator', label:'SnapTrade API' },
+      { key:'SNAPTRADE_CLIENT_ID',    label:'Client ID',    type:'text',     hint:'From the SnapTrade dashboard' },
+      { key:'SNAPTRADE_CONSUMER_KEY', label:'Consumer Key', type:'password', hint:'SnapTrade consumer (signing) key' },
+      { key:'SNAPTRADE_USER_ID',      label:'User ID',      type:'text',     hint:'Registered SnapTrade user id' },
+      { key:'SNAPTRADE_USER_SECRET',  label:'User Secret',  type:'password', hint:'Returned when the user was registered' },
+      { type:'separator', label:'Fallback — Paycheck2Portfolio' },
+      { type:'note', text:'Optional. If SnapTrade app keys are left blank, these credentials pull the same SnapTrade-synced data via Paycheck2Portfolio.' },
+      { key:'P2P_EMAIL',    label:'Email',    type:'text',     hint:'Paycheck2Portfolio login email' },
+      { key:'P2P_PASSWORD', label:'Password', type:'password', hint:'Paycheck2Portfolio password' },
+    ],
+  },
 };
 
 let _bkCfgBroker = '';
@@ -12662,7 +14230,7 @@ async function loadBrokerPage() {
       }
     });
     _applyTradeModeBanner(data.trade_mode || 'sandbox');
-    grid.innerHTML = ['tradier','alpaca','webull']
+    grid.innerHTML = ['tradier','alpaca','webull','snaptrade']
       .map(b => _renderBrokerCard(b, data.brokers[b] || {}, assignedAccounts)).join('');
     grid.querySelectorAll('.bk-ai-select').forEach(sel => {
       sel.addEventListener('change', function() {
@@ -12689,7 +14257,9 @@ function _renderBrokerCard(broker, info, assignedAccounts = {}) {
     { val:'ai_enabled', label:'AI Enabled', cls:'ai-enabled' },
   ];
   let acctHtml = accounts.length === 0
-    ? `<div class="bk-empty">No accounts in accounts.toml</div>`
+    ? `<div class="bk-empty">${broker === 'snaptrade'
+        ? (connected ? 'Read-only sync active — press Test to list linked brokerages' : 'Add credentials to sync Fidelity via SnapTrade')
+        : 'No accounts in accounts.toml'}</div>`
     : accounts.map(a => {
         const mc    = a.mode === 'live' ? 'chip-green' : 'chip-amber';
         const ec    = a.enabled ? 'chip-blue' : 'chip-muted';
@@ -16154,7 +17724,6 @@ async function loadOvtlyrListSignals(listType) {
 // ══════════════════════════════════════════════════════════════════════════════
 connectWS();
 _initUserDisplay();
-navigate('page-trading-dashboard');
 loadOvtlyrMarketSignals();
 setInterval(loadOvtlyrMarketSignals, 5 * 60 * 1000); // refresh every 5 min
 
@@ -16753,6 +18322,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   _initNavDrag();
   _loadNavOrder();
+
+  // Land on Trading Dashboard by default. Deferred to DOMContentLoaded (rather than
+  // called at parse-time) because navigate('page-trading-dashboard') calls functions
+  // (e.g. loadPortfolioNavChart) defined in later <script> blocks that haven't run yet
+  // during synchronous top-level execution of this block — calling it too early threw
+  // a ReferenceError that aborted the rest of this script, including the version-badge
+  // update above.
+  navigate('page-trading-dashboard');
 });
 
 // ── Nav drag-and-drop ─────────────────────────────────────────────────────────
@@ -26273,6 +27850,16 @@ function _siNavToggle() {
   const ch = document.getElementById('nav-si-children');
   const cv = document.getElementById('nav-si-chevron');
   const pr = document.getElementById('nav-parent-sectorinsight');
+  if (!ch) return;
+  const open = ch.classList.toggle('open');
+  if (cv) cv.style.transform = open ? 'rotate(90deg)' : '';
+  if (pr) pr.classList.toggle('open', open);
+}
+
+function _fireNavToggle() {
+  const ch = document.getElementById('nav-fire-children');
+  const cv = document.getElementById('nav-fire-chevron');
+  const pr = document.getElementById('nav-parent-fire');
   if (!ch) return;
   const open = ch.classList.toggle('open');
   if (cv) cv.style.transform = open ? 'rotate(90deg)' : '';

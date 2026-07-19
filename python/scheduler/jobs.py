@@ -405,6 +405,54 @@ async def job_prune_portfolio_history(redis: aioredis.Redis):
         log.error("scheduler.prune_portfolio_history_error", error=str(e))
 
 
+@tracked
+async def job_fire_monthly_snapshot(redis: aioredis.Redis):
+    """Fires on the 1st of each month — captures the FIRE (SnapTrade) portfolio's
+    total position value for the Positions dashboard's monthly value chart."""
+    import os as _os
+    import aiohttp as _aiohttp
+    webui_url = _os.getenv("WEBUI_INTERNAL_URL", "http://ot-webui:8080")
+    token     = _os.getenv("WEBUI_TOKEN", "opentrader")
+    try:
+        async with _aiohttp.ClientSession() as s:
+            async with s.post(
+                f"{webui_url}/api/equities/fire-monthly-snapshot?token={token}",
+                timeout=_aiohttp.ClientTimeout(total=60),
+            ) as resp:
+                body = await resp.json(content_type=None)
+                if resp.status == 200:
+                    log.info("scheduler.fire_monthly_snapshot_ok", total_value=body.get("total_value"))
+                else:
+                    log.error("scheduler.fire_monthly_snapshot_failed",
+                              status=resp.status, detail=body.get("detail"))
+    except Exception as e:
+        log.error("scheduler.fire_monthly_snapshot_error", error=str(e))
+
+
+@tracked
+async def job_fire_daily_snapshot(redis: aioredis.Redis):
+    """Fires once a day — captures the FIRE (SnapTrade) portfolio's total position
+    value for the Positions dashboard's 90-day daily value chart."""
+    import os as _os
+    import aiohttp as _aiohttp
+    webui_url = _os.getenv("WEBUI_INTERNAL_URL", "http://ot-webui:8080")
+    token     = _os.getenv("WEBUI_TOKEN", "opentrader")
+    try:
+        async with _aiohttp.ClientSession() as s:
+            async with s.post(
+                f"{webui_url}/api/equities/fire-daily-snapshot?token={token}",
+                timeout=_aiohttp.ClientTimeout(total=60),
+            ) as resp:
+                body = await resp.json(content_type=None)
+                if resp.status == 200:
+                    log.info("scheduler.fire_daily_snapshot_ok", total_value=body.get("total_value"))
+                else:
+                    log.error("scheduler.fire_daily_snapshot_failed",
+                              status=resp.status, detail=body.get("detail"))
+    except Exception as e:
+        log.error("scheduler.fire_daily_snapshot_error", error=str(e))
+
+
 # ── Feature 3: ETF flow scraping ─────────────────────────────────────────────
 
 @tracked

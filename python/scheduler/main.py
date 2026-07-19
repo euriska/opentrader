@@ -34,6 +34,8 @@ from .jobs import (
     job_options_report,
     job_intraday_nav_snapshot,
     job_prune_portfolio_history,
+    job_fire_monthly_snapshot,
+    job_fire_daily_snapshot,
     job_scrape_etf_flows,
     job_scrape_macro_regime,
     job_scrape_news_sentiment,
@@ -260,6 +262,22 @@ class Scheduler(BaseAgent):
             CronTrigger(hour=2, minute=0, timezone=TZ),
             args=[r], id="prune_portfolio_history",
             name="Prune/compress intraday NAV history (nightly 2am ET)",
+            replace_existing=True,
+        )
+
+        self.apscheduler.add_job(
+            job_fire_monthly_snapshot,
+            CronTrigger(day=1, hour=6, minute=0, timezone=TZ),
+            args=[r], id="fire_monthly_snapshot",
+            name="FIRE portfolio monthly value snapshot (1st of month, 6am ET)",
+            replace_existing=True,
+        )
+
+        self.apscheduler.add_job(
+            job_fire_daily_snapshot,
+            CronTrigger(hour=6, minute=5, timezone=TZ),
+            args=[r], id="fire_daily_snapshot",
+            name="FIRE portfolio daily value snapshot (daily, 6:05am ET)",
             replace_existing=True,
         )
 
